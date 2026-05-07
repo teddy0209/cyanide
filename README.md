@@ -31,6 +31,8 @@ All iOS/iPadOS 17.0-26.0.1 devices, except A19/M5 devices
   remote-call).
 - **SpringBoard Tweaks** — Disable App Library, disable icon fly-in
   animation, zero wake animation, zero backlight fade, double-tap to lock.
+  Ported from [kolbicz/DarkSword-Tweaks](https://github.com/kolbicz/DarkSword-Tweaks)
+  by [@_kolbicz](https://x.com/_kolbicz).
 - **Powercuff** — CPU/GPU underclock via `thermalmonitord` simulated
   thermal pressure (off / nominal / light / moderate / heavy). Lasts
   until reboot. Port of [rpetrich/Powercuff](https://github.com/rpetrich/Powercuff).

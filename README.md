@@ -38,6 +38,8 @@ All iOS/iPadOS 17.0-26.0.1 devices, except A19/M5 devices
   until reboot. Port of [rpetrich/Powercuff](https://github.com/rpetrich/Powercuff).
 - **StatBar** — battery temperature + free RAM live overlay anchored to
   the SpringBoard status bar. Optional °C/°F and network-speed display.
-- **System Updates** — toggle the launchd OTA `disabled.plist` to block
-  or unblock OTA update prompts.
+- **OTA Disabler** — toggle the launchd OTA `disabled.plist` to block
+  or unblock OTA update prompts. Ported from
+  [kolbicz/DarkSword-Tweaks](https://github.com/kolbicz/DarkSword-Tweaks)
+  by [@_kolbicz](https://x.com/_kolbicz).
 - **Respring** — in-app WKWebView trigger for SpringBoard restart.

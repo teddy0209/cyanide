@@ -103,6 +103,11 @@ iOS/iPadOS 18.7.2 and 26.1. Later builds are outside this kernel exploit window.
 - [`kolbicz`](https://github.com/kolbicz): OTA Disabler and SpringBoard tweaks.
 - [`rpetrich`](https://github.com/rpetrich): Powercuff.
 
+### UI inspiration
+
+- The classic [Installer.app](https://github.com/AppTapp/Installer-3) (Ripdev & Nullriver Software, now maintained by AppTapp and the Legacy Jailbreak community) — the iPhoneOS 1 package-manager look that the Cyanide Installer tab is modeled after.
+- The [Sileo Project](https://github.com/Sileo/Sileo) (the Sileo Team) — the queue → review → confirm install flow and the bottom queue-popup pattern.
+
 ## Build
 
 ```sh

@@ -179,6 +179,7 @@ static const NSInteger kSecPowercuff = 8;
 {
     NSArray<NSString *> *preferred = @[
         @"Beta",
+        @"Status Bar",
         @"Home Screen Layout",
         @"Performance",
         @"System Updates",

@@ -5,6 +5,7 @@
 #import "darksword_ota.h"
 #import "../LogTextView.h"
 #import "../TaskRop/RemoteCall.h"
+#import "../kexploit/kexploit_opa334.h"
 #import "../kexploit/persistence.h"
 #import "../kexploit/krw.h"
 #import "../kexploit/offsets.h"
@@ -562,7 +563,7 @@ static bool ota_prepare_local_root_rw(void)
 
 static bool ota_set_local_with_launchd_krw(bool disabled)
 {
-    printf("[OTA] launchd-held KRW active; %s OTA without launchd RemoteCall\n",
+    printf("[OTA] live KRW active; %s OTA without launchd RemoteCall\n",
            disabled ? "disabling" : "enabling");
 
     if (!ota_prepare_local_root_rw()) {
@@ -630,7 +631,19 @@ static bool ota_disable_original_remote_call(void)
     }
 
     uint64_t scratchRemote = remote_call_trojan_mem();
-    remote_write(scratchRemote, kOTAOriginalPlistPath, strlen(kOTAOriginalPlistPath) + 1);
+    if (!scratchRemote) {
+        printf("[ota] scratch remote memory unavailable\n");
+        do_remote_call_stable(1000, "munmap", fileBuf, kOTABufferSize, 0, 0, 0, 0, 0, 0);
+        destroy_remote_call();
+        return false;
+    }
+
+    if (!remote_write(scratchRemote, kOTAOriginalPlistPath, strlen(kOTAOriginalPlistPath) + 1)) {
+        printf("[ota] failed to write read path into launchd scratch\n");
+        do_remote_call_stable(1000, "munmap", fileBuf, kOTABufferSize, 0, 0, 0, 0, 0, 0);
+        destroy_remote_call();
+        return false;
+    }
     uint64_t fd = do_remote_call_stable(1000, "open",
                                         scratchRemote,
                                         0,
@@ -656,16 +669,19 @@ static bool ota_disable_original_remote_call(void)
         if ((int64_t)bytesRead > 0) {
             uint8_t *buf = malloc((size_t)bytesRead);
             if (buf) {
-                remote_read(fileBuf, buf, bytesRead);
-                NSData *data = [NSData dataWithBytes:buf length:(NSUInteger)bytesRead];
-                free(buf);
+                if (remote_read(fileBuf, buf, bytesRead)) {
+                    NSData *data = [NSData dataWithBytes:buf length:(NSUInteger)bytesRead];
 
-                NSMutableDictionary *existing = [[NSPropertyListSerialization
-                    propertyListWithData:data
-                                 options:NSPropertyListMutableContainersAndLeaves
-                                  format:nil
-                                   error:nil] mutableCopy];
-                if (existing) plist = existing;
+                    NSMutableDictionary *existing = [[NSPropertyListSerialization
+                        propertyListWithData:data
+                                     options:NSPropertyListMutableContainersAndLeaves
+                                      format:nil
+                                       error:nil] mutableCopy];
+                    if (existing) plist = existing;
+                } else {
+                    printf("[ota] failed to copy disabled.plist out of launchd\n");
+                }
+                free(buf);
             }
         }
     }
@@ -687,8 +703,14 @@ static bool ota_disable_original_remote_call(void)
                                                                     options:0
                                                                       error:nil];
         if (outData.length > 0) {
-            remote_write(fileBuf, outData.bytes, outData.length);
-            remote_write(scratchRemote, kOTAOriginalPlistPath, strlen(kOTAOriginalPlistPath) + 1);
+            if (!remote_write(fileBuf, outData.bytes, outData.length)) {
+                printf("[ota] failed to copy disabled.plist into launchd buffer\n");
+                goto finish;
+            }
+            if (!remote_write(scratchRemote, kOTAOriginalPlistPath, strlen(kOTAOriginalPlistPath) + 1)) {
+                printf("[ota] failed to write output path into launchd scratch\n");
+                goto finish;
+            }
             uint64_t wfd = do_remote_call_stable(1000, "open",
                                                  scratchRemote,
                                                  (uint64_t)(O_WRONLY | O_CREAT | O_TRUNC),
@@ -730,6 +752,7 @@ static bool ota_disable_original_remote_call(void)
         ok = true;
     }
 
+finish:
     do_remote_call_stable(1000, "munmap", fileBuf, kOTABufferSize, 0, 0, 0, 0, 0, 0);
     destroy_remote_call();
     printf("[ota] === OTA DISABLED (reboot required) ===\n");
@@ -738,6 +761,12 @@ static bool ota_disable_original_remote_call(void)
 
 bool darksword_ota_set_disabled(bool disabled)
 {
+    if (disabled && kexploit_krw_ready()) {
+        bool ok = ota_set_local_with_launchd_krw(disabled);
+        printf("[OTA] === DISABLE OTA result=%d reboot/userspace restart required ===\n", ok);
+        return ok;
+    }
+
     if (krw_persistence_launchd_holds_krw()) {
         bool ok = ota_set_local_with_launchd_krw(disabled);
         if (!disabled) {

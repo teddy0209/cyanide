@@ -61,6 +61,8 @@ void abandon_remote_call(void);
 bool remote_call_has_local_state(void);
 
 #ifdef __OBJC__
+@class RemotePointer;
+
 @interface RemoteCallSession : NSObject
 
 @property(nonatomic, readonly) uint64_t taskAddr;
@@ -97,6 +99,26 @@ bool remote_call_has_local_state(void);
 - (int)destroyRemoteCall;
 - (void)abandonRemoteCall;
 - (BOOL)hasLocalState;
+- (RemotePointer *)objectAtIndexedSubscript:(NSUInteger)address;
+
+@end
+
+@interface RemotePointer : NSObject
+
+@property(nonatomic, strong, readonly) RemoteCallSession *session;
+@property(nonatomic, readonly) uint64_t address;
+
+@property(nonatomic, copy) NSString *string;
+@property(nonatomic) uint8_t value8;
+@property(nonatomic) uint16_t value16;
+@property(nonatomic) uint32_t value32;
+@property(nonatomic) uint64_t value64;
+
+- (instancetype)initWithSession:(RemoteCallSession *)session address:(uint64_t)address;
+- (BOOL)writeCString:(const char *)string;
+- (BOOL)readTo:(void *)dst size:(uint64_t)size;
+- (BOOL)writeFrom:(const void *)src size:(uint64_t)size;
+- (NSString *)stringWithMaxLength:(size_t)maxLength;
 
 @end
 

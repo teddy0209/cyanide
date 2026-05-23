@@ -1437,6 +1437,143 @@ int init_remote_call(const char* process, bool useMigFilterBypass) {
     return &_state;
 }
 
+- (RemotePointer *)objectAtIndexedSubscript:(NSUInteger)address
+{
+    return [[RemotePointer alloc] initWithSession:self address:address];
+}
+
+@end
+
+#define REMOTE_POINTER_DEFAULT_STRING_MAX 0x4000
+#define REMOTE_POINTER_STRING_CHUNK 0x100
+
+@implementation RemotePointer
+
+- (instancetype)initWithSession:(RemoteCallSession *)session address:(uint64_t)address
+{
+    self = [super init];
+    if (!self)
+        return nil;
+
+    _session = session;
+    _address = address;
+    return self;
+}
+
+- (BOOL)readTo:(void *)dst size:(uint64_t)size
+{
+    return [_session remoteRead:_address to:dst size:size];
+}
+
+- (BOOL)writeFrom:(const void *)src size:(uint64_t)size
+{
+    return [_session remoteWrite:_address from:src size:size];
+}
+
+- (BOOL)writeCString:(const char *)string
+{
+    return [_session remoteWriteString:_address value:string];
+}
+
+- (void)setString:(NSString *)string
+{
+    [self writeCString:string.UTF8String];
+}
+
+- (NSString *)string
+{
+    return [self stringWithMaxLength:REMOTE_POINTER_DEFAULT_STRING_MAX];
+}
+
+- (NSString *)stringWithMaxLength:(size_t)maxLength
+{
+    if (!_session || !_address || maxLength == 0)
+        return nil;
+
+    char *buf = (char *)calloc(maxLength + 1, 1);
+    if (!buf)
+        return nil;
+
+    size_t copied = 0;
+    while (copied < maxLength) {
+        size_t chunk = REMOTE_POINTER_STRING_CHUNK;
+        if (chunk > maxLength - copied)
+            chunk = maxLength - copied;
+
+        uint64_t current = _address + copied;
+        size_t pageRemaining = (size_t)(PAGE_SIZE - (current & PAGE_MASK));
+        if (chunk > pageRemaining)
+            chunk = pageRemaining;
+
+        if (![_session remoteRead:_address + copied to:buf + copied size:chunk]) {
+            free(buf);
+            return nil;
+        }
+
+        char *end = memchr(buf + copied, 0, chunk);
+        if (end) {
+            size_t length = (size_t)(end - buf);
+            NSString *result = [[NSString alloc] initWithBytes:buf length:length encoding:NSUTF8StringEncoding];
+            free(buf);
+            return result;
+        }
+
+        copied += chunk;
+    }
+
+    NSString *result = [[NSString alloc] initWithBytes:buf length:maxLength encoding:NSUTF8StringEncoding];
+    free(buf);
+    return result;
+}
+
+- (void)setValue8:(uint8_t)value
+{
+    [self writeFrom:&value size:sizeof(value)];
+}
+
+- (uint8_t)value8
+{
+    uint8_t value = 0;
+    [self readTo:&value size:sizeof(value)];
+    return value;
+}
+
+- (void)setValue16:(uint16_t)value
+{
+    [self writeFrom:&value size:sizeof(value)];
+}
+
+- (uint16_t)value16
+{
+    uint16_t value = 0;
+    [self readTo:&value size:sizeof(value)];
+    return value;
+}
+
+- (void)setValue32:(uint32_t)value
+{
+    [self writeFrom:&value size:sizeof(value)];
+}
+
+- (uint32_t)value32
+{
+    uint32_t value = 0;
+    [self readTo:&value size:sizeof(value)];
+    return value;
+}
+
+- (void)setValue64:(uint64_t)value
+{
+    [self writeFrom:&value size:sizeof(value)];
+}
+
+- (uint64_t)value64
+{
+    uint64_t value = 0;
+    [self readTo:&value size:sizeof(value)];
+    return value;
+}
+
 @end
 
 void remote_call_with_session(RemoteCallSession *session, void (^block)(void))

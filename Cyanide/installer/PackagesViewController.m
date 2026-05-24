@@ -80,13 +80,26 @@ static NSString * const kTipsExpandedDefault    = @"installer.tipsExpanded";
 - (void)viewWillAppear:(BOOL)animated
 {
     [super viewWillAppear:animated];
-    [self rebuildFilteredData];
+    [self refreshCatalog];
     [self.tableView reloadData];
+}
+
+- (void)refreshCatalog
+{
+    // Re-fetch the catalog so toggles to the master experimental switch (which
+    // changes which packages PackageCatalog returns) show up the next time
+    // this view appears or the queue fires its change notification.
+    self.allPackagesSorted = [[PackageCatalog allPackages]
+        sortedArrayUsingComparator:^NSComparisonResult(Package *a, Package *b) {
+            return [a.name caseInsensitiveCompare:b.name];
+        }];
+    [self rebuildFilteredData];
 }
 
 - (void)queueDidChange:(NSNotification *)note
 {
     if (!self.isViewLoaded) return;
+    [self refreshCatalog];
     [self.tableView reloadData];
 }
 
@@ -552,6 +565,11 @@ static NSString * const kTipsExpandedDefault    = @"installer.tipsExpanded";
     if (pkg.isInstallDisabled) {
         return [self pillWithText:@"BUGGY"
                        background:[[UIColor systemRedColor] colorWithAlphaComponent:0.16]
+                        textColor:[UIColor systemRedColor]];
+    }
+    if (pkg.experimental) {
+        return [self pillWithText:@"EXPERIMENTAL"
+                       background:[[UIColor systemRedColor] colorWithAlphaComponent:0.18]
                         textColor:[UIColor systemRedColor]];
     }
     if ([pkg.category caseInsensitiveCompare:@"Beta"] == NSOrderedSame) {

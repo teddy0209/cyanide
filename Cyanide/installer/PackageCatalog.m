@@ -20,6 +20,21 @@ static const NSInteger kSecNanoRegistry = 12;
 
 + (NSArray<Package *> *)allPackages
 {
+    NSArray<Package *> *full = [self allPackagesIncludingExperimental];
+    BOOL experimentalOn = [[NSUserDefaults standardUserDefaults]
+                            boolForKey:kSettingsExperimentalTweaksEnabled];
+    if (experimentalOn) return full;
+
+    NSMutableArray<Package *> *out = [NSMutableArray arrayWithCapacity:full.count];
+    for (Package *p in full) {
+        if (p.experimental) continue;
+        [out addObject:p];
+    }
+    return out;
+}
+
++ (NSArray<Package *> *)allPackagesIncludingExperimental
+{
     static NSArray<Package *> *list;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
@@ -41,17 +56,17 @@ static const NSInteger kSecNanoRegistry = 12;
         Package *signal = [[Package alloc] initWithIdentifier:@"com.darksword.rssidisplay"
                                            name:@"Signal Readouts"
                                shortDescription:@"RSRP dBm on cellular, bar count on WiFi"
-                                longDescription:@"Replaces the signal-strength glyphs in the status bar with live numeric readouts: RSRP in dBm for cellular, and the active bar count for WiFi. Updates roughly once per second.\n\nToggle WiFi-only or cellular-only in the Settings tab.\n\nBuggy: this currently interferes with other tweaks too much. It is a work in progress and is disabled for now."
+                                longDescription:@"Replaces the signal-strength glyphs in the status bar with live numeric readouts: RSRP in dBm for cellular, and the active bar count for WiFi. Updates roughly once per second.\n\nToggle WiFi-only or cellular-only in the Settings tab.\n\nIn development: the live RemoteCall refresh interferes with other SpringBoard tweaks and the readouts may not even render reliably. Only available while Experimental Tweaks is enabled in Settings."
                                         version:version
                                          author:@"zeroxjf"
-                                       category:@"Beta"
+                                       category:@"Experimental"
                                      symbolName:@"antenna.radiowaves.left.and.right"
                                            kind:PackageInstallKindToggle
                                      enabledKey:kSettingsRSSIDisplayEnabled
                                           isNew:NO];
         signal.settingsSection = kSecRSSI;
-        signal.unstableWarning = @"Buggy: Signal Readouts currently interferes with other tweaks too much. It is a work in progress and is disabled for now.";
-        signal.installDisabledReason = signal.unstableWarning;
+        signal.experimental = YES;
+        signal.unstableWarning = @"⚠️ Experimental: in-development and may not work at all. The live status-bar refresh interferes with other SpringBoard tweaks and can drop readouts entirely. Turning this on adds risk with no guaranteed feature in return.";
 
         Package *sbc = [[Package alloc] initWithIdentifier:@"com.darksword.sbcustomizer"
                                            name:@"SBCustomizer"
@@ -92,18 +107,19 @@ static const NSInteger kSecNanoRegistry = 12;
                                           isNew:YES];
         axon.unstableWarning = @"Heavily buggy work-in-progress. Expect SpringBoard crashes, dropped notifications, layout glitches, and breakage between Cyanide builds. Don't rely on it for anything important.";
 
-        // Package *typeBanner = [[Package alloc] initWithIdentifier:@"com.darksword.typebanner"
-        //                                    name:@"TypeBanner"
-        //                        shortDescription:@"iMessage typing banner under the Dynamic Island"
-        //                         longDescription:@"Port of TypeMillennium. Shows a pill banner just below the Dynamic Island whenever the active Messages conversation list shows a typing indicator.\n\nv1 limitation: detection runs against the Messages app's own view hierarchy via RemoteCall, so it only fires while Messages.app is running. The original tweak's system-wide imagent hook requires code injection, which is not available in this sandboxed environment without a code-signing bypass.\n\nNo extra configuration."
-        //                                 version:version
-        //                                  author:@"zeroxjf"
-        //                                category:@"Beta"
-        //                              symbolName:@"ellipsis.bubble.fill"
-        //                                    kind:PackageInstallKindToggle
-        //                              enabledKey:kSettingsTypeBannerEnabled
-        //                                   isNew:YES];
-        // typeBanner.unstableWarning = @"Detection is MobileSMS-only — typing events fire only while Messages.app is running. Polling Messages over RemoteCall every ~1.5s; battery cost is non-trivial.";
+        Package *typeBanner = [[Package alloc] initWithIdentifier:@"com.darksword.typebanner"
+                                           name:@"TypeBanner"
+                               shortDescription:@"iMessage typing banner under the Dynamic Island"
+                                longDescription:@"Port of TypeMillennium. Shows a pill banner just below the Dynamic Island whenever the active Messages conversation list shows a typing indicator.\n\nv1 limitation: detection runs against the Messages app's own view hierarchy via RemoteCall, so it only fires while Messages.app is running. The original tweak's system-wide imagent hook requires code injection, which is not available in this sandboxed environment without a code-signing bypass.\n\nNo extra configuration."
+                                        version:version
+                                         author:@"zeroxjf"
+                                       category:@"Experimental"
+                                     symbolName:@"ellipsis.bubble.fill"
+                                           kind:PackageInstallKindToggle
+                                     enabledKey:kSettingsTypeBannerEnabled
+                                          isNew:YES];
+        typeBanner.experimental = YES;
+        typeBanner.unstableWarning = @"⚠️ Experimental: extremely unstable and risky. Polls MobileSMS over RemoteCall every ~1.5s, opens SpringBoard sessions on state change, and is known to crash SpringBoard. Detection only fires while Messages.app is running. Battery cost is non-trivial.";
 
         Package *layoutExtras = [[Package alloc] initWithIdentifier:@"com.darksword.layoutextras"
                                            name:@"Home Layout Extras"
@@ -213,7 +229,7 @@ static const NSInteger kSecNanoRegistry = 12;
             signal,
             axon,
             nanoRegistry,
-            // typeBanner,
+            typeBanner,
         ];
     });
     return list;
@@ -222,6 +238,7 @@ static const NSInteger kSecNanoRegistry = 12;
 + (NSArray<NSString *> *)categoriesInOrder
 {
     NSArray<NSString *> *preferred = @[
+        @"Experimental",
         @"Beta",
         @"Status Bar",
         @"Home Screen Layout",

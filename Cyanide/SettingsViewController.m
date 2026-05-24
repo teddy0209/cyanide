@@ -151,6 +151,7 @@ NSString * const kSettingsStatBarEnabled = @"StatBarEnabled";
 NSString * const kSettingsStatBarCelsius = @"StatBarCelsius";
 NSString * const kSettingsStatBarShowNet = @"StatBarShowNet";
 NSString * const kSettingsStatBarShowCPU = @"StatBarShowCPU";
+NSString * const kSettingsStatBarShowLabels = @"StatBarShowLabels";
 
 NSString * const kSettingsRSSIDisplayEnabled = @"RSSIDisplayEnabled";
 NSString * const kSettingsRSSIDisplayWifi    = @"RSSIDisplayWifi";
@@ -159,6 +160,13 @@ NSString * const kSettingsRSSIDisplayCell    = @"RSSIDisplayCell";
 NSString * const kSettingsAxonLiteEnabled = @"AxonLiteEnabled";
 
 NSString * const kSettingsTypeBannerEnabled = @"TypeBannerEnabled";
+
+// Master gate for experimental tweaks. When NO (default), packages that opt
+// into the experimental category are hidden from the Installer and the
+// Settings bundle list, and any currently-enabled experimental tweak is
+// force-disabled when this is flipped off. Only TypeBanner uses this gate
+// today.
+NSString * const kSettingsExperimentalTweaksEnabled = @"ExperimentalTweaksEnabled";
 
 // NanoRegistry pairing-compatibility editor. Numbers are the watchOS pairing
 // compatibility versions that NRPairingCompatibilityVersionInfo reads from
@@ -234,12 +242,12 @@ static const NSUInteger kRSSILiveMaxTicks = 43200;
 static const useconds_t kAxonLiteLiveIntervalUS = 500000;
 static const useconds_t kAxonLiteLiveBackgroundIntervalUS = 1500000;
 static const NSUInteger kAxonLiteLiveMaxTicks = 43200;
-// TypeBanner polls MobileSMS for typing indicators (limited to when Messages
-// is running) and then updates a banner window in SpringBoard. Each tick
-// alternates between two RemoteCall sessions, so it is heavier than the
-// single-session live loops above and runs at a slower cadence.
-static const useconds_t kTypeBannerLiveIntervalUS = 1500000;
-static const useconds_t kTypeBannerLiveBackgroundIntervalUS = 3000000;
+static const int kSettingsSpringBoardRCFirstExceptionTimeoutMS = 3000;
+// TypeBanner polls imagent for typing indicators with original-thread-only
+// RemoteCall probes and opens SpringBoard only when the banner state changes.
+static const useconds_t kTypeBannerLiveIntervalUS = 1000000;
+static const useconds_t kTypeBannerLiveBackgroundIntervalUS = 1000000;
+static const useconds_t kTypeBannerInitialDaemonSettleUS = 250000;
 static const NSUInteger kTypeBannerLiveMaxTicks = 28800;
 static NSString * const kSettingsRemoteCallStateDidChangeNotification = @"SettingsRemoteCallStateDidChangeNotification";
 NSString * const kSettingsActionsDidCompleteNotification = @"SettingsActionsDidCompleteNotification";
@@ -498,6 +506,20 @@ static BOOL settings_axonlite_can_poll_springboard(void)
 static const char *settings_axonlite_pause_reason(void)
 {
     if (!settings_screen_awake_cached()) return "screen asleep";
+    return "screen unavailable";
+}
+
+static BOOL settings_typebanner_can_poll_messages(void)
+{
+    (void)settings_refresh_screen_awake_state(NULL);
+    (void)settings_refresh_screen_lock_state(NULL);
+    return settings_screen_awake_cached() && !settings_screen_locked_cached();
+}
+
+static const char *settings_typebanner_pause_reason(void)
+{
+    if (!settings_screen_awake_cached()) return "screen asleep";
+    if (settings_screen_locked_cached()) return "device locked";
     return "screen unavailable";
 }
 
@@ -1017,7 +1039,9 @@ static BOOL settings_ensure_springboard_remote_call_locked(void)
     }
 
     printf("[SETTINGS] initializing SpringBoard RemoteCall session\n");
-    if (init_remote_call("SpringBoard", false) != 0) {
+    if (init_remote_call_with_first_exception_timeout("SpringBoard",
+                                                      false,
+                                                      kSettingsSpringBoardRCFirstExceptionTimeoutMS) != 0) {
         printf("[SETTINGS] init_remote_call(SpringBoard) failed\n");
         return NO;
     }
@@ -1614,7 +1638,8 @@ static void settings_start_statbar_live_loop(void)
                     }
                     ok = statbar_apply_in_session([d boolForKey:kSettingsStatBarCelsius],
                                                   [d boolForKey:kSettingsStatBarShowNet],
-                                                  [d boolForKey:kSettingsStatBarShowCPU]);
+                                                  [d boolForKey:kSettingsStatBarShowCPU],
+                                                  [d boolForKey:kSettingsStatBarShowLabels]);
                 }
 
                 if (tick == 0) {
@@ -1712,7 +1737,8 @@ static void settings_apply_statbar_once_async(const char *reason)
                 !g_springboard_rc_ready) return;
             ok = statbar_apply_in_session([d boolForKey:kSettingsStatBarCelsius],
                                           [d boolForKey:kSettingsStatBarShowNet],
-                                          [d boolForKey:kSettingsStatBarShowCPU]);
+                                          [d boolForKey:kSettingsStatBarShowCPU],
+                                          [d boolForKey:kSettingsStatBarShowLabels]);
         }
         // Only log lifecycle applies that change result; a clean success on
         // every foreground/background flip is noise.
@@ -2059,6 +2085,9 @@ static void settings_start_typebanner_live_loop(void)
     dispatch_async(dispatch_get_global_queue(0, 0), ^{
         NSUInteger tick = 0;
         NSUInteger failures = 0;
+        BOOL deferredLogged = NO;
+        BOOL pausedForMessages = NO;
+        RemoteCallSession *mobileSession = nil;
 
         printf("[SETTINGS] TypeBanner live loop started interval=%uus background=%uus max=%lu\n",
                kTypeBannerLiveIntervalUS,
@@ -2066,14 +2095,6 @@ static void settings_start_typebanner_live_loop(void)
                (unsigned long)kTypeBannerLiveMaxTicks);
 
         @try {
-            // Initial sleep so we don't fight the Apply Tweaks teardown of
-            // the shared SpringBoard session in the same instant we'd want to
-            // grab a session of our own.
-            settings_live_loop_sleep_interruptible(0,
-                                                   settings_live_interval(kTypeBannerLiveIntervalUS,
-                                                                          kTypeBannerLiveBackgroundIntervalUS),
-                                                   &g_typebanner_live_stop_requested);
-
             while ([d boolForKey:kSettingsTypeBannerEnabled] &&
                    !settings_cleanup_in_progress() &&
                    !g_typebanner_live_stop_requested &&
@@ -2083,12 +2104,56 @@ static void settings_start_typebanner_live_loop(void)
                 uint64_t tickStartUS = settings_now_us();
                 bool ok = false;
 
-                // TypeBanner manages its own MobileSMS + SpringBoard sessions
-                // inside typebanner_run_once(). We don't take the shared
-                // SpringBoard RC lock — the lock is for tweaks that share the
-                // long-lived SpringBoard session held during Apply Tweaks.
+                if (!g_kexploit_done || g_settings_actions_running) {
+                    if (!deferredLogged) {
+                        printf("[SETTINGS] TypeBanner tick deferred krw=%d actions=%d\n",
+                               g_kexploit_done, g_settings_actions_running);
+                        deferredLogged = YES;
+                    }
+                    settings_live_loop_sleep_interruptible(0,
+                                                           intervalUS,
+                                                           &g_typebanner_live_stop_requested);
+                    continue;
+                }
+                deferredLogged = NO;
+
+                if (!settings_typebanner_can_poll_messages()) {
+                    if (!pausedForMessages) {
+                        pausedForMessages = YES;
+                        printf("[SETTINGS] TypeBanner paused while %s\n",
+                               settings_typebanner_pause_reason());
+                    }
+                    if (mobileSession) {
+                        @synchronized (settings_rc_lock()) {
+                            [mobileSession abandonRemoteCall];
+                            mobileSession = nil;
+                        }
+                    }
+                    settings_live_loop_sleep_interruptible(0,
+                                                           intervalUS,
+                                                           &g_typebanner_live_stop_requested);
+                    continue;
+                }
+                if (pausedForMessages) {
+                    pausedForMessages = NO;
+                    printf("[SETTINGS] TypeBanner resumed after screen unlock/wake\n");
+                }
+
+                // TypeBanner now uses imagent original-thread probes for
+                // detection. The MobileSMS session pointer is kept only for
+                // fallback builds where that path is re-enabled.
                 @try {
-                    ok = typebanner_run_once();
+                    @synchronized (settings_rc_lock()) {
+                        if (!g_typebanner_live_stop_requested &&
+                            !g_settings_actions_running &&
+                            g_kexploit_done &&
+                            settings_typebanner_can_poll_messages()) {
+                            ok = typebanner_run_once_with_mobile_session_and_current_springboard(&mobileSession,
+                                                                                                 g_springboard_rc_ready != 0);
+                        } else {
+                            ok = true;
+                        }
+                    }
                 } @catch (NSException *e) {
                     printf("[SETTINGS] TypeBanner tick exception: %s\n", e.reason.UTF8String);
                     ok = false;
@@ -2109,27 +2174,48 @@ static void settings_start_typebanner_live_loop(void)
                     g_typebanner_live_stop_requested ||
                     tick >= kTypeBannerLiveMaxTicks) break;
 
-                settings_live_loop_sleep_interruptible(0,
-                                                       intervalUS,
-                                                       &g_typebanner_live_stop_requested);
-
                 uint64_t nowUS = settings_now_us();
                 uint64_t elapsedUS = tickStartUS != 0 && nowUS >= tickStartUS ? nowUS - tickStartUS : 0;
+                if (elapsedUS < intervalUS) {
+                    settings_live_loop_sleep_interruptible(0,
+                                                           (useconds_t)(intervalUS - elapsedUS),
+                                                           &g_typebanner_live_stop_requested);
+                }
+
                 if (tick == 1) {
                     printf("[SETTINGS] TypeBanner tick=0 elapsed=%lluus\n", elapsedUS);
                 }
             }
         } @finally {
+            if (mobileSession) {
+                @synchronized (settings_rc_lock()) {
+                    [mobileSession destroyRemoteCall];
+                    mobileSession = nil;
+                }
+            }
+
             // Best-effort hide the banner before exiting — drops any stale
             // pill that might persist in SpringBoard's window list.
-            RemoteCallSession *springboardSession = [[RemoteCallSession alloc] initWithProcess:@"SpringBoard" useMigFilterBypass:NO];
-            if (springboardSession) {
-                @try {
-                    typebanner_hide_in_springboard_remote_session(springboardSession);
-                } @catch (NSException *e) {
-                    printf("[SETTINGS] TypeBanner final hide exception: %s\n", e.reason.UTF8String);
+            if (typebanner_has_remote_state() &&
+                g_kexploit_done && !g_settings_actions_running && !settings_cleanup_in_progress()) {
+                @synchronized (settings_rc_lock()) {
+                    RemoteCallSession *springboardSession = [[RemoteCallSession alloc] initWithProcess:@"SpringBoard"
+                                                                                     useMigFilterBypass:NO
+                                                                                firstExceptionTimeoutMS:TYPEBANNER_RC_FIRST_EXCEPTION_TIMEOUT_MS];
+                    if (springboardSession) {
+                        @try {
+                            typebanner_release_mobilesms_keepalive_in_springboard_remote_session(springboardSession);
+                            typebanner_hide_in_springboard_remote_session(springboardSession);
+                        } @catch (NSException *e) {
+                            printf("[SETTINGS] TypeBanner final hide exception: %s\n", e.reason.UTF8String);
+                        }
+                        [springboardSession destroyRemoteCall];
+                    }
                 }
-                [springboardSession destroyRemoteCall];
+            } else {
+                printf("[SETTINGS] TypeBanner final hide skipped state=%d krw=%d actions=%d cleanup=%d\n",
+                       typebanner_has_remote_state(),
+                       g_kexploit_done, g_settings_actions_running, settings_cleanup_in_progress());
             }
             typebanner_forget_remote_state();
 
@@ -2263,7 +2349,8 @@ static BOOL settings_key_is_statbar(NSString *key)
     return [key isEqualToString:kSettingsStatBarEnabled] ||
            [key isEqualToString:kSettingsStatBarCelsius] ||
            [key isEqualToString:kSettingsStatBarShowNet] ||
-           [key isEqualToString:kSettingsStatBarShowCPU];
+           [key isEqualToString:kSettingsStatBarShowCPU] ||
+           [key isEqualToString:kSettingsStatBarShowLabels];
 }
 
 static BOOL settings_key_is_rssi(NSString *key)
@@ -2319,8 +2406,8 @@ static void settings_schedule_live_apply_for_key(NSString *key)
     NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
 
     if (settings_key_is_typebanner(key)) {
-        // TypeBanner does not depend on the shared SpringBoard session; it
-        // owns its own MobileSMS + SpringBoard sessions inside the live loop.
+        // TypeBanner owns its own daemon + SpringBoard sessions, but its
+        // bootstrap is serialized with the shared RemoteCall lock.
         if ([d boolForKey:kSettingsTypeBannerEnabled]) {
             settings_mark_tweak_applied(kSettingsTypeBannerEnabled, YES);
             settings_notify_package_queue_changed_async();
@@ -2333,15 +2420,22 @@ static void settings_schedule_live_apply_for_key(NSString *key)
             // also hide on its own way out, but doing it here gets the pill
             // off the screen faster after the user toggles off.
             dispatch_async(dispatch_get_global_queue(0, 0), ^{
-                RemoteCallSession *springboardSession = [[RemoteCallSession alloc] initWithProcess:@"SpringBoard" useMigFilterBypass:NO];
-                if (springboardSession) {
-                    @try {
-                        typebanner_hide_in_springboard_remote_session(springboardSession);
-                    } @catch (NSException *e) {
-                        printf("[SETTINGS] TypeBanner toggle-off hide exception: %s\n",
-                               e.reason.UTF8String);
+                if (g_kexploit_done) {
+                    @synchronized (settings_rc_lock()) {
+                        RemoteCallSession *springboardSession = [[RemoteCallSession alloc] initWithProcess:@"SpringBoard"
+                                                                                         useMigFilterBypass:NO
+                                                                                    firstExceptionTimeoutMS:TYPEBANNER_RC_FIRST_EXCEPTION_TIMEOUT_MS];
+                        if (springboardSession) {
+                            @try {
+                                typebanner_release_mobilesms_keepalive_in_springboard_remote_session(springboardSession);
+                                typebanner_hide_in_springboard_remote_session(springboardSession);
+                            } @catch (NSException *e) {
+                                printf("[SETTINGS] TypeBanner toggle-off hide exception: %s\n",
+                                       e.reason.UTF8String);
+                            }
+                            [springboardSession destroyRemoteCall];
+                        }
                     }
-                    [springboardSession destroyRemoteCall];
                 }
                 typebanner_forget_remote_state();
             });
@@ -2398,7 +2492,8 @@ static void settings_schedule_live_apply_for_key(NSString *key)
                     if (settings_cleanup_in_progress() || !g_springboard_rc_ready) return;
                     bool ok = statbar_apply_in_session([d boolForKey:kSettingsStatBarCelsius],
                                                        [d boolForKey:kSettingsStatBarShowNet],
-                                                       [d boolForKey:kSettingsStatBarShowCPU]);
+                                                       [d boolForKey:kSettingsStatBarShowCPU],
+                                                       [d boolForKey:kSettingsStatBarShowLabels]);
                     settings_mark_tweak_applied(kSettingsStatBarEnabled,
                                                 ok && [d boolForKey:kSettingsStatBarEnabled]);
                     printf("[SETTINGS] live StatBar apply result=%d\n", ok);
@@ -2543,8 +2638,9 @@ void settings_register_defaults(void)
 
         kSettingsStatBarEnabled: @NO,
         kSettingsStatBarCelsius: @NO,
-        kSettingsStatBarShowNet: @NO,
-        kSettingsStatBarShowCPU: @YES,
+        kSettingsStatBarShowNet:    @NO,
+        kSettingsStatBarShowCPU:    @YES,
+        kSettingsStatBarShowLabels: @NO,
 
         kSettingsRSSIDisplayEnabled: @NO,
         kSettingsRSSIDisplayWifi:    @YES,
@@ -2554,14 +2650,18 @@ void settings_register_defaults(void)
 
         kSettingsTypeBannerEnabled: @NO,
 
+        kSettingsExperimentalTweaksEnabled: @NO,
+
         kSettingsNanoMaxPairing:       @(kNanoDefaultMaxPairing),
         kSettingsNanoMinPairing:       @(kNanoDefaultMinPairing),
         kSettingsNanoMinPairingChipID: @(kNanoDefaultMinPairingChipID),
         kSettingsNanoMinQuickSwitch:   @(kNanoDefaultMinQuickSwitch),
     }];
-    // Signal Readouts is temporarily blocked from installation because its
-    // live RemoteCall refresh still interferes with other SpringBoard tweaks.
-    if ([defaults boolForKey:kSettingsRSSIDisplayEnabled]) {
+    // Signal Readouts ships behind the experimental gate. If the master
+    // experimental switch is off, force its enable bit off so a previously
+    // enabled session doesn't survive a reset of the gate.
+    if (![defaults boolForKey:kSettingsExperimentalTweaksEnabled] &&
+        [defaults boolForKey:kSettingsRSSIDisplayEnabled]) {
         [defaults setBool:NO forKey:kSettingsRSSIDisplayEnabled];
         [defaults synchronize];
     }
@@ -2584,6 +2684,11 @@ void settings_run_actions(void)
             log_user("[RUN] Already running. Queued one follow-up run for the latest package state.\n");
             return;
         }
+        if (g_statbar_live_running || g_rssi_live_running ||
+            g_axonlite_live_running || g_typebanner_live_running) {
+            settings_request_all_live_loops_stop("Apply Tweaks");
+            settings_wait_live_loops_stopped_for_switch("Apply Tweaks");
+        }
         log_session_begin();
         cyanide_start_session_uploads();
         @try {
@@ -2597,10 +2702,9 @@ void settings_run_actions(void)
             BOOL runAxonLite = [d boolForKey:kSettingsAxonLiteEnabled];
             BOOL runTypeBanner = [d boolForKey:kSettingsTypeBannerEnabled];
             BOOL runLayoutExtras = [d boolForKey:kSettingsLayoutExtrasEnabled];
-            // TypeBanner does its own session management (alternates MobileSMS
-            // and SpringBoard), so it doesn't gate the shared SpringBoard
-            // session that other tweaks need during Apply Tweaks.
-            BOOL needsSpringBoard = runSandboxEscape || runSBC || runDarkTweaks || runStatBar || runRSSI || runAxonLite || runLayoutExtras;
+            // TypeBanner prewarms its hidden SpringBoard window during Apply
+            // and reuses the open SpringBoard session for text-only updates.
+            BOOL needsSpringBoard = runSandboxEscape || runSBC || runDarkTweaks || runStatBar || runRSSI || runAxonLite || runLayoutExtras || runTypeBanner;
 
             NSUInteger total = 1;
             if (patchSandboxExt) total++;
@@ -2752,6 +2856,15 @@ void settings_run_actions(void)
                         cyanide_upload_log_milestone(@"springboard-sandbox-token-reused");
                     }
 
+                    if (runTypeBanner) {
+                        bool ok = typebanner_prepare_in_springboard_session();
+                        printf("[SETTINGS] TypeBanner SpringBoard prewarm result=%d\n", ok);
+                        log_user("%s TypeBanner overlay window %s.\n",
+                                 ok ? "[OK]" : "[WARN]",
+                                 ok ? "prewarmed" : "did not prewarm");
+                        cyanide_upload_log_milestone(ok ? @"typebanner-overlay-prewarmed" : @"typebanner-overlay-prewarm-failed");
+                    }
+
                     if (runSBC) {
                         settings_progress(&step, total, "Applying icon layout caches");
                         bool ok = settings_apply_sbc_from_defaults_locked(d);
@@ -2801,7 +2914,8 @@ void settings_run_actions(void)
                         settings_progress(&step, total, "Starting StatBar overlay and 1s feed");
                         bool ok = statbar_apply_in_session([d boolForKey:kSettingsStatBarCelsius],
                                                            [d boolForKey:kSettingsStatBarShowNet],
-                                                           [d boolForKey:kSettingsStatBarShowCPU]);
+                                                           [d boolForKey:kSettingsStatBarShowCPU],
+                                                           [d boolForKey:kSettingsStatBarShowLabels]);
                         settings_mark_tweak_applied(kSettingsStatBarEnabled,
                                                     ok && [d boolForKey:kSettingsStatBarEnabled]);
                         printf("[SETTINGS] StatBar result=%d\n", ok);
@@ -2863,18 +2977,26 @@ void settings_run_actions(void)
                 } else {
                     g_axonlite_live_stop_requested = 1;
                 }
-                if (runTypeBanner) {
-                    settings_progress(&step, total, "Starting TypeBanner Messages poll");
-                    settings_mark_tweak_applied(kSettingsTypeBannerEnabled, YES);
-                    log_user("[OK] TypeBanner polling Messages every ~1.5s.\n");
-                    cyanide_upload_log_milestone(@"typebanner-live-starting");
-                    settings_start_typebanner_live_loop();
-                } else {
-                    g_typebanner_live_stop_requested = 1;
-                }
-                if (runStatBar || runRSSI || runAxonLite || runTypeBanner)
-                    cyanide_upload_log_milestone(@"live-tweaks-started");
             }
+
+            if (runTypeBanner) {
+                settings_progress(&step, total, "Starting TypeBanner daemon poll");
+                settings_mark_tweak_applied(kSettingsTypeBannerEnabled, YES);
+                log_user("[OK] TypeBanner polling imagent every ~1s.\n");
+                cyanide_upload_log_milestone(@"typebanner-live-starting");
+                // Daemon-only detection avoids foregrounding Messages and
+                // avoids the MobileSMS synthetic-thread PAC/0x401 crash path.
+                printf("[TYPEBANNER] daemon-only: starting live loop without sms launch\n");
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
+                                             (int64_t)kTypeBannerInitialDaemonSettleUS * NSEC_PER_USEC),
+                               dispatch_get_global_queue(0, 0), ^{
+                    settings_start_typebanner_live_loop();
+                });
+            } else {
+                g_typebanner_live_stop_requested = 1;
+            }
+            if (runStatBar || runRSSI || runAxonLite || runTypeBanner)
+                cyanide_upload_log_milestone(@"live-tweaks-started");
 
             log_user("[DONE] Run complete. Verbose trace captured the raw call stream.\n");
             cyanide_upload_log_milestone(@"run-complete");
@@ -2923,6 +3045,7 @@ typedef NS_ENUM(NSInteger, RootSection) {
     RootSectionTweakBundles,
     RootSectionSystemBundles,
     RootSectionAbout,
+    RootSectionExperimental,
     RootSectionWarning,
     RootSectionCount,
 };
@@ -3349,6 +3472,7 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
         @{ @"kind": @"toggle", @"key": kSettingsStatBarCelsius, @"title": @"Celsius" },
         @{ @"kind": @"toggle", @"key": kSettingsStatBarShowCPU, @"title": @"Show CPU %" },
         @{ @"kind": @"toggle", @"key": kSettingsStatBarShowNet, @"title": @"Show network speed" },
+        @{ @"kind": @"toggle", @"key": kSettingsStatBarShowLabels, @"title": @"Show CPU / RAM labels" },
     ];
 }
 
@@ -3369,8 +3493,8 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
 {
     return @[
         @{ @"kind": @"button",
-           @"title": @"Test: Poll Messages & Show Banner",
-           @"subtitle": @"Runs the real detection path once. Opens Messages first (or pin a typing thread), then tap. Banner shows the result; the [TYPEBANNER] log lines explain what was/wasn't found.",
+           @"title": @"Test: Poll Daemon & Show Banner",
+           @"subtitle": @"Runs the live imagent detection path once. Banner shows the result; the [TYPEBANNER] log lines explain what was/wasn't found.",
            @"action": @"typebanner-test" },
     ];
 }
@@ -3398,6 +3522,7 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
         [out addObject:@{@"title": @"Celsius",          @"value": [d boolForKey:kSettingsStatBarCelsius] ? @"On" : @"Off"}];
         [out addObject:@{@"title": @"Show CPU %",       @"value": [d boolForKey:kSettingsStatBarShowCPU]  ? @"On" : @"Off"}];
         [out addObject:@{@"title": @"Show net speed",   @"value": [d boolForKey:kSettingsStatBarShowNet]  ? @"On" : @"Off"}];
+        [out addObject:@{@"title": @"Show CPU/RAM labels", @"value": [d boolForKey:kSettingsStatBarShowLabels] ? @"On" : @"Off"}];
     } else if (section == SectionRSSI) {
         [out addObject:@{@"title": @"WiFi (bar count)", @"value": [d boolForKey:kSettingsRSSIDisplayWifi] ? @"On" : @"Off"}];
         [out addObject:@{@"title": @"Cellular (dBm)",   @"value": [d boolForKey:kSettingsRSSIDisplayCell] ? @"On" : @"Off"}];
@@ -3443,9 +3568,9 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
         @{ @"title": @"Launch Options",     @"icon": @"bolt.fill",                          @"color": [UIColor systemRedColor],    @"section": @(SectionLaunch) },
         @{ @"title": @"SBCustomizer",       @"icon": @"square.grid.3x3.fill",                @"color": [UIColor systemBlueColor],   @"section": @(SectionSBC) },
         @{ @"title": @"StatBar",            @"icon": @"thermometer.medium",                  @"color": [UIColor systemRedColor],    @"section": @(SectionStatBar) },
-        @{ @"title": @"Signal Display",     @"icon": @"antenna.radiowaves.left.and.right",   @"color": [UIColor systemBlueColor],   @"section": @(SectionRSSI) },
+        @{ @"title": @"Signal Display",     @"icon": @"antenna.radiowaves.left.and.right",   @"color": [UIColor systemBlueColor],   @"section": @(SectionRSSI), @"experimental": @YES },
         @{ @"title": @"Axon Lite",          @"icon": @"bell.badge.fill",                     @"color": [UIColor systemRedColor],    @"section": @(SectionAxonLite) },
-        // @{ @"title": @"TypeBanner",         @"icon": @"ellipsis.bubble.fill",                @"color": [UIColor systemTealColor],   @"section": @(SectionTypeBanner) },
+        @{ @"title": @"TypeBanner",         @"icon": @"ellipsis.bubble.fill",                @"color": [UIColor systemTealColor],   @"section": @(SectionTypeBanner), @"experimental": @YES },
         @{ @"title": @"Powercuff",          @"icon": @"bolt.slash.fill",                     @"color": [UIColor systemOrangeColor], @"section": @(SectionPowercuff) },
         @{ @"title": @"SpringBoard Tweaks", @"icon": @"apps.iphone",                         @"color": [UIColor systemIndigoColor], @"section": @(SectionDarkSwordTweaks) },
         @{ @"title": @"Home Layout Extras", @"icon": @"square.dashed.inset.filled",          @"color": [UIColor systemPurpleColor], @"section": @(SectionLayoutExtras) },
@@ -3462,8 +3587,11 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
 
 - (NSArray<NSDictionary *> *)filterBundles:(NSArray<NSDictionary *> *)bundles
 {
+    BOOL experimentalOn = [[NSUserDefaults standardUserDefaults]
+                            boolForKey:kSettingsExperimentalTweaksEnabled];
     NSMutableArray<NSDictionary *> *out = [NSMutableArray array];
     for (NSDictionary *bundle in bundles) {
+        if ([bundle[@"experimental"] boolValue] && !experimentalOn) continue;
         NSInteger sec = [bundle[@"section"] integerValue];
         if ([self rowsForSection:sec].count > 0) {
             [out addObject:bundle];
@@ -3512,6 +3640,7 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
         case RootSectionTweakBundles:   return (NSInteger)self.tweakBundleRows.count;
         case RootSectionSystemBundles:  return (NSInteger)self.systemBundleRows.count;
         case RootSectionAbout:          return 4;
+        case RootSectionExperimental:   return 1;
         case RootSectionWarning:        return 1;
         case RootSectionCount:          return 0;
     }
@@ -3527,13 +3656,23 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
         case RootSectionTweakBundles:   return self.tweakBundleRows.count   > 0 ? @"Tweaks" : nil;
         case RootSectionSystemBundles:  return self.systemBundleRows.count  > 0 ? @"System" : nil;
         case RootSectionAbout:          return @"About";
+        case RootSectionExperimental:   return @"Experimental";
         default:                        return nil;
     }
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section
 {
-    if (!self.detailMode) return nil;
+    if (!self.detailMode) {
+        if ((RootSection)section == RootSectionExperimental) {
+            return @"⚠️ These tweaks are unfinished and may not work at all "
+                   @"yet. Installing them only adds risk — SpringBoard "
+                   @"crashes, dropped events, layout glitches, battery "
+                   @"drain — with no guaranteed feature in return. Leave "
+                   @"off unless you're a developer actively testing.";
+        }
+        return nil;
+    }
     NSInteger s = self.underlyingSection;
     if (s == SectionLaunch) {
         return @"kexploit_opa334 runs once per app lifetime. Keep Alive applies only while Cyanide is minimized; an App Switcher kill still terminates the process.";
@@ -3580,7 +3719,7 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
         return @"RemoteCall-only Axon port. It uses a live app-side loop rather than substrate hooks, so it lasts for the active Cyanide SpringBoard session.";
     }
     if (s == SectionTypeBanner) {
-        return @"Partial TypeMillennium port. Detection runs against the Messages app's own view hierarchy over RemoteCall and only fires while Messages.app is running. The original system-wide imagent hook needs code injection, which isn't available in this environment.";
+        return @"Partial TypeMillennium port. Detection runs against imagent using original-thread RemoteCall probes, while SpringBoard renders a prewarmed banner window.";
     }
     return nil;
 }
@@ -3739,6 +3878,145 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
 
 - (void)logUploadSwitchChanged:(UISwitch *)sw {
     [[NSUserDefaults standardUserDefaults] setBool:sw.isOn forKey:kSettingsLogUploadEnabled];
+}
+
++ (UIImage *)experimentalDangerChip
+{
+    static UIImage *cached;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSString *text = @"DANGER";
+        UIFont *font = [UIFont systemFontOfSize:10.0 weight:UIFontWeightBold];
+        NSDictionary *attrs = @{
+            NSFontAttributeName: font,
+            NSForegroundColorAttributeName: UIColor.whiteColor,
+            NSKernAttributeName: @(0.4),
+        };
+        CGSize ts = [text sizeWithAttributes:attrs];
+        CGFloat padH = 6.5;
+        CGFloat padV = 2.5;
+        CGSize size = CGSizeMake(ceil(ts.width) + padH * 2.0,
+                                 ceil(ts.height) + padV * 2.0);
+        UIGraphicsImageRenderer *r = [[UIGraphicsImageRenderer alloc] initWithSize:size];
+        cached = [r imageWithActions:^(UIGraphicsImageRendererContext *ctx) {
+            UIBezierPath *p = [UIBezierPath bezierPathWithRoundedRect:CGRectMake(0, 0, size.width, size.height)
+                                                          cornerRadius:size.height / 2.0];
+            [UIColor.systemRedColor setFill];
+            [p fill];
+            [text drawAtPoint:CGPointMake(padH, padV) withAttributes:attrs];
+        }];
+    });
+    return cached;
+}
+
+- (UITableViewCell *)buildExperimentalCellInTableView:(UITableView *)tableView
+{
+    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"experimental"];
+    if (!cell) {
+        cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"experimental"];
+        cell.detailTextLabel.numberOfLines = 0;
+    }
+    BOOL on = [[NSUserDefaults standardUserDefaults] boolForKey:kSettingsExperimentalTweaksEnabled];
+
+    UIColor *iconColor = on ? UIColor.systemRedColor
+                            : [UIColor.systemRedColor colorWithAlphaComponent:0.55];
+    cell.imageView.image = [SettingsViewController iconBadgeWithSymbol:@"flask.fill"
+                                                                  color:iconColor
+                                                                   size:29.0];
+
+    NSMutableAttributedString *title = [[NSMutableAttributedString alloc]
+        initWithString:@"Experimental Tweaks  "
+            attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:17.0],
+                          NSForegroundColorAttributeName: UIColor.labelColor }];
+    NSTextAttachment *att = [[NSTextAttachment alloc] init];
+    UIImage *chip = [SettingsViewController experimentalDangerChip];
+    att.image = chip;
+    att.bounds = CGRectMake(0, -2.0, chip.size.width, chip.size.height);
+    [title appendAttributedString:[NSAttributedString attributedStringWithAttachment:att]];
+    cell.textLabel.attributedText = title;
+
+    cell.detailTextLabel.text = on
+        ? @"Active — in-development tweaks unlocked. These probably don't "
+          @"work yet; installing only adds risk, no benefit. Currently "
+          @"gates: Signal Readouts, TypeBanner."
+        : @"In-development only. These tweaks likely don't work yet and "
+          @"may never ship — turning this on only adds risk with no real "
+          @"benefit. Currently gates: Signal Readouts, TypeBanner.";
+    cell.detailTextLabel.font = [UIFont systemFontOfSize:13.0];
+    cell.detailTextLabel.textColor = on
+        ? [UIColor.systemRedColor colorWithAlphaComponent:0.9]
+        : UIColor.secondaryLabelColor;
+
+    cell.backgroundColor = on
+        ? [UIColor.systemRedColor colorWithAlphaComponent:0.10]
+        : nil;
+
+    cell.accessoryType = UITableViewCellAccessoryNone;
+    cell.selectionStyle = UITableViewCellSelectionStyleDefault;
+
+    UISwitch *sw = [[UISwitch alloc] init];
+    sw.onTintColor = UIColor.systemRedColor;
+    sw.on = on;
+    [sw addTarget:self action:@selector(experimentalSwitchChanged:) forControlEvents:UIControlEventValueChanged];
+    cell.accessoryView = sw;
+    return cell;
+}
+
+- (void)experimentalSwitchChanged:(UISwitch *)sw
+{
+    NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
+    BOOL enabling = sw.isOn;
+
+    if (enabling) {
+        // Hard confirm before flipping master on. If the user cancels, revert
+        // the switch and stop here.
+        sw.on = NO;
+        UIAlertController *ac = [UIAlertController
+            alertControllerWithTitle:@"Enable Experimental Tweaks?"
+                             message:@"These tweaks are in development and most likely don't work yet. Installing them adds risk — SpringBoard crashes, dropped events, layout glitches, heavy battery drain — with no guaranteed benefit in return. Only turn this on if you're a developer actively testing."
+                      preferredStyle:UIAlertControllerStyleAlert];
+        [ac addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+        [ac addAction:[UIAlertAction actionWithTitle:@"Enable Anyway"
+                                               style:UIAlertActionStyleDestructive
+                                             handler:^(UIAlertAction *_) {
+            [d setBool:YES forKey:kSettingsExperimentalTweaksEnabled];
+            sw.on = YES;
+            printf("[SETTINGS] experimental tweaks enabled\n");
+            [self reloadAfterExperimentalChange];
+        }]];
+        [self presentViewController:ac animated:YES completion:nil];
+        return;
+    }
+
+    [d setBool:NO forKey:kSettingsExperimentalTweaksEnabled];
+    printf("[SETTINGS] experimental tweaks disabled; tearing down gated tweaks\n");
+
+    // Force-disable every experimental-gated tweak so the user's setup doesn't
+    // silently keep running with the master switch off. Add new gated tweaks
+    // here as they're introduced.
+    if ([d boolForKey:kSettingsTypeBannerEnabled]) {
+        [d setBool:NO forKey:kSettingsTypeBannerEnabled];
+        settings_mark_tweak_applied(kSettingsTypeBannerEnabled, NO);
+        settings_notify_package_queue_changed_async();
+        settings_schedule_live_apply_for_key(kSettingsTypeBannerEnabled);
+    }
+    if ([d boolForKey:kSettingsRSSIDisplayEnabled]) {
+        [d setBool:NO forKey:kSettingsRSSIDisplayEnabled];
+        settings_mark_tweak_applied(kSettingsRSSIDisplayEnabled, NO);
+        settings_notify_package_queue_changed_async();
+        settings_schedule_live_apply_for_key(kSettingsRSSIDisplayEnabled);
+    }
+
+    [self reloadAfterExperimentalChange];
+}
+
+- (void)reloadAfterExperimentalChange
+{
+    // Tweak bundle list visibility depends on the experimental flag, and the
+    // installer's package list is filtered by it too — refresh both.
+    [self.tableView reloadData];
+    [[NSNotificationCenter defaultCenter] postNotificationName:PackageQueueDidChangeNotification
+                                                        object:[PackageQueue sharedQueue]];
 }
 
 - (void)openTwitter
@@ -4047,6 +4325,8 @@ void cyanide_present_contact(UIViewController *host)
                 return [self buildBundleCellWithRow:self.systemBundleRows[indexPath.row] tableView:tableView];
             case RootSectionAbout:
                 return [self buildAboutCellAtRow:indexPath.row tableView:tableView];
+            case RootSectionExperimental:
+                return [self buildExperimentalCellInTableView:tableView];
             case RootSectionCount:
                 return [[UITableViewCell alloc] init];
         }
@@ -4526,6 +4806,16 @@ void cyanide_present_contact(UIViewController *host)
                 else if (indexPath.row == 2) [self openShareLog];
                 // row 3: toggle — handled by UISwitch target, no action here
                 return;
+            case RootSectionExperimental: {
+                [tableView deselectRowAtIndexPath:indexPath animated:YES];
+                UITableViewCell *cell = [tableView cellForRowAtIndexPath:indexPath];
+                if ([cell.accessoryView isKindOfClass:[UISwitch class]]) {
+                    UISwitch *sw = (UISwitch *)cell.accessoryView;
+                    [sw setOn:!sw.isOn animated:YES];
+                    [self experimentalSwitchChanged:sw];
+                }
+                return;
+            }
             case RootSectionCount:
                 return;
         }
@@ -4745,6 +5035,10 @@ void cyanide_present_contact(UIViewController *host)
             __weak typeof(self) weakSelf = self;
             dispatch_async(dispatch_get_global_queue(0, 0), ^{
                 @try {
+                    if (g_settings_actions_running) {
+                        log_user("[TYPEBANNER] Test aborted: Apply Tweaks is still running.\n");
+                        return;
+                    }
                     if (!settings_ensure_kexploit()) {
                         log_user("[TYPEBANNER] Test failed: kernel primitives not acquired. Run kexploit (Apply Tweaks) first.\n");
                         return;
@@ -4756,41 +5050,49 @@ void cyanide_present_contact(UIViewController *host)
                     if (liveLoopWasRunning) {
                         g_typebanner_live_stop_requested = 1;
                         int waitMs = 0;
-                        while (g_typebanner_live_running && waitMs < 5000) {
+                        while (g_typebanner_live_running && waitMs < 30000) {
                             usleep(100000);
                             waitMs += 100;
                         }
                         if (g_typebanner_live_running) {
-                            log_user("[TYPEBANNER] Test aborted: live loop did not yield in 5s.\n");
+                            log_user("[TYPEBANNER] Test aborted: live loop did not yield in 30s.\n");
                             return;
                         }
                     }
 
-                    log_user("[TYPEBANNER] Test: polling MobileSMS for typing indicators…\n");
+                    log_user("[TYPEBANNER] Test: polling imagent for typing indicators…\n");
                     NSString *detected = nil;
-                    RemoteCallSession *mobileSession = [[RemoteCallSession alloc] initWithProcess:@"MobileSMS" useMigFilterBypass:NO];
-                    if (!mobileSession) {
-                        log_user("[TYPEBANNER] Messages.app is not running. Open Messages, then tap Test again.\n");
-                    } else {
-                        @try {
-                            detected = typebanner_poll_in_mobilesms_remote_session(mobileSession);
-                        } @catch (NSException *e) {
-                            log_user("[TYPEBANNER] MobileSMS poll threw: %s\n", e.reason.UTF8String);
-                        }
-                        // If nothing was found, run a class-name discovery
-                        // walk so we can see what the cells actually are
-                        // and whether the selector name we're checking
-                        // ('showTypingIndicator') has been renamed on this
-                        // iOS build.
-                        if (detected.length == 0) {
-                            log_user("[TYPEBANNER] No typing indicator found via 'showTypingIndicator'. Running discovery walk to dump cell classes/selectors…\n");
-                            @try {
-                                typebanner_diagnose_in_mobilesms_remote_session(mobileSession);
-                            } @catch (NSException *e) {
-                                log_user("[TYPEBANNER] Diagnose threw: %s\n", e.reason.UTF8String);
+                    @synchronized (settings_rc_lock()) {
+                        RemoteCallSession *daemonSession = [[RemoteCallSession alloc] initWithProcess:@"imagent"
+                                                                                   useMigFilterBypass:NO
+                                                                              firstExceptionTimeoutMS:TYPEBANNER_RC_MOBILESMS_FIRST_EXCEPTION_TIMEOUT_MS
+                                                                                    originalThreadOnly:YES];
+                        if (!daemonSession) {
+                            RemoteCallInitFailure failure = remote_call_last_init_failure();
+                            uint32_t pid = remote_call_last_init_failure_pid();
+                            if (failure == RemoteCallInitFailureProcessMissing) {
+                                log_user("[TYPEBANNER] imagent is not running.\n");
+                            } else if (failure == RemoteCallInitFailureFirstExceptionTimeout && pid != 0) {
+                                log_user("[TYPEBANNER] imagent pid=%u did not answer the original-thread bootstrap this tick.\n",
+                                         pid);
+                            } else if (pid != 0) {
+                                log_user("[TYPEBANNER] imagent RemoteCall init failed: %s (pid=%u)\n",
+                                         remote_call_init_failure_description(failure), pid);
+                            } else {
+                                log_user("[TYPEBANNER] imagent RemoteCall init failed: %s\n",
+                                         remote_call_init_failure_description(failure));
                             }
+                        } else {
+                            @try {
+                                detected = typebanner_poll_in_imagent_remote_session(daemonSession);
+                            } @catch (NSException *e) {
+                                log_user("[TYPEBANNER] imagent poll threw: %s\n", e.reason.UTF8String);
+                            }
+                            if (detected.length == 0) {
+                                log_user("[TYPEBANNER] No daemon typing indicator detected on this poll.\n");
+                            }
+                            [daemonSession destroyRemoteCall];
                         }
-                        [mobileSession destroyRemoteCall];
                     }
 
                     if (detected.length > 0) {
@@ -4800,21 +5102,25 @@ void cyanide_present_contact(UIViewController *host)
                         log_user("[TYPEBANNER] Showing a one-shot demo banner so you can confirm the SpringBoard render path.\n");
                     }
 
-                    RemoteCallSession *springboardSession = [[RemoteCallSession alloc] initWithProcess:@"SpringBoard" useMigFilterBypass:NO];
-                    if (!springboardSession) {
-                        log_user("[TYPEBANNER] SpringBoard not reachable; cannot show banner.\n");
-                    } else {
-                        bool ok = false;
-                        @try {
-                            NSString *label = detected.length > 0 ? detected : @"TypeBanner demo";
-                            ok = typebanner_show_in_springboard_remote_session(springboardSession, label);
-                        } @catch (NSException *e) {
-                            log_user("[TYPEBANNER] SpringBoard show threw: %s\n", e.reason.UTF8String);
+                    @synchronized (settings_rc_lock()) {
+                        RemoteCallSession *springboardSession = [[RemoteCallSession alloc] initWithProcess:@"SpringBoard"
+                                                                                         useMigFilterBypass:NO
+                                                                                    firstExceptionTimeoutMS:TYPEBANNER_RC_FIRST_EXCEPTION_TIMEOUT_MS];
+                        if (!springboardSession) {
+                            log_user("[TYPEBANNER] SpringBoard not reachable; cannot show banner.\n");
+                        } else {
+                            bool ok = false;
+                            @try {
+                                NSString *label = detected.length > 0 ? detected : @"TypeBanner demo";
+                                ok = typebanner_show_in_springboard_remote_session(springboardSession, label);
+                            } @catch (NSException *e) {
+                                log_user("[TYPEBANNER] SpringBoard show threw: %s\n", e.reason.UTF8String);
+                            }
+                            log_user("[TYPEBANNER] show=%d. Banner auto-hides in 5s.\n", ok);
+                            sleep(5);
+                            @try { typebanner_hide_in_springboard_remote_session(springboardSession); } @catch (NSException *e) {}
+                            [springboardSession destroyRemoteCall];
                         }
-                        log_user("[TYPEBANNER] show=%d. Banner auto-hides in 5s.\n", ok);
-                        sleep(5);
-                        @try { typebanner_hide_in_springboard_remote_session(springboardSession); } @catch (NSException *e) {}
-                        [springboardSession destroyRemoteCall];
                     }
 
                     if (liveLoopWasRunning) {

@@ -936,16 +936,6 @@ static NSString * const kGitHubIssuesURL        = @"https://github.com/zeroxjf/c
             done(YES);
             return;
         }
-        if (isInstall && [PackageDetailViewController isFastLockXLitePackage:pkg]) {
-            done(YES);
-            [PackageDetailViewController
-                presentFastLockXLiteStackingWarningFromViewController:self
-                                                              package:pkg
-                                                       confirmHandler:^{
-                [q toggleForPackage:pkg];
-            }];
-            return;
-        }
         [q toggleForPackage:pkg];
         done(YES);
     }];

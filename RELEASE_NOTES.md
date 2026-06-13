@@ -32,6 +32,10 @@ omit it.
 
 ## Released
 
+### v1.2.24 - 2026-06-13
+
+- [x] Reverted FastLockX Lite back to its original release behavior; we do not recommend installing it with other persistent RemoteCall tweaks for now.
+
 ### v1.2.23 - 2026-06-13
 
 - [x] Fixed Hide Home Bar causing a kernel panic.

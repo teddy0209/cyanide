@@ -266,7 +266,7 @@ NSString * const kSettingsAxonLiteEnabled = @"AxonLiteEnabled";
 NSString * const kSettingsTypeBannerEnabled = @"TypeBannerEnabled";
 NSString * const kSettingsNotificationIslandEnabled = @"NotificationIslandEnabled";
 NSString * const kSettingsAppSwitcherGridEnabled = @"AppSwitcherGridEnabled";
-NSString * const kSettingsFastLockXLiteEnabled = @"FastLockXLiteEnabled";
+static NSString * const kSettingsFastLockXLiteEnabled = @"FastLockXLiteEnabled";
 static NSString * const kSettingsFastLockXLiteBlockMusic = @"FastLockXLiteBlockMusic";
 static NSString * const kSettingsFastLockXLiteBlockFlashlight = @"FastLockXLiteBlockFlashlight";
 static NSString * const kSettingsFastLockXLiteBlockLowPower = @"FastLockXLiteBlockLowPower";
@@ -570,53 +570,13 @@ static bool settings_stop_stagestrip_registered(BOOL springboardWillDie)
     return stagestrip_stop_in_session();
 }
 
-static volatile int g_fastlockx_lite_remote_active_state = -1;
-static volatile uint64_t g_fastlockx_lite_last_unlock_nudge_ms = 0;
-
-static uint64_t settings_now_ms(void)
-{
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    return ((uint64_t)tv.tv_sec * 1000ULL) + ((uint64_t)tv.tv_usec / 1000ULL);
-}
-
-static BOOL settings_maybe_nudge_fastlockx_lite_awake_locked(const char *why,
-                                                             BOOL awake,
-                                                             BOOL locked)
-{
-    if (!awake || !locked) {
-        __sync_lock_test_and_set(&g_fastlockx_lite_last_unlock_nudge_ms, 0);
-        return NO;
-    }
-
-    uint64_t now = settings_now_ms();
-    uint64_t lastNudge = g_fastlockx_lite_last_unlock_nudge_ms;
-    if (now > lastNudge + 900 &&
-        __sync_bool_compare_and_swap(&g_fastlockx_lite_last_unlock_nudge_ms,
-                                     lastNudge,
-                                     now)) {
-        bool nudgeOK = fastlockx_lite_attempt_unlock_in_session(false);
-        printf("[SETTINGS] FastLockX awake unlock nudge reason=%s ok=%d awake=%d locked=%d\n",
-               why ?: "screen state",
-               nudgeOK,
-               awake,
-               locked);
-        return YES;
-    }
-    return NO;
-}
-
 static bool settings_stop_fastlockx_lite_registered(BOOL springboardWillDie)
 {
-    __sync_lock_test_and_set(&g_fastlockx_lite_remote_active_state, -1);
-    __sync_lock_test_and_set(&g_fastlockx_lite_last_unlock_nudge_ms, 0);
     if (springboardWillDie) {
         fastlockx_lite_forget_remote_state();
         return true;
     }
-    bool ok = fastlockx_lite_disable_always_on_in_session();
-    if (!ok) __sync_lock_test_and_set(&g_fastlockx_lite_remote_active_state, -1);
-    return ok;
+    return fastlockx_lite_disable_always_on_in_session();
 }
 
 static bool settings_stop_livewp_registered(BOOL springboardWillDie)
@@ -644,7 +604,7 @@ static void settings_each_springboard_cleanup_entry(void (^block)(const Settings
         { kSettingsSnowBoardLiteEnabled, "SnowBoard Lite", settings_request_themer_stop, settings_stop_themer_registered, themer_forget_remote_state, settings_themer_running, YES, YES },
         { kSettingsLiveWPEnabled, "LiveWP", settings_request_livewp_stop, settings_stop_livewp_registered, livewp_forget_remote_state, settings_livewp_running, YES, YES },
         { kSettingsStageStripEnabled, "Stage Strip", settings_request_stagestrip_stop, settings_stop_stagestrip_registered, stagestrip_forget_remote_state, NULL, YES, YES },
-        { kSettingsFastLockXLiteEnabled, "FastLockX Lite", NULL, settings_stop_fastlockx_lite_registered, fastlockx_lite_forget_remote_state, NULL, NO, YES },
+        { kSettingsFastLockXLiteEnabled, "FastLockX Lite", NULL, settings_stop_fastlockx_lite_registered, fastlockx_lite_forget_remote_state, NULL, YES, YES },
         { nil, "Kill All Apps", NULL, NULL, killallapps_forget_remote_state, NULL, NO, NO },
     };
     size_t count = sizeof(entries) / sizeof(entries[0]);
@@ -1083,85 +1043,6 @@ static BOOL settings_refresh_screen_lock_state(const char *reason)
     return old != newValue;
 }
 
-static void settings_sync_fastlockx_lite_for_screen_state_async(const char *reason)
-{
-    if (!settings_fastlockx_lite_install_allowed()) return;
-
-    NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
-    if (![d boolForKey:kSettingsFastLockXLiteEnabled] ||
-        !settings_tweak_is_applied(kSettingsFastLockXLiteEnabled)) {
-        return;
-    }
-
-    const char *why = reason ? reason : "screen state";
-
-    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-        // 200ms settle: FLX-induced brief wakes (~150ms from noteScreenWillTurnOn)
-        // go dark before this fires, so they don't cause spurious active=0
-        // transitions or rc_lock grabs on every timer cycle.
-        usleep(200000);
-        if (settings_cleanup_in_progress()) return;
-        @synchronized (settings_rc_lock()) {
-            if (settings_cleanup_in_progress() ||
-                ![d boolForKey:kSettingsFastLockXLiteEnabled] ||
-                !settings_tweak_is_applied(kSettingsFastLockXLiteEnabled)) {
-                return;
-            }
-            (void)settings_refresh_screen_awake_state(why);
-            (void)settings_refresh_screen_lock_state(why);
-            BOOL awake = settings_screen_awake_cached();
-            BOOL locked = settings_screen_locked_cached();
-            BOOL active = !awake && locked;
-            int desiredState = active ? 1 : 0;
-            if (!g_springboard_rc_ready || g_settings_actions_running) {
-                printf("[SETTINGS] FastLockX screen sync skipped: ready=%d actions=%d reason=%s active=%d awake=%d locked=%d\n",
-                       g_springboard_rc_ready,
-                       g_settings_actions_running,
-                       why,
-                       active,
-                       awake,
-                       locked);
-                return;
-            }
-            int lastState = g_fastlockx_lite_remote_active_state;
-            if (lastState == desiredState) {
-                (void)settings_maybe_nudge_fastlockx_lite_awake_locked(why, awake, locked);
-                printf("[SETTINGS] FastLockX screen sync unchanged reason=%s active=%d awake=%d locked=%d\n",
-                       why,
-                       active,
-                       awake,
-                       locked);
-                return;
-            }
-            BOOL nudgeBeforePausing = (lastState == 1 && desiredState == 0 && awake && locked);
-            BOOL nudged = NO;
-            if (nudgeBeforePausing) {
-                // The FLX retry pulse creates a short awake+locked window. Send
-                // the host unlock sequence while that window is still alive,
-                // then pause timers so the next off-pulse cannot interrupt the
-                // unlock finisher.
-                nudged = settings_maybe_nudge_fastlockx_lite_awake_locked(why, awake, locked);
-            }
-            bool ok = fastlockx_lite_set_always_on_active_in_session(active);
-            __sync_lock_test_and_set(&g_fastlockx_lite_remote_active_state,
-                                     ok ? desiredState : -1);
-            if (ok) {
-                if (!nudged) {
-                    (void)settings_maybe_nudge_fastlockx_lite_awake_locked(why, awake, locked);
-                }
-            } else {
-                __sync_lock_test_and_set(&g_fastlockx_lite_last_unlock_nudge_ms, 0);
-            }
-            printf("[SETTINGS] FastLockX screen sync reason=%s active=%d awake=%d locked=%d ok=%d\n",
-                   why,
-                   active,
-                   awake,
-                   locked,
-                   ok);
-        }
-    });
-}
-
 static BOOL settings_axonlite_can_poll_springboard(void)
 {
     // Locked-but-awake is the lockscreen — that's where Axon must run, so the
@@ -1204,8 +1085,6 @@ static void settings_stop_axonlite_then_forget_locked(const char *reason)
 
 static void settings_forget_springboard_tweak_state_locked(void)
 {
-    __sync_lock_test_and_set(&g_fastlockx_lite_remote_active_state, -1);
-    __sync_lock_test_and_set(&g_fastlockx_lite_last_unlock_nudge_ms, 0);
     settings_each_springboard_cleanup_entry(^(const SettingsSpringBoardTweakCleanupEntry *entry) {
         if (entry->forget) entry->forget();
     });
@@ -1308,10 +1187,7 @@ static void settings_install_screen_awake_observers(void)
                                               &g_springboard_blanked_notify_token,
                                               dispatch_get_main_queue(), ^(int token) {
             (void)token;
-            BOOL woke = settings_refresh_screen_awake_state("springboard.hasBlankedScreen");
-            (void)settings_refresh_screen_lock_state("springboard.hasBlankedScreen");
-            settings_sync_fastlockx_lite_for_screen_state_async("springboard.hasBlankedScreen");
-            if (woke) {
+            if (settings_refresh_screen_awake_state("springboard.hasBlankedScreen")) {
                 settings_apply_statbar_once_async("screen awake");
                 settings_apply_nsbar_once_async("screen awake");
                 settings_apply_nicebarlite_once_async("screen awake");
@@ -1328,10 +1204,7 @@ static void settings_install_screen_awake_observers(void)
                                           &g_display_status_notify_token,
                                           dispatch_get_main_queue(), ^(int token) {
             (void)token;
-            BOOL woke = settings_refresh_screen_awake_state("iokit.displayStatus");
-            (void)settings_refresh_screen_lock_state("iokit.displayStatus");
-            settings_sync_fastlockx_lite_for_screen_state_async("iokit.displayStatus");
-            if (woke) {
+            if (settings_refresh_screen_awake_state("iokit.displayStatus")) {
                 settings_apply_statbar_once_async("screen awake");
                 settings_apply_nsbar_once_async("screen awake");
                 settings_apply_nicebarlite_once_async("screen awake");
@@ -1349,10 +1222,6 @@ static void settings_install_screen_awake_observers(void)
                                           dispatch_get_main_queue(), ^(int token) {
             (void)token;
             BOOL changed = settings_refresh_screen_lock_state("springboard.lockstate");
-            if (changed) {
-                (void)settings_refresh_screen_awake_state("springboard.lockstate");
-                settings_sync_fastlockx_lite_for_screen_state_async("springboard.lockstate");
-            }
             if (changed && g_screen_locked) {
                 // Stop the accelerometer before the XPC/shmem stack tears down on lock —
                 // otherwise the next callback fires into a stale shmem mapping.
@@ -2613,17 +2482,6 @@ static FastLockXLiteConfig settings_fastlockx_lite_config_from_defaults(NSUserDe
         .diagnosticLogging = YES,
         .retryIntervalSeconds = settings_fastlockx_lite_retry_interval(d),
     };
-    return config;
-}
-
-static FastLockXLiteConfig settings_fastlockx_lite_always_on_config_from_defaults(NSUserDefaults *d)
-{
-    // Keep SpringBoard's resident timers responsible only for the Face ID retry
-    // pulse. The app-side awake+locked nudge sends the actual unlock request
-    // after the display state settles, avoiding a cancel race when sync pauses
-    // timers as the screen wakes.
-    FastLockXLiteConfig config = settings_fastlockx_lite_config_from_defaults(d, YES, NO);
-    config.diagnosticLogging = NO;
     return config;
 }
 
@@ -4593,9 +4451,6 @@ void settings_application_did_enter_background(void)
             settings_apply_armed_gravitylite_once_async("entered background");
         }
     }
-    (void)settings_refresh_screen_awake_state("entered background");
-    (void)settings_refresh_screen_lock_state("entered background");
-    settings_sync_fastlockx_lite_for_screen_state_async("entered background");
     if (settings_rssi_install_allowed() && [d boolForKey:kSettingsRSSIDisplayEnabled] && g_springboard_rc_ready) {
         settings_apply_rssi_once_async("entered background");
     }
@@ -4627,9 +4482,6 @@ void settings_application_will_enter_foreground(void)
     settings_apply_nicebarlite_once_async("will enter foreground");
     settings_apply_rssi_once_async("will enter foreground");
     settings_apply_axonlite_once_async("will enter foreground");
-    (void)settings_refresh_screen_awake_state("will enter foreground");
-    (void)settings_refresh_screen_lock_state("will enter foreground");
-    settings_sync_fastlockx_lite_for_screen_state_async("will enter foreground");
     if (settings_notificationisland_install_allowed() &&
         [[NSUserDefaults standardUserDefaults] boolForKey:kSettingsNotificationIslandEnabled] &&
         g_springboard_rc_ready) {
@@ -4653,9 +4505,6 @@ void settings_application_did_become_active(void)
     settings_apply_nicebarlite_once_async("became active");
     settings_apply_rssi_once_async("became active");
     settings_apply_axonlite_once_async("became active");
-    (void)settings_refresh_screen_awake_state("became active");
-    (void)settings_refresh_screen_lock_state("became active");
-    settings_sync_fastlockx_lite_for_screen_state_async("became active");
     if (settings_notificationisland_install_allowed() &&
         [[NSUserDefaults standardUserDefaults] boolForKey:kSettingsNotificationIslandEnabled] &&
         g_springboard_rc_ready) {
@@ -5922,14 +5771,13 @@ static void settings_run_actions_internal(BOOL pendingOnly)
             BOOL runLiveWP = settings_enabled_tweak_should_run(d, kSettingsLiveWPEnabled, springBoardPendingOnly);
             BOOL runLayoutExtras = settings_enabled_tweak_should_run(d, kSettingsLayoutExtrasEnabled, springBoardPendingOnly);
             BOOL runStageStrip = settings_stagestrip_install_allowed() && settings_enabled_tweak_should_run(d, kSettingsStageStripEnabled, springBoardPendingOnly);
-            BOOL runFastLockXLite = settings_fastlockx_lite_install_allowed() && settings_enabled_tweak_should_run(d, kSettingsFastLockXLiteEnabled, springBoardPendingOnly);
             BOOL runGravityLite = settings_enabled_tweak_should_run(d, kSettingsGravityLiteEnabled, springBoardPendingOnly);
             BOOL stagePausesThemerLive = settings_themer_dynamic_updates_blocked_by_stage(d);
             if (stagePausesThemerLive) {
                 settings_note_themer_stage_conflict(YES);
             }
             BOOL cleanupDisabledSpringBoardTweaks = settings_disabled_applied_springboard_cleanup_needed(d);
-            BOOL needsSpringBoardWork = runSBC || runDarkTweaks || runStatBar || runNSBar || runNiceBarLite || runRSSI || runAxonLite || runGravityLite || runLayoutExtras || runTypeBanner || runNotificationIsland || runAppSwitcherGrid || runThemer || runSnowBoardLite || runLiveWP || runStageStrip || runFastLockXLite || cleanupDisabledSpringBoardTweaks;
+            BOOL needsSpringBoardWork = runSBC || runDarkTweaks || runStatBar || runNSBar || runNiceBarLite || runRSSI || runAxonLite || runGravityLite || runLayoutExtras || runTypeBanner || runNotificationIsland || runAppSwitcherGrid || runThemer || runSnowBoardLite || runLiveWP || runStageStrip || cleanupDisabledSpringBoardTweaks;
             BOOL runSandboxEscape = [d boolForKey:kSettingsRunSandboxEscape] && (!pendingOnly || needsSpringBoardWork);
             // TypeBanner prewarms its hidden SpringBoard window during Apply
             // and reuses the open SpringBoard session for text-only updates.
@@ -5957,7 +5805,6 @@ static void settings_run_actions_internal(BOOL pendingOnly)
             if (runNotificationIsland) total++;
             if (runAppSwitcherGrid) total++;
             if (runStageStrip) total++;
-            if (runFastLockXLite) total++;
             if (cleanupDisabledSpringBoardTweaks) total++;
             NSUInteger step = 0;
             BOOL startStageStripControlLoopAfterInstall = NO;
@@ -5980,16 +5827,12 @@ static void settings_run_actions_internal(BOOL pendingOnly)
             if (runSnowBoardLite) [enabledTweaks addObject:@"snowboardlite"];
             if (runLiveWP) [enabledTweaks addObject:@"livewp"];
             if (runTypeBanner) [enabledTweaks addObject:@"typebanner"];
-            if (runFastLockXLite) [enabledTweaks addObject:@"fastlockx"];
             if (runStageStrip) [enabledTweaks addObject:@"stagestrip"];
             if (cleanupDisabledSpringBoardTweaks) [enabledTweaks addObject:@"cleanup"];
             if (forceSpringBoardRefresh) [enabledTweaks addObject:@"springboard-refresh"];
             log_user("[PLAN] %lu stages: %s\n",
                      (unsigned long)total,
                      enabledTweaks.count ? [[enabledTweaks componentsJoinedByString:@", "] UTF8String] : "none");
-            if (runFastLockXLite && runStageStrip) {
-                log_user("[COMPAT] FastLockX Lite will arm before Dynamic Stage Lite starts its control loop.\n");
-            }
             cyanide_upload_log_milestone(@"run-plan");
 
             if (!hasRunWork) {
@@ -6318,44 +6161,9 @@ static void settings_run_actions_internal(BOOL pendingOnly)
                         appswitchergrid_stop_in_session();
                     }
 
-                    if (runFastLockXLite) {
-                        settings_progress(&step, total, "Enabling FastLockX Lite Always On");
-                        FastLockXLiteConfig config = settings_fastlockx_lite_always_on_config_from_defaults(d);
-                        bool ok = fastlockx_lite_enable_always_on_in_session(config);
-                        if (ok) {
-                            (void)settings_refresh_screen_awake_state("fastlockx install");
-                            (void)settings_refresh_screen_lock_state("fastlockx install");
-                            BOOL active = !settings_screen_awake_cached() && settings_screen_locked_cached();
-                            bool syncOK = fastlockx_lite_set_always_on_active_in_session(active);
-                            __sync_lock_test_and_set(&g_fastlockx_lite_remote_active_state,
-                                                     syncOK ? (active ? 1 : 0) : -1);
-                            __sync_lock_test_and_set(&g_fastlockx_lite_last_unlock_nudge_ms, 0);
-                            printf("[SETTINGS] FastLockX initial screen sync active=%d awake=%d locked=%d ok=%d\n",
-                                   active,
-                                   settings_screen_awake_cached(),
-                                   settings_screen_locked_cached(),
-                                   syncOK);
-                        }
-                        settings_mark_tweak_applied(kSettingsFastLockXLiteEnabled,
-                                                    ok && [d boolForKey:kSettingsFastLockXLiteEnabled]);
-                        printf("[SETTINGS] FastLockX Lite result=%d\n", ok);
-                        log_user("%s FastLockX Lite Always On %s.\n",
-                                 ok ? "[OK]" : "[WARN]",
-                                 ok ? "enabled" : "did not install cleanly");
-                        cyanide_upload_log_milestone(ok ? @"fastlockx-lite-applied" :
-                                                         @"fastlockx-lite-failed");
-                    }
-
                     if (runStageStrip) {
                         settings_progress(&step, total, "Installing Dynamic Stage Lite");
-                        BOOL skipStageDeferredLibrary = settings_fastlockx_lite_install_allowed() &&
-                            [d boolForKey:kSettingsFastLockXLiteEnabled];
-                        if (skipStageDeferredLibrary) {
-                            log_user("[COMPAT] Dynamic Stage Lite will skip background App Library tile fill-in while FastLockX Lite is active.\n");
-                        }
-                        stagestrip_set_deferred_library_build_enabled(!skipStageDeferredLibrary);
                         bool ok = stagestrip_apply_in_session(4);
-                        stagestrip_set_deferred_library_build_enabled(true);
                         startStageStripControlLoopAfterInstall = ok;
                         settings_mark_tweak_applied(kSettingsStageStripEnabled,
                                                     ok && [d boolForKey:kSettingsStageStripEnabled]);
@@ -7721,7 +7529,7 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
         BOOL alwaysOnIntent = [d boolForKey:kSettingsFastLockXLiteEnabled];
         BOOL alwaysOnApplied = settings_tweak_is_applied(kSettingsFastLockXLiteEnabled);
         [out addObject:@{@"title": @"Always On",
-                         @"value": alwaysOnApplied ? @"Enabled" : (alwaysOnIntent ? @"Queued" : @"Off")}];
+                         @"value": alwaysOnApplied ? @"Enabled" : (alwaysOnIntent ? @"Unknown" : @"Off")}];
         [out addObject:@{@"title": @"Retry interval",
                          @"value": [NSString stringWithFormat:@"%.1fs", settings_fastlockx_lite_retry_interval(d)]}];
         [out addObject:@{@"title": @"Blockers",
@@ -12086,8 +11894,6 @@ void cyanide_present_contact(UIViewController *host)
 
                     if (disableAlways) {
                         bool ok = fastlockx_lite_disable_always_on_in_session();
-                        __sync_lock_test_and_set(&g_fastlockx_lite_remote_active_state, -1);
-                        __sync_lock_test_and_set(&g_fastlockx_lite_last_unlock_nudge_ms, 0);
                         if (ok) {
                             [d setBool:NO forKey:kSettingsFastLockXLiteEnabled];
                             [d synchronize];
@@ -12098,26 +11904,12 @@ void cyanide_present_contact(UIViewController *host)
                                  ok ? "[OK]" : "[WARN]",
                                  ok ? "disabled" : "could not be disabled; respring will stop it");
                     } else if (enableAlways) {
-                        [d setBool:YES forKey:kSettingsFastLockXLiteEnabled];
-                        [d synchronize];
-                        FastLockXLiteConfig config = settings_fastlockx_lite_always_on_config_from_defaults(d);
+                        FastLockXLiteConfig config = settings_fastlockx_lite_config_from_defaults(d, YES, YES);
+                        config.diagnosticLogging = NO;
                         bool ok = fastlockx_lite_enable_always_on_in_session(config);
-                        if (ok) {
-                            (void)settings_refresh_screen_awake_state("fastlockx direct enable");
-                            (void)settings_refresh_screen_lock_state("fastlockx direct enable");
-                            BOOL active = !settings_screen_awake_cached() && settings_screen_locked_cached();
-                            bool syncOK = fastlockx_lite_set_always_on_active_in_session(active);
-                            __sync_lock_test_and_set(&g_fastlockx_lite_remote_active_state,
-                                                     syncOK ? (active ? 1 : 0) : -1);
-                            __sync_lock_test_and_set(&g_fastlockx_lite_last_unlock_nudge_ms, 0);
-                            printf("[SETTINGS] FastLockX direct screen sync active=%d awake=%d locked=%d ok=%d\n",
-                                   active,
-                                   settings_screen_awake_cached(),
-                                   settings_screen_locked_cached(),
-                                   syncOK);
-                        }
-                        settings_mark_tweak_applied(kSettingsFastLockXLiteEnabled,
-                                                    ok && [d boolForKey:kSettingsFastLockXLiteEnabled]);
+                        [d setBool:ok forKey:kSettingsFastLockXLiteEnabled];
+                        [d synchronize];
+                        settings_mark_tweak_applied(kSettingsFastLockXLiteEnabled, ok);
                         settings_notify_package_queue_changed_async();
                         log_user("%s FastLockX Lite Always On %s.\n",
                                  ok ? "[OK]" : "[WARN]",

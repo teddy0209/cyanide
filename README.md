@@ -246,3 +246,160 @@ fetch the submodule, and private-submodule tweaks will be absent from local
 builds unless you re-implement them. Public Beta features, including Location
 Simulator and Call Recording Sound, build from the open-source tree. The public
 app target still builds without that submodule.
+
+## Features Added in this Fork
+
+In addition to the native tweaks from the main repository, this fork introduces the following modules:
+
+* **QuickLoader:** Local testing laboratory for JavaScript scripts. It allows you to select a `.js` file on the fly from the iOS Files app, parse its dynamic parameters, and execute it within a protected session.
+* **RepoTweaks Store:** A remote repository manager based on JSON files. It downloads and runs multiple JavaScript tweaks simultaneously within isolated sandboxes, featuring asynchronous loading and centralized memory management.
+* **Thread-Safe IPC Architecture:** Total protection of the `RemoteCall` communication channel using C mutexes (`pthread_mutex_t`) and recursive locks (`NSRecursiveLock`). Prevents memory collisions and PAC violations when multiple native tweaks or JS scripts simultaneously invoke SpringBoard methods.
+
+---
+
+## System Architecture and Lifecycle Management
+
+The JavaScript engines are integrated into Cyanide's native lifecycle through the `SettingsSpringBoardTweakCleanupEntry` structure. 
+
+### Garbage Collector Synchronization
+When a JS tweak is disabled by the user, the native engine invokes the cleanup routine (`quickloader_stop_in_session` or `repotweaks_stop_in_session`). This operation:
+1. Sets an atomic shutdown flag (`g_quickloader_shutting_down` or `g_repo_shutting_down`).
+2. Acquires the lock on the IPC semaphore to await the completion of any ongoing `RemoteCall` invocations.
+3. Intercepts all active timers registered on Grand Central Dispatch (GCD) and performs a hard cancellation via `dispatch_source_cancel`, preventing zombie loops and memory leaks.
+
+---
+
+# Developer Guide: JIT JavaScript Engine
+
+The engine utilizes `JavaScriptCore` to interpret JS code at runtime. 64-bit object pointers and Objective-C classes are mapped into the JavaScript context as hexadecimal strings (e.g., `"0x105f2a000"`).
+
+## 1. Dynamic Parameter Declaration (`@param`)
+
+The JIT parser reads the top of the `.js` file and automatically generates native UI elements within the Cyanide settings table.
+
+### Comment Syntax
+```javascript
+// @param: type | variableName | UI Label | DefaultValue | (Optional Range)
+```
+
+### Supported Parameter Types
+
+
+* **switch** (Boolean Toggle):
+```javascript
+// @param: switch | enableBlur | Enable Dock Blur | true
+```
+
+
+* **text** (String Text Field):
+```javascript
+// @param: text | customText | Lockscreen Label | Tweaked by Cyanide
+```
+
+
+* **color** (Native Color Picker / Hex Color Well):
+```javascript
+// @param: color | interfaceColor | UI Color | #00FFCC
+```
+
+* **slider** (Decimal numeric slider with visual tracking):
+```javascript
+// @param: slider | blurRadius | Blur Radius | 5.0 | 0.0-10.0
+```
+
+### Other Slider Features
+
+
+The slider cell is implemented by combining a UISlider and a UILabel inside a horizontal UIStackView.
+
+
+* Real-Time Tracking: The UIControlEventValueChanged event updates the label text in real-time as the user drags the slider.
+
+* Compilation Optimization: The memory save event (NSUserDefaults) and script recompilation only trigger on UIControlEventTouchUpInside or TouchUpOutside, preventing lag caused by continuous disk rewrites.
+
+* Default Indicator (Def): If the slider rests exactly on the default value declared in the .js file, the UI automatically displays a visual tag next to the number (e.g., 5.00 (Def))
+
+
+### Default Auto-Population Mechanism
+
+
+If a user installs or runs a script for the first time, the iOS preferences dictionary is empty. The engine parses the .js file, extracts the DefaultValue, and instantly stores it inside NSUserDefaults. On the first UI launch, toggles and sliders will automatically snap to the developer's predefined configuration.
+
+
+## 2. Communication API and Preferences Bridge
+
+### Direct Preferences Reading (QuickLoader only)
+
+While RepoTweaks injects variables directly by overwriting the script string, QuickLoader allows JavaScript code to query the native preferences dictionary stored under the QuickLoaderSourceValues key in real-time:
+```javascript
+// Reads a float number (e.g., set by the slider)
+var radius = r_pref_num("blurRadius");
+
+// Reads the state of a boolean toggle
+var active = r_pref_bool("enableBlur");
+
+// Reads a string or a hex color
+var hexColor = r_pref_str("interfaceColor");
+```
+
+### Core RemoteCall IPC Functions
+
+* log(message): Prints a string inside Cyanide's text log console.
+
+* r_class(className): Retrieves the memory pointer of a system Objective-C class (e.g., r_class("UIApplication")).
+
+* r_sel(selectorName): Converts a string into a native selector pointer (SEL), mandatory for passing methods as arguments.
+
+* r_nsstr(string): Allocates an NSString object in SpringBoard's memory. Note: Requires a manual release call to prevent memory leaks in the remote process if the object is retained.
+
+* r_msg2(target, selector, arg1, arg2, arg3, arg4): Sends an Objective-C message to the target pointer with up to 4 optional arguments.
+
+* r_msg2_main(target, selector, arg1, arg2, arg3, arg4): Forces the message execution on the Main UI Thread of iOS. Mandatory for any graphical changes or view manipulation (UIWindow, UIView) to prevent kernel panics.
+
+
+## 3. Asynchronous Timer Management (GCD)
+
+The engine maps standard web timer functions by routing them to global asynchronous background queues (QOS_CLASS_BACKGROUND), ensuring that executing infinite loops never freezes the phone's interface.
+
+* setInterval(function, milliseconds): Cyclically executes a code block. Returns a numeric identifier stored in the native tracking registry.
+
+* clearInterval(timerID): Stops the specified timer.
+
+* setTimeout(function, milliseconds): Executes a code block after the set delay.
+
+* clearTimeout(timerID): Cancels the scheduled execution.
+
+
+## 4. Advanced Pattern: Color Manipulation and Remote Allocation
+
+Since the 64-bit IPC architecture does not support the direct passing of complex float structures like CGFloat arrays, color allocation must be performed by translating the hexadecimal string through native CIColor and UIColor objects:
+```javascript
+// Safety check / Failsafe on the JIT parameter
+var safeColor = (typeof interfaceColor !== 'undefined' && interfaceColor !== "") ? interfaceColor : "#00FFCC";
+
+// Hash removal and extraction of RGB components
+var hex = safeColor.replace('#', '');
+var r = parseInt(hex.substring(0, 2), 16) / 255.0;
+var g = parseInt(hex.substring(2, 4), 16) / 255.0;
+var b = parseInt(hex.substring(4, 6), 16) / 255.0;
+
+// Creation of the string format compatible with CoreImage "R G B A"
+var colorString = r + " " + g + " " + b + " 1.0";
+
+// String allocation in SpringBoard's memory
+var remoteStr = r_nsstr(colorString);
+
+// Invocation of remote class methods to generate the color
+var ciColor = r_msg2(r_class("CIColor"), "colorWithString:", remoteStr);
+var uiColor = r_msg2(r_class("UIColor"), "colorWithCIColor:", ciColor);
+
+// Obtaining the pointer for SpringBoard's main window
+var app = r_msg2(r_class("UIApplication"), "sharedApplication");
+var keyWindow = r_msg2(app, "keyWindow");
+
+// Background color modification safely executed on the UI main thread
+r_msg2_main(keyWindow, "setBackgroundColor:", uiColor);
+
+// Freeing remote memory to prevent memory leaks on the SpringBoard process
+r_msg2(remoteStr, "release");
+``` 

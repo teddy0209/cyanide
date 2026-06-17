@@ -24,6 +24,8 @@
 #import "tweaks/gravitylite.h"
 #import "tweaks/appswitchergrid.h"
 #import "tweaks/hide_home_bar.h"
+#import "tweaks/QuickLoader.h"
+#import "tweaks/RepoTweaks.h"
 #import <CoreMotion/CoreMotion.h>
 
 #import <objc/runtime.h>
@@ -52,6 +54,527 @@
 #import <sys/utsname.h>
 #import <time.h>
 #import <unistd.h>
+#import <stdlib.h>
+
+
+
+
+// Helper converting "#FF0000" in UIColor
+static UIColor *colorFromHexString(NSString *hexString) {
+    NSString *cleanString = [hexString stringByReplacingOccurrencesOfString:@"#" withString:@""];
+    if (cleanString.length == 0) return [UIColor blackColor];
+    
+    unsigned rgbValue = 0;
+    NSScanner *scanner = [NSScanner scannerWithString:cleanString];
+    [scanner scanHexInt:&rgbValue];
+    
+    return [UIColor colorWithRed:((rgbValue & 0xFF0000) >> 16)/255.0 
+                           green:((rgbValue & 0xFF00) >> 8)/255.0 
+                            blue:(rgbValue & 0xFF)/255.0 alpha:1.0];
+}
+
+// Helper converting UIColor in "#FF0000"
+static NSString *hexStringFromColor(UIColor *color) {
+    const CGFloat *components = CGColorGetComponents(color.CGColor);
+    size_t count = CGColorGetNumberOfComponents(color.CGColor);
+    
+    if (count == 4) { // RGB
+        return [NSString stringWithFormat:@"#%02lX%02lX%02lX", 
+                lroundf(components[0] * 255.0), 
+                lroundf(components[1] * 255.0), 
+                lroundf(components[2] * 255.0)];
+    }
+    return @"#000000"; // Fallback
+}
+
+
+
+// =============================================================================
+// REPOTWEAKS: Details and Dynamic parameters window
+// =============================================================================
+@interface RepoTweakDetailController : UITableViewController
+@property (nonatomic, strong) NSDictionary *tweak;
+@property (nonatomic, strong) NSString *tweakID;
+@property (nonatomic, strong) NSString *rawScript;
+@property (nonatomic, strong) NSArray<NSDictionary *> *params;
+@property (nonatomic, strong) NSMutableDictionary *values;
+@end
+
+@implementation RepoTweakDetailController
+
+- (instancetype)initWithTweak:(NSDictionary *)tweak {
+    self = [super initWithStyle:UITableViewStyleGrouped];
+    if (self) {
+        self.tweak = tweak;
+        self.tweakID = tweak[@"id"];
+        self.title = tweak[@"name"];
+        
+        NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
+        // Retrieve js code from repo
+        NSString *scriptKey = [NSString stringWithFormat:@"RepoTweakScript_%@", self.tweakID];
+        self.rawScript = [d stringForKey:scriptKey] ?: @"";
+        
+        // Retrieve tweaks-specific user saved settings
+        NSString *valuesKey = [NSString stringWithFormat:@"RepoTweakValues_%@", self.tweakID];
+        NSDictionary *savedVals = [d dictionaryForKey:valuesKey];
+        self.values = savedVals ? [savedVals mutableCopy] : [NSMutableDictionary dictionary];
+        
+        // Analyze @param comments in js code
+        NSMutableArray *parsedParams = [NSMutableArray array];
+        NSArray *lines = [self.rawScript componentsSeparatedByString:@"\n"];
+        for (NSString *line in lines) {
+            if ([line containsString:@"@param:"]) {
+                NSArray *parts = [line componentsSeparatedByString:@"|"];
+                if (parts.count >= 4) {
+                    NSString *rawType = [parts[0] componentsSeparatedByString:@"@param:"][1];
+                    NSString *type = [rawType stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+                    NSString *varName = [parts[1] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+                    NSString *label = [parts[2] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+                    NSString *defValue = [parts[3] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+                    
+                    [parsedParams addObject:@{@"type": type, @"varName": varName, @"label": label}];
+                    if (!self.values[varName]) {
+                        self.values[varName] = defValue; //default values if new
+                    }
+                }
+            }
+        }
+        self.params = parsedParams;
+    }
+    return self;
+}
+
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
+    return self.params.count > 0 ? 3 : 2;
+}
+
+- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
+    if (section == 0) return 2; //description and version
+    if (section == 1) return 1; //status (active or not)
+    return self.params.count;   //JS dynamic parameters
+}
+
+- (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
+    if (section == 0) return @"Tweak Infos";
+    if (section == 1) return @"Tweak Status";
+    return @"Personalization Options";
+}
+
+- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+    if (indexPath.section == 0) {
+        UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"info-cell"];
+        cell.selectionStyle = UITableViewCellSelectionStyleNone;
+        if (indexPath.row == 0) {
+            cell.textLabel.text = @"Description";
+            cell.detailTextLabel.text = self.tweak[@"description"];
+            cell.detailTextLabel.numberOfLines = 0;
+        } else {
+            cell.textLabel.text = @"Version";
+            cell.detailTextLabel.text = self.tweak[@"version"];
+        }
+        return cell;
+    }
+    
+    NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
+    
+    if (indexPath.section == 1) {
+        UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"toggle-cell"];
+        cell.selectionStyle = UITableViewCellSelectionStyleNone;
+        cell.textLabel.text = @"Enable Tweak";
+        
+        UISwitch *sw = [[UISwitch alloc] init];
+        NSString *toggleKey = [NSString stringWithFormat:@"RepoTweakEnabled_%@", self.tweakID];
+        sw.on = [d boolForKey:toggleKey];
+        
+        UIAction *action = [UIAction actionWithHandler:^(__kindof UIAction * _Nonnull action) {
+            [d setBool:sw.isOn forKey:toggleKey];
+            [d synchronize];
+        }];
+        [sw addAction:action forControlEvents:UIControlEventValueChanged];
+        cell.accessoryView = sw;
+        return cell;
+    }
+    
+    // Dynamic parameters section (same as QuickLoader)
+    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:@"param-cell"];
+    cell.selectionStyle = UITableViewCellSelectionStyleNone;
+    
+    NSDictionary *param = self.params[indexPath.row];
+    cell.textLabel.text = param[@"label"];
+    
+    NSString *varName = param[@"varName"];
+    NSString *pType = param[@"type"];
+    NSString *currentValue = self.values[varName];
+    
+    NSString *valuesKey = [NSString stringWithFormat:@"RepoTweakValues_%@", self.tweakID];
+    
+    if ([pType isEqualToString:@"switch"]) {
+        UISwitch *sw = [[UISwitch alloc] init];
+        sw.on = [currentValue isEqualToString:@"true"];
+        UIAction *action = [UIAction actionWithHandler:^(__kindof UIAction * _Nonnull action) {
+            self.values[varName] = sw.isOn ? @"true" : @"false";
+            [d setObject:self.values forKey:valuesKey];
+            [d synchronize];
+        }];
+        [sw addAction:action forControlEvents:UIControlEventValueChanged];
+        cell.accessoryView = sw;
+    } 
+    else if ([pType isEqualToString:@"text"]) {
+        UITextField *tf = [[UITextField alloc] initWithFrame:CGRectMake(0, 0, 150, 30)];
+        tf.textAlignment = NSTextAlignmentRight;
+        tf.textColor = UIColor.secondaryLabelColor;
+        tf.text = currentValue;
+        UIAction *action = [UIAction actionWithHandler:^(__kindof UIAction * _Nonnull action) {
+            self.values[varName] = tf.text;
+            [d setObject:self.values forKey:valuesKey];
+            [d synchronize];
+        }];
+        [tf addAction:action forControlEvents:UIControlEventEditingChanged];
+        cell.accessoryView = tf;
+    }
+    else if ([pType isEqualToString:@"color"]) {
+        UIColorWell *colorWell = [[UIColorWell alloc] init];
+        colorWell.translatesAutoresizingMaskIntoConstraints = NO;
+        //call to convert color
+        colorWell.selectedColor = colorFromHexString(currentValue ?: @"#FF0000");
+        
+        UIAction *action = [UIAction actionWithHandler:^(__kindof UIAction * _Nonnull action) {
+            colorWell.title = param[@"label"];
+            self.values[varName] = hexStringFromColor(colorWell.selectedColor);
+            [d setObject:self.values forKey:valuesKey];
+            [d synchronize];
+        }];
+        [colorWell addAction:action forControlEvents:UIControlEventValueChanged];
+        
+        [cell.contentView addSubview:colorWell];
+        [NSLayoutConstraint activateConstraints:@[
+            [colorWell.trailingAnchor constraintEqualToAnchor:cell.contentView.layoutMarginsGuide.trailingAnchor],
+            [colorWell.centerYAnchor constraintEqualToAnchor:cell.contentView.centerYAnchor],
+            [colorWell.widthAnchor constraintEqualToConstant:32.0],
+            [colorWell.heightAnchor constraintEqualToConstant:32.0]
+        ]];
+    }
+    else if ([pType isEqualToString:@"slider"] || [pType isEqualToString:@"number"]) {
+        UIStackView *stack = [[UIStackView alloc] initWithFrame:CGRectMake(0, 0, 220, 30)];
+        stack.axis = UILayoutConstraintAxisHorizontal;
+        stack.spacing = 10;
+        stack.alignment = UIStackViewAlignmentCenter;
+        
+        UISlider *slider = [[UISlider alloc] init];
+        slider.minimumValue = param[@"min"] ? [param[@"min"] floatValue] : 0.0;
+        slider.maximumValue = param[@"max"] ? [param[@"max"] floatValue] : 1.0;
+        
+        //if there is none, retrieve default value
+        float defVal = param[@"default"] ? [param[@"default"] floatValue] : slider.minimumValue;
+        slider.value = currentValue ? [currentValue floatValue] : defVal;
+        
+        UILabel *valLabel = [[UILabel alloc] init];
+        valLabel.textColor = [UIColor secondaryLabelColor];
+        valLabel.font = [UIFont systemFontOfSize:14];
+        [valLabel setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+        
+        void (^updateLabelText)(float) = ^(float value) {
+            if (fabs(value - defVal) < 0.01) {
+                valLabel.text = [NSString stringWithFormat:@"%.2f (Def)", value];
+            } else {
+                valLabel.text = [NSString stringWithFormat:@"%.2f", value];
+            }
+        };
+        
+        updateLabelText(slider.value);
+        
+        [stack addArrangedSubview:slider];
+        [stack addArrangedSubview:valLabel];
+        
+        UIAction *updateTextAction = [UIAction actionWithHandler:^(__kindof UIAction * _Nonnull action) {
+            updateLabelText(slider.value);
+        }];
+        [slider addAction:updateTextAction forControlEvents:UIControlEventValueChanged];
+        
+        UIAction *saveAction = [UIAction actionWithHandler:^(__kindof UIAction * _Nonnull action) {
+            self.values[varName] = [NSString stringWithFormat:@"%.2f", slider.value];
+            [d setObject:self.values forKey:valuesKey];
+            [d synchronize];
+        }];
+        [slider addAction:saveAction forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside];
+        
+        cell.accessoryView = stack;
+    }
+    
+    return cell;
+}
+
+@end
+
+
+// ==========================================
+// REPOTWEAKS: REPO DETAIL VIEW CONTROLLER
+// ==========================================
+@interface RepoDetailController : UITableViewController
+@property (nonatomic, strong) NSString *repoURL;
+@end
+
+@implementation RepoDetailController
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    NSDictionary *repo = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"RepoTweaksCaches"][self.repoURL];
+    self.title = repo[@"repoName"] ?: @"Repository";
+}
+
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { 
+    return 2; // Section 0: Tweaks, Section 1: Delete
+}
+
+- (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
+    if (section == 0) {
+        NSDictionary *repo = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"RepoTweaksCaches"][self.repoURL];
+        return [NSString stringWithFormat:@"By %@", repo[@"author"] ?: @"Unknown"];
+    }
+    return nil;
+}
+
+- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
+    if (section == 1) return 1;
+    NSArray *tweaks = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"RepoTweaksCaches"][self.repoURL][@"tweaks"];
+    return tweaks.count;
+}
+
+- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:nil];
+    
+    // The Delete Button
+    if (indexPath.section == 1) {
+        cell.textLabel.text = @"Delete Repository";
+        cell.textLabel.textColor = [UIColor systemRedColor];
+        cell.textLabel.textAlignment = NSTextAlignmentCenter;
+        return cell;
+    }
+    
+    // The Tweaks
+    NSArray *tweaks = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"RepoTweaksCaches"][self.repoURL][@"tweaks"];
+    NSDictionary *tweak = tweaks[indexPath.row];
+    
+    cell.textLabel.text = tweak[@"name"];
+    cell.detailTextLabel.text = tweak[@"description"];
+    cell.detailTextLabel.numberOfLines = 0;
+    
+    UISwitch *toggle = [[UISwitch alloc] init];
+    toggle.tag = indexPath.row; // Link the switch to the tweak array index
+    NSString *key = [NSString stringWithFormat:@"RepoTweakEnabled_%@", tweak[@"id"]];
+    toggle.on = [[NSUserDefaults standardUserDefaults] boolForKey:key];
+    [toggle addTarget:self action:@selector(toggled:) forControlEvents:UIControlEventValueChanged];
+    
+    cell.accessoryView = toggle;
+    cell.selectionStyle = UITableViewCellSelectionStyleNone;
+    return cell;
+}
+
+- (void)toggled:(UISwitch *)sender {
+    NSArray *tweaks = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"RepoTweaksCaches"][self.repoURL][@"tweaks"];
+    NSDictionary *tweak = tweaks[sender.tag];
+    NSString *key = [NSString stringWithFormat:@"RepoTweakEnabled_%@", tweak[@"id"]];
+    [[NSUserDefaults standardUserDefaults] setBool:sender.on forKey:key];
+    [[NSUserDefaults standardUserDefaults] synchronize];
+}
+
+- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+    [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    
+    // Handle Repo Deletion
+    if (indexPath.section == 1) {
+        NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
+        
+        NSMutableArray *urls = [[d arrayForKey:@"RepoTweaksURLs"] mutableCopy];
+        [urls removeObject:self.repoURL];
+        [d setObject:urls forKey:@"RepoTweaksURLs"];
+        
+        NSMutableDictionary *caches = [[d dictionaryForKey:@"RepoTweaksCaches"] mutableCopy];
+        [caches removeObjectForKey:self.repoURL];
+        [d setObject:caches forKey:@"RepoTweaksCaches"];
+        [d synchronize];
+        
+        [self.navigationController popViewControllerAnimated:YES]; // Slide back to main menu
+    }
+}
+@end
+
+
+
+
+
+
+// ==========================================
+// REPOTWEAKS: REPO MANAGER CONTROLLER (the main page)
+// ==========================================
+@interface RepoManagerController : UITableViewController
+@property (nonatomic, strong) NSArray *flattenedTweaks;
+@end
+
+@implementation RepoManagerController
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title = @"RepoTweaks";
+    
+    // + and refresh buttons (menu bar)
+    UIBarButtonItem *addButton = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemAdd target:self action:@selector(addRepo)];
+    UIBarButtonItem *refreshButton = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemRefresh target:self action:@selector(refreshAll)];
+    self.navigationItem.rightBarButtonItems = @[addButton, refreshButton];
+}
+
+// auto refresh (there was a bug and I had to go back to the page and it would not refresh the UI without this)
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    [self updateData];
+}
+
+- (void)updateData {
+    NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
+    NSArray *urls = [d arrayForKey:@"RepoTweaksURLs"];
+    NSDictionary *caches = [d dictionaryForKey:@"RepoTweaksCaches"];
+    
+    NSMutableArray *tempTweaks = [NSMutableArray array];
+    for (NSString *url in urls) {
+        NSArray *repoTweaks = caches[url][@"tweaks"];
+        if (repoTweaks) [tempTweaks addObjectsFromArray:repoTweaks];
+    }
+    self.flattenedTweaks = tempTweaks;
+    [self.tableView reloadData];
+}
+
+- (void)addRepo {
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Add Source" message:@"Paste the RAW link to your packages.json" preferredStyle:UIAlertControllerStyleAlert];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) { textField.placeholder = @"https://raw.githubusercontent.com/..."; }];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Add" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        NSString *url = alert.textFields.firstObject.text;
+        if (url.length > 0) {
+            repotweaks_refresh_repo(url, ^(BOOL success, NSString *message) { [self updateData]; });
+        }
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)refreshAll {
+    NSArray *urls = [[NSUserDefaults standardUserDefaults] arrayForKey:@"RepoTweaksURLs"];
+    if (urls.count == 0) return;
+    
+    // Refresh Alert
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Refreshing Sources" 
+                                                                   message:@"Nuking old scripts and downloading the latest..." 
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    [self presentViewController:alert animated:YES completion:nil];
+    
+    // track download status
+    dispatch_group_t group = dispatch_group_create();
+    
+    for (NSString *url in urls) {
+        dispatch_group_enter(group);
+        repotweaks_refresh_repo(url, ^(BOOL success, NSString *message) {
+            dispatch_group_leave(group);
+        });
+    }
+    
+    //dismiss alert and refresh UI on success
+    dispatch_group_notify(group, dispatch_get_main_queue(), ^{
+        [alert dismissViewControllerAnimated:YES completion:^{
+            [self updateData];
+        }];
+    });
+}
+
+// Native tweak sections
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return 2; }
+- (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
+    return section == 0 ? @"SOURCES" : @"ALL TWEAKS";
+}
+
+- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
+    if (section == 0) return [[NSUserDefaults standardUserDefaults] arrayForKey:@"RepoTweaksURLs"].count;
+    return self.flattenedTweaks.count;
+}
+
+- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:nil];
+    NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
+    
+    if (indexPath.section == 0) {
+        NSArray *urls = [d arrayForKey:@"RepoTweaksURLs"];
+        NSDictionary *caches = [d dictionaryForKey:@"RepoTweaksCaches"];
+        NSString *url = urls[indexPath.row];
+        NSDictionary *repo = caches[url];
+        
+        cell.textLabel.text = repo[@"repoName"] ?: @"Unknown Repo";
+        cell.detailTextLabel.text = url;
+        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+    } else {
+        NSDictionary *tweak = self.flattenedTweaks[indexPath.row];
+        cell.textLabel.text = tweak[@"name"];
+        cell.detailTextLabel.text = tweak[@"description"];
+        cell.detailTextLabel.numberOfLines = 0;
+        
+        UISwitch *toggle = [[UISwitch alloc] init];
+        toggle.tag = indexPath.row;
+        NSString *key = [NSString stringWithFormat:@"RepoTweakEnabled_%@", tweak[@"id"]];
+        toggle.on = [d boolForKey:key];
+        [toggle addTarget:self action:@selector(toggled:) forControlEvents:UIControlEventValueChanged];
+        
+        cell.accessoryView = toggle;
+        cell.selectionStyle = UITableViewCellSelectionStyleNone;
+    }
+    return cell;
+}
+
+- (void)toggled:(UISwitch *)sender {
+    NSDictionary *tweak = self.flattenedTweaks[sender.tag];
+    NSString *key = [NSString stringWithFormat:@"RepoTweakEnabled_%@", tweak[@"id"]];
+    [[NSUserDefaults standardUserDefaults] setBool:sender.on forKey:key];
+    [[NSUserDefaults standardUserDefaults] synchronize];
+}
+
+//swipe to delete logic
+- (BOOL)tableView:(UITableView *)tableView canEditRowAtIndexPath:(NSIndexPath *)indexPath {
+    return indexPath.section == 0; //only let user swipe to delete sources
+}
+
+- (void)tableView:(UITableView *)tableView commitEditingStyle:(UITableViewCellEditingStyle)editingStyle forRowAtIndexPath:(NSIndexPath *)indexPath {
+    if (editingStyle == UITableViewCellEditingStyleDelete && indexPath.section == 0) {
+        NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
+        NSMutableArray *urls = [[d arrayForKey:@"RepoTweaksURLs"] mutableCopy];
+        NSString *urlToRemove = urls[indexPath.row];
+        
+        [urls removeObjectAtIndex:indexPath.row];
+        [d setObject:urls forKey:@"RepoTweaksURLs"];
+        
+        NSMutableDictionary *caches = [[d dictionaryForKey:@"RepoTweaksCaches"] mutableCopy];
+        [caches removeObjectForKey:urlToRemove];
+        [d setObject:caches forKey:@"RepoTweaksCaches"];
+        [d synchronize];
+        
+        [self updateData]; //refreshes the ui
+    }
+}
+
+- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+    [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    
+    // Section 0: press on the repo, it lists all tweaks
+    if (indexPath.section == 0) {
+        NSArray *urls = [[NSUserDefaults standardUserDefaults] arrayForKey:@"RepoTweaksURLs"];
+        RepoDetailController *detailVC = [[RepoDetailController alloc] initWithStyle:UITableViewStyleGrouped];
+        detailVC.repoURL = urls[indexPath.row];
+        [self.navigationController pushViewController:detailVC animated:YES];
+    }
+    // Section 1: press on a tweak, it lists all dynamic parameters
+    else if (indexPath.section == 1) {
+        NSDictionary *tweak = self.flattenedTweaks[indexPath.row];
+        
+        RepoTweakDetailController *detailVC = [[RepoTweakDetailController alloc] initWithTweak:tweak];
+        [self.navigationController pushViewController:detailVC animated:YES];
+    }
+}
+@end
 
 @interface DSRespringOverlayView : UIView
 @property (nonatomic, strong) WKWebView *webView;
@@ -310,6 +833,10 @@ NSString * const kSettingsSnowBoardLiteSelectedThemeID = @"SnowBoardLiteSelected
 
 NSString * const kSettingsLiveWPEnabled = @"LiveWPEnabled";
 NSString * const kSettingsLiveWPVideoPath = @"LiveWPVideoPath";
+
+NSString * const kSettingsQuickLoaderEnabled = @"QuickLoaderEnabled";
+
+NSString * const kSettingsRepoTweaksEnabled = @"RepoTweaksEnabled";
 
 // Master gate for experimental tweaks. When NO (default), packages that opt
 // into the experimental category are hidden from the Installer and the
@@ -605,6 +1132,8 @@ static void settings_each_springboard_cleanup_entry(void (^block)(const Settings
         { kSettingsLiveWPEnabled, "LiveWP", settings_request_livewp_stop, settings_stop_livewp_registered, livewp_forget_remote_state, settings_livewp_running, YES, YES },
         { kSettingsStageStripEnabled, "Stage Strip", settings_request_stagestrip_stop, settings_stop_stagestrip_registered, stagestrip_forget_remote_state, NULL, YES, YES },
         { kSettingsFastLockXLiteEnabled, "FastLockX Lite", NULL, settings_stop_fastlockx_lite_registered, fastlockx_lite_forget_remote_state, NULL, YES, YES },
+        { kSettingsQuickLoaderEnabled, "QuickLoader", NULL, (bool (*)(BOOL))quickloader_stop_in_session, NULL, NULL, YES, YES },
+        { kSettingsRepoTweaksEnabled, "RepoTweaks", NULL, (bool (*)(BOOL))repotweaks_stop_in_session, NULL, NULL, YES, YES },
         { nil, "Kill All Apps", NULL, NULL, killallapps_forget_remote_state, NULL, NO, NO },
     };
     size_t count = sizeof(entries) / sizeof(entries[0]);
@@ -1097,6 +1626,15 @@ static void settings_stop_springboard_tweaks_locked(const char *reason,
         settings_forget_springboard_tweak_state_locked();
         return;
     }
+    //it needs to be first, because of race conditions a live-js tweak on cleanup may crash the springboard
+    bool repoStopped = repotweaks_stop_in_session();
+    printf("[SETTINGS] %s RepoTweaks stop result=%d\n",
+           reason ?: "SpringBoard cleanup", repoStopped);
+
+    bool qlStopped = quickloader_stop_in_session();
+    printf("[SETTINGS] %s QuickLoader stop result=%d\n",
+           reason ?: "SpringBoard cleanup", qlStopped);
+
 
     settings_each_springboard_cleanup_entry(^(const SettingsSpringBoardTweakCleanupEntry *entry) {
         if (!entry->stop) return;
@@ -4527,6 +5065,11 @@ static BOOL settings_key_is_sbc(NSString *key)
            [key isEqualToString:kSettingsSBCHideLabels];
 }
 
+static BOOL settings_key_is_quickloader(NSString *key)
+{
+    return [key isEqualToString:kSettingsQuickLoaderEnabled];
+}
+
 static BOOL settings_key_is_statbar(NSString *key)
 {
     return [key isEqualToString:kSettingsStatBarEnabled] ||
@@ -5488,6 +6031,95 @@ static void settings_schedule_live_apply_for_key(NSString *key)
         });
         return;
     }
+    if ([key isEqualToString:kSettingsQuickLoaderEnabled]) {
+        if ([d boolForKey:kSettingsQuickLoaderEnabled] && g_springboard_rc_ready) {
+            dispatch_async(dispatch_get_global_queue(0, 0), ^{
+                @synchronized (settings_rc_lock()) {
+                    if (settings_cleanup_in_progress() || !g_springboard_rc_ready) return;
+                    bool ok = quickloader_apply_in_session();
+                    settings_mark_tweak_applied(kSettingsQuickLoaderEnabled,
+                                                ok && [d boolForKey:kSettingsQuickLoaderEnabled]);
+                    printf("[SETTINGS] live QuickLoader apply result=%d\n", ok);
+                }
+                settings_notify_package_queue_changed_async();
+            });
+        } else if (![d boolForKey:kSettingsQuickLoaderEnabled]) {
+            settings_mark_tweak_applied(kSettingsQuickLoaderEnabled, NO);
+            settings_notify_package_queue_changed_async();
+            if (g_springboard_rc_ready) {
+                dispatch_async(dispatch_get_global_queue(0, 0), ^{
+                    @synchronized (settings_rc_lock()) {
+                        if (g_springboard_rc_ready) quickloader_stop_in_session();
+                    }
+                });
+            }
+        }
+        return;
+    }
+
+    if (settings_key_is_gravitylite(key)) {
+        if ([d boolForKey:kSettingsGravityLiteEnabled] && g_springboard_rc_ready) {
+            dispatch_async(dispatch_get_global_queue(0, 0), ^{
+                bool ok = false;
+                GravityLiteConfig config = {0};
+                @synchronized (settings_rc_lock()) {
+                    if (settings_cleanup_in_progress() || !g_springboard_rc_ready) return;
+                    ok = settings_app_state_is_foreground()
+                        ? settings_arm_gravitylite_for_background_start_locked(d, "live settings")
+                        : settings_apply_gravitylite_from_defaults_locked(d);
+                    config = settings_gravitylite_config_from_defaults(d);
+                    settings_mark_tweak_applied(kSettingsGravityLiteEnabled,
+                                                ok && [d boolForKey:kSettingsGravityLiteEnabled]);
+                    printf("[SETTINGS] live Gravity Lite apply result=%d\n", ok);
+                }
+                if (ok && !settings_app_state_is_foreground()) {
+                    settings_start_gravity_motion(config.magnitude, config.explosionForce);
+                }
+                settings_notify_package_queue_changed_async();
+            });
+        } else if (![d boolForKey:kSettingsGravityLiteEnabled]) {
+            __sync_lock_test_and_set(&g_gravitylite_background_armed, 0);
+            settings_stop_gravity_motion();
+            settings_mark_tweak_applied(kSettingsGravityLiteEnabled, NO);
+            settings_notify_package_queue_changed_async();
+            if (g_springboard_rc_ready) {
+                dispatch_async(dispatch_get_global_queue(0, 0), ^{
+                    @synchronized (settings_rc_lock()) {
+                        if (g_springboard_rc_ready) gravitylite_stop_in_session();
+                    }
+                });
+            }
+        }
+        return;
+    }
+
+    if ([key isEqualToString:kSettingsLiveWPEnabled]) {
+        if ([d boolForKey:kSettingsLiveWPEnabled] && g_springboard_rc_ready) {
+            dispatch_async(dispatch_get_global_queue(0, 0), ^{
+                bool ok = false;
+                @synchronized (settings_rc_lock()) {
+                    if (settings_cleanup_in_progress() || !g_springboard_rc_ready) return;
+                    ok = livewp_apply_in_session();
+                    settings_mark_tweak_applied(kSettingsLiveWPEnabled, ok);
+                    printf("[SETTINGS] live LiveWP apply result=%d\n", ok);
+                }
+                if (ok) settings_start_livewp_live_loop();
+                settings_notify_package_queue_changed_async();
+            });
+        } else if (![d boolForKey:kSettingsLiveWPEnabled]) {
+            g_livewp_live_stop_requested = 1;
+            settings_mark_tweak_applied(kSettingsLiveWPEnabled, NO);
+            settings_notify_package_queue_changed_async();
+            if (g_springboard_rc_ready) {
+                dispatch_async(dispatch_get_global_queue(0, 0), ^{
+                    @synchronized (settings_rc_lock()) {
+                        if (g_springboard_rc_ready) livewp_stop_in_session();
+                    }
+                });
+            }
+        }
+        return;
+    }
 
     if (!settings_key_is_sbc(key) || !g_springboard_rc_ready) return;
 
@@ -5633,6 +6265,8 @@ void settings_register_defaults(void)
 
         kSettingsAppSwitcherGridEnabled: @NO,
 
+        kSettingsQuickLoaderEnabled: @NO,
+
         kSettingsExperimentalTweaksEnabled: @NO,
 
         kSettingsNanoMaxPairing:       @(kNanoDefaultMaxPairing),
@@ -5772,12 +6406,14 @@ static void settings_run_actions_internal(BOOL pendingOnly)
             BOOL runLayoutExtras = settings_enabled_tweak_should_run(d, kSettingsLayoutExtrasEnabled, springBoardPendingOnly);
             BOOL runStageStrip = settings_stagestrip_install_allowed() && settings_enabled_tweak_should_run(d, kSettingsStageStripEnabled, springBoardPendingOnly);
             BOOL runGravityLite = settings_enabled_tweak_should_run(d, kSettingsGravityLiteEnabled, springBoardPendingOnly);
+            BOOL runQuickLoader = settings_enabled_tweak_should_run(d, kSettingsQuickLoaderEnabled, springBoardPendingOnly);
+            BOOL runRepoTweaks = settings_enabled_tweak_should_run(d, kSettingsRepoTweaksEnabled, springBoardPendingOnly);
             BOOL stagePausesThemerLive = settings_themer_dynamic_updates_blocked_by_stage(d);
             if (stagePausesThemerLive) {
                 settings_note_themer_stage_conflict(YES);
             }
             BOOL cleanupDisabledSpringBoardTweaks = settings_disabled_applied_springboard_cleanup_needed(d);
-            BOOL needsSpringBoardWork = runSBC || runDarkTweaks || runStatBar || runNSBar || runNiceBarLite || runRSSI || runAxonLite || runGravityLite || runLayoutExtras || runTypeBanner || runNotificationIsland || runAppSwitcherGrid || runThemer || runSnowBoardLite || runLiveWP || runStageStrip || cleanupDisabledSpringBoardTweaks;
+            BOOL needsSpringBoardWork = runSBC || runDarkTweaks || runStatBar || runNSBar || runNiceBarLite || runRSSI || runAxonLite || runGravityLite || runLayoutExtras || runTypeBanner || runNotificationIsland || runAppSwitcherGrid || runThemer || runSnowBoardLite || runLiveWP || runStageStrip || runQuickLoader || runRepoTweaks || cleanupDisabledSpringBoardTweaks;
             BOOL runSandboxEscape = [d boolForKey:kSettingsRunSandboxEscape] && (!pendingOnly || needsSpringBoardWork);
             // TypeBanner prewarms its hidden SpringBoard window during Apply
             // and reuses the open SpringBoard session for text-only updates.
@@ -5805,6 +6441,8 @@ static void settings_run_actions_internal(BOOL pendingOnly)
             if (runNotificationIsland) total++;
             if (runAppSwitcherGrid) total++;
             if (runStageStrip) total++;
+            if (runQuickLoader) total++;
+            if (runRepoTweaks) total++;
             if (cleanupDisabledSpringBoardTweaks) total++;
             NSUInteger step = 0;
             BOOL startStageStripControlLoopAfterInstall = NO;
@@ -5828,6 +6466,8 @@ static void settings_run_actions_internal(BOOL pendingOnly)
             if (runLiveWP) [enabledTweaks addObject:@"livewp"];
             if (runTypeBanner) [enabledTweaks addObject:@"typebanner"];
             if (runStageStrip) [enabledTweaks addObject:@"stagestrip"];
+            if (runQuickLoader) [enabledTweaks addObject:@"quickloader"];
+            if (runRepoTweaks) [enabledTweaks addObject:@"repotweaks"];
             if (cleanupDisabledSpringBoardTweaks) [enabledTweaks addObject:@"cleanup"];
             if (forceSpringBoardRefresh) [enabledTweaks addObject:@"springboard-refresh"];
             log_user("[PLAN] %lu stages: %s\n",
@@ -6111,6 +6751,19 @@ static void settings_run_actions_internal(BOOL pendingOnly)
                         cyanide_upload_log_milestone(ok ? @"livewp-initial-applied" : @"livewp-initial-failed");
                     }
 
+                    if (runQuickLoader) {
+                        settings_progress(&step, total, "Applying QuickLoader...");
+                        bool ok = quickloader_apply_in_session();
+                        settings_mark_tweak_applied(kSettingsQuickLoaderEnabled, ok);
+                    }
+
+                    if (runRepoTweaks) {
+                        settings_progress(&step, total, "Applying RepoTweaks...");
+                        bool ok = repotweaks_apply_in_session();
+                        settings_mark_tweak_applied(kSettingsRepoTweaksEnabled, ok);
+                    }
+
+
                     if (runAxonLite) {
                         settings_progress(&step, total, "Starting Axon Lite notification hub");
                         bool ok = false;
@@ -6334,6 +6987,8 @@ typedef NS_ENUM(NSInteger, SettingsSection) {
     SectionAppSwitcherGrid,
     SectionIPADecryptor,
     SectionFastLockXLite,
+    SectionQuickLoader,
+    SectionRepoTweaks,
     SectionCount,
 };
 
@@ -6404,6 +7059,10 @@ static NSString *settings_pretty_date_for_iso(NSString *iso)
 @property (nonatomic, copy)   NSString *bundleTitle;
 @property (nonatomic, assign) BOOL changelogExpanded;
 @property (nonatomic, copy)   NSString *pendingThemeImportMode;
+@property (nonatomic, strong) NSString *qlScriptName;
+@property (nonatomic, strong) NSString *qlRawScript;
+@property (nonatomic, strong) NSMutableDictionary *qlValues;
+@property (nonatomic, strong) NSArray *qlParams;
 - (void)forceDisableFastLockXLiteForExperimentalGateWithDefaults:(NSUserDefaults *)defaults;
 @end
 
@@ -6666,6 +7325,100 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
     if (path.length == 0) return NO;
     return [[NSFileManager defaultManager] fileExistsAtPath:path];
 }
+
+- (NSArray<NSDictionary *> *)quickLoaderRows {
+    NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
+    
+    //saving settings to storage 
+    if (!self.qlRawScript && [d stringForKey:@"QuickLoaderSourceRawJS"]) {
+        self.qlScriptName = [d stringForKey:@"QuickLoaderSourceScriptName"];
+        self.qlRawScript = [d stringForKey:@"QuickLoaderSourceRawJS"];
+        
+        NSDictionary *savedVals = [d dictionaryForKey:@"QuickLoaderSourceValues"];
+        self.qlValues = savedVals ? [savedVals mutableCopy] : [NSMutableDictionary dictionary];
+        
+        NSMutableArray *params = [NSMutableArray array];
+        NSArray *lines = [self.qlRawScript componentsSeparatedByString:@"\n"];
+        for (NSString *line in lines) {
+            if ([line containsString:@"@param:"]) {
+                NSArray *parts = [line componentsSeparatedByString:@"|"];
+                if (parts.count >= 4) {
+                    NSString *rawType = [parts[0] componentsSeparatedByString:@"@param:"][1];
+                    NSString *type = [rawType stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+                    NSString *varName = [parts[1] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+                    NSString *label = [parts[2] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+                    NSString *defValue = [parts[3] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+                    
+                    // saving default to dictionary
+                    NSMutableDictionary *paramDict = [NSMutableDictionary dictionaryWithDictionary:@{
+                        @"type": type, @"varName": varName, @"label": label, @"default": defValue
+                    }];
+                    
+                    // extracting min-max values for slider
+                    if (parts.count >= 5 && ([type isEqualToString:@"slider"] || [type isEqualToString:@"number"])) {
+                        NSString *rangeStr = [parts[4] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+                        NSArray *rangeParts = [rangeStr componentsSeparatedByString:@"-"];
+                        if (rangeParts.count == 2) {
+                            paramDict[@"min"] = rangeParts[0];
+                            paramDict[@"max"] = rangeParts[1];
+                        }
+                    }
+                    
+                    [params addObject:paramDict];
+                    
+                    //if new, it loads the default values
+                    if (!self.qlValues[varName]) {
+                        self.qlValues[varName] = defValue;
+                    }
+                }
+            }
+        }
+        self.qlParams = params;
+    }
+
+    NSMutableArray *rows = [NSMutableArray array];
+    
+    // The main button
+    [rows addObject:@{ @"kind": @"button", @"action": @"quickloader-run-js", @"title": @"Select .js Tweak" }];
+    
+    //filename on screen
+    NSString *filename = self.qlScriptName ?: [[NSUserDefaults standardUserDefaults] stringForKey:@"QuickLoaderSourceScriptName"];
+    if (filename) {
+        [rows addObject:@{ @"kind": @"button", @"action": @"none", @"title": [NSString stringWithFormat:@"Tweak Loaded: %@", filename] }];
+    } else {
+        [rows addObject:@{ @"kind": @"button", @"action": @"none", @"title": @"No file loaded" }];
+    }
+    
+    //dynamically adds rows if it detects parameters
+    if (self.qlParams.count > 0) {
+        for (NSDictionary *param in self.qlParams) {
+            NSMutableDictionary *rowDict = [NSMutableDictionary dictionaryWithDictionary:@{
+                @"kind": @"ql-param",
+                @"paramType": param[@"type"],
+                @"varName": param[@"varName"],
+                @"title": param[@"label"],
+                @"default": param[@"default"] //retrieve default for ui
+            }];
+            
+            //retrieve min-max limits for ui
+            if (param[@"min"]) rowDict[@"min"] = param[@"min"];
+            if (param[@"max"]) rowDict[@"max"] = param[@"max"];
+            
+            [rows addObject:rowDict];
+        }
+        
+        //button to apply
+        [rows addObject:@{
+            @"kind": @"button",
+            @"action": @"quickloader-apply-dynamic",
+            @"title": @"Apply Tweak"
+        }];
+    }
+
+    return rows;
+}
+
+
 
 - (instancetype)initWithCoder:(NSCoder *)coder
 {
@@ -7593,6 +8346,8 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
         case SectionIPADecryptor: return self.ipaDecryptorRows;
         case SectionSnowBoardLite: return self.snowboardLiteRows;
         case SectionLiveWP: return self.liveWPRows;
+        case SectionQuickLoader: return self.quickLoaderRows;
+        case SectionRepoTweaks: return self.repoTweaksRows;
         default: return @[];
     }
 }
@@ -7626,6 +8381,8 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
         @{ @"title": @"Location Simulator", @"icon": @"location.fill",                       @"color": [UIColor systemGreenColor],  @"section": @(SectionLocationSim) },
         @{ @"title": @"SnowBoard Lite",     @"icon": @"square.stack.3d.up.fill",             @"color": [UIColor systemCyanColor],   @"section": @(SectionSnowBoardLite) },
         @{ @"title": @"LiveWP",             @"icon": @"play.rectangle.fill",                 @"color": [UIColor systemPurpleColor], @"section": @(SectionLiveWP) },
+        @{ @"title": @"QuickLoader",        @"icon": @"bolt.fill",                           @"color": [UIColor systemYellowColor], @"section": @(SectionQuickLoader) },
+        @{ @"title": @"RepoTweaks",         @"icon": @"tray.and.arrow.down.fill",            @"color": [UIColor systemBlueColor],   @"section": @(SectionRepoTweaks) },
         @{ @"title": @"Powercuff",          @"icon": @"bolt.slash.fill",                     @"color": [UIColor systemOrangeColor], @"section": @(SectionPowercuff) },
         @{ @"title": @"SpringBoard Tweaks", @"icon": @"apps.iphone",                         @"color": [UIColor systemIndigoColor], @"section": @(SectionDarkSwordTweaks) },
         @{ @"title": @"Drag Coefficient",   @"icon": @"dial.medium.fill",                    @"color": [UIColor systemIndigoColor], @"section": @(SectionDragCoefficient) },
@@ -8576,6 +9333,7 @@ didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls
     (void)controller;
     NSURL *url = urls.firstObject;
     if (!url) return;
+    NSString *ext = url.pathExtension.lowercaseString;
     NSString *mode = self.pendingThemeImportMode ?: @"themer";
     self.pendingThemeImportMode = nil;
 
@@ -8595,6 +9353,71 @@ didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls
         [self presentViewController:ac animated:YES completion:nil];
         return;
     }
+
+
+    // =========================================================================
+    // QuickLoader (JS text filter)
+    // =========================================================================
+    if ([ext isEqualToString:@"js"] || [ext isEqualToString:@"txt"]) {
+        NSError *err = nil;
+        NSString *content = [NSString stringWithContentsOfURL:url encoding:NSUTF8StringEncoding error:&err];
+        
+        if (content) {
+            self.qlScriptName = [url lastPathComponent];
+            self.qlRawScript = content;
+            
+            NSMutableArray *params = [NSMutableArray array];
+            self.qlValues = [NSMutableDictionary dictionary];
+            
+            NSArray *lines = [content componentsSeparatedByString:@"\n"];
+            for (NSString *line in lines) {
+                if ([line containsString:@"@param:"]) {
+                    NSArray *parts = [line componentsSeparatedByString:@"|"];
+                    if (parts.count >= 4) {
+                        NSString *rawType = [parts[0] componentsSeparatedByString:@"@param:"][1];
+                        NSString *type = [rawType stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+                        NSString *varName = [parts[1] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+                        NSString *label = [parts[2] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+                        NSString *defValue = [parts[3] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+                        
+                        NSMutableDictionary *paramDict = [NSMutableDictionary dictionaryWithDictionary:@{
+                            @"type": type, @"varName": varName, @"label": label, @"default": defValue
+                        }];
+                        
+                        if (parts.count >= 5 && ([type isEqualToString:@"slider"] || [type isEqualToString:@"number"])) {
+                            NSString *rangeStr = [parts[4] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+                            NSArray *rangeParts = [rangeStr componentsSeparatedByString:@"-"];
+                            if (rangeParts.count == 2) {
+                                paramDict[@"min"] = rangeParts[0];
+                                paramDict[@"max"] = rangeParts[1];
+                            }
+                        }
+                        
+                        [params addObject:paramDict];
+                        self.qlValues[varName] = defValue; 
+                    }
+                }
+            }
+            self.qlParams = params;
+            
+            // Save source and name
+            NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
+            [d setObject:self.qlScriptName forKey:@"QuickLoaderSourceScriptName"];
+            [d setObject:self.qlRawScript forKey:@"QuickLoaderSourceRawJS"];
+            [d setObject:self.qlValues forKey:@"QuickLoaderSourceValues"];
+            [d synchronize];
+            
+            // first auto injection and ui refresh
+            [self applyQuickLoaderScript];
+            [self.tableView reloadData];
+        }
+        
+        if (scoped) [url stopAccessingSecurityScopedResource];
+        
+        // So that the other tweaks don't get the .js file
+        return; 
+    }
+
 
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         NSError *err = nil;
@@ -8671,6 +9494,43 @@ didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls
         });
     });
 }
+
+
+// ==========================================
+// QUICKLOADER: injecting and saving
+// ==========================================
+- (void)applyQuickLoaderScript {
+    if (!self.qlRawScript) return;
+    
+    NSMutableString *finalScript = [NSMutableString stringWithString:@"//Variables injected by Cyanide\n"];
+    
+    //from UI values to JS variables
+    for (NSDictionary *param in self.qlParams) {
+        NSString *varName = param[@"varName"];
+        NSString *type = param[@"type"];
+        NSString *currentValue = self.qlValues[varName];
+        
+        if ([type isEqualToString:@"switch"]) {
+            [finalScript appendFormat:@"var %@ = %@;\n", varName, currentValue];
+        } else if ([type isEqualToString:@"text"] || [type isEqualToString:@"color"]) {
+            [finalScript appendFormat:@"var %@ = \"%@\";\n", varName, currentValue];
+        } else if ([type isEqualToString:@"slider"] || [type isEqualToString:@"number"]) {
+                                    [finalScript appendFormat:@"var %@ = %@;\n", varName, currentValue];
+        }
+    }
+    
+    [finalScript appendString:@"// --------------------------------------\n\n"];
+    
+    //add original code
+    [finalScript appendString:self.qlRawScript];
+    
+    //save for QuickLoader.m
+    [[NSUserDefaults standardUserDefaults] setObject:finalScript forKey:@"QuickLoaderSavedJS"];
+    [[NSUserDefaults standardUserDefaults] synchronize];
+    
+    NSLog(@"[Cyanide] Dynamic JS Tweak Saved Successfully!");
+}
+
 
 - (void)documentPickerWasCancelled:(UIDocumentPickerViewController *)controller
 {
@@ -10229,6 +11089,131 @@ void cyanide_present_contact(UIViewController *host)
             [seg.topAnchor      constraintEqualToAnchor:cell.contentView.layoutMarginsGuide.topAnchor],
             [seg.bottomAnchor   constraintEqualToAnchor:cell.contentView.layoutMarginsGuide.bottomAnchor],
         ]];
+        return cell;
+    }
+
+    if ([kind isEqualToString:@"ql-param"]) {
+        UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"ql-param"];
+        if (!cell) {
+            cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:@"ql-param"];
+        }
+        cell.selectionStyle = UITableViewCellSelectionStyleNone;
+        cell.textLabel.text = row[@"title"];
+        
+        NSString *varName = row[@"varName"];
+        NSString *pType = row[@"paramType"];
+        NSString *currentValue = self.qlValues[varName];
+        
+        if ([pType isEqualToString:@"switch"]) {
+            UISwitch *sw = [[UISwitch alloc] init];
+            sw.on = [currentValue isEqualToString:@"true"];
+            
+            UIAction *action = [UIAction actionWithHandler:^(__kindof UIAction * _Nonnull action) {
+                self.qlValues[varName] = sw.isOn ? @"true" : @"false";
+                [[NSUserDefaults standardUserDefaults] setObject:self.qlValues forKey:@"QuickLoaderSourceValues"];
+                [self applyQuickLoaderScript]; //auto-compiling
+            }];
+            [sw addAction:action forControlEvents:UIControlEventValueChanged];
+            
+            cell.accessoryView = sw;
+        } 
+        else if ([pType isEqualToString:@"text"]) {
+            UITextField *tf = [[UITextField alloc] initWithFrame:CGRectMake(0, 0, 150, 30)];
+            tf.textAlignment = NSTextAlignmentRight;
+            tf.textColor = UIColor.secondaryLabelColor;
+            tf.text = currentValue;
+            
+            UIAction *action = [UIAction actionWithHandler:^(__kindof UIAction * _Nonnull action) {
+                self.qlValues[varName] = tf.text;
+                [[NSUserDefaults standardUserDefaults] setObject:self.qlValues forKey:@"QuickLoaderSourceValues"];
+                [self applyQuickLoaderScript]; //auto-compiling
+            }];
+            [tf addAction:action forControlEvents:UIControlEventEditingChanged];
+            
+            cell.accessoryView = tf;
+        }
+        else if ([pType isEqualToString:@"color"]) {
+            // making sure AccessoryView is empty to avoid conflicts
+            cell.accessoryView = nil;
+            
+            UIColorWell *colorWell = [[UIColorWell alloc] init];
+            colorWell.translatesAutoresizingMaskIntoConstraints = NO;
+            colorWell.title = row[@"title"]; 
+            
+            // if currentValue is null use red
+            colorWell.selectedColor = colorFromHexString(currentValue ?: @"#FF0000");
+            
+            UIAction *action = [UIAction actionWithHandler:^(__kindof UIAction * _Nonnull action) {
+                self.qlValues[varName] = hexStringFromColor(colorWell.selectedColor);
+                [[NSUserDefaults standardUserDefaults] setObject:self.qlValues forKey:@"QuickLoaderSourceValues"];
+                [self applyQuickLoaderScript]; //auto-compiling
+            }];
+            [colorWell addAction:action forControlEvents:UIControlEventValueChanged];
+            
+            //bypass accessoryView (color)
+            [cell.contentView addSubview:colorWell];
+            
+            //force 32x32 and right formatting
+            [NSLayoutConstraint activateConstraints:@[
+                [colorWell.trailingAnchor constraintEqualToAnchor:cell.contentView.layoutMarginsGuide.trailingAnchor],
+                [colorWell.centerYAnchor constraintEqualToAnchor:cell.contentView.centerYAnchor],
+                [colorWell.widthAnchor constraintEqualToConstant:32.0],
+                [colorWell.heightAnchor constraintEqualToConstant:32.0]
+            ]];
+        }
+
+        else if ([pType isEqualToString:@"slider"]) {
+            //spacing for default text
+            UIStackView *stack = [[UIStackView alloc] initWithFrame:CGRectMake(0, 0, 220, 30)];
+            stack.axis = UILayoutConstraintAxisHorizontal;
+            stack.spacing = 10;
+            stack.alignment = UIStackViewAlignmentCenter;
+            
+            UISlider *slider = [[UISlider alloc] init];
+            slider.minimumValue = row[@"min"] ? [row[@"min"] floatValue] : 0.0;
+            slider.maximumValue = row[@"max"] ? [row[@"max"] floatValue] : 1.0;
+            
+            //if new use .js default settings
+            float defVal = row[@"default"] ? [row[@"default"] floatValue] : slider.minimumValue;
+            slider.value = currentValue ? [currentValue floatValue] : defVal;
+            
+            UILabel *valLabel = [[UILabel alloc] init];
+            valLabel.textColor = [UIColor secondaryLabelColor];
+            valLabel.font = [UIFont systemFontOfSize:14];
+            [valLabel setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+            
+            //real-time text formatting
+            void (^updateLabelText)(float) = ^(float value) {
+                if (fabs(value - defVal) < 0.01) {
+                    valLabel.text = [NSString stringWithFormat:@"%.2f (Def)", value];
+                } else {
+                    valLabel.text = [NSString stringWithFormat:@"%.2f", value];
+                }
+            };
+            
+            //initialize cell text
+            updateLabelText(slider.value);
+            
+            [stack addArrangedSubview:slider];
+            [stack addArrangedSubview:valLabel];
+            
+            //refresh text (when sliding)
+            UIAction *updateTextAction = [UIAction actionWithHandler:^(__kindof UIAction * _Nonnull action) {
+                updateLabelText(slider.value);
+            }];
+            [slider addAction:updateTextAction forControlEvents:UIControlEventValueChanged];
+            
+            //save and compile (after sliding)
+            UIAction *saveAction = [UIAction actionWithHandler:^(__kindof UIAction * _Nonnull action) {
+                self.qlValues[varName] = [NSString stringWithFormat:@"%.2f", slider.value];
+                [[NSUserDefaults standardUserDefaults] setObject:self.qlValues forKey:@"QuickLoaderSourceValues"];
+                [self applyQuickLoaderScript];
+            }];
+            [slider addAction:saveAction forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside];
+            
+            cell.accessoryView = stack;
+        }
+        
         return cell;
     }
 
@@ -12069,6 +13054,38 @@ void cyanide_present_contact(UIViewController *host)
         return;
     }
 
+    if (indexPath.section == SectionQuickLoader) {
+        NSDictionary *row = [self rowsForSection:indexPath.section][indexPath.row];
+        if (![row[@"kind"] isEqualToString:@"button"]) return;
+        
+        NSString *action = row[@"action"];
+        if ([action isEqualToString:@"quickloader-run-js"]) {
+            // Opens the iOS Files App Picker to select a JS file
+            NSArray *types = @[UTTypeJavaScript.identifier, UTTypePlainText.identifier];
+            UIDocumentPickerViewController *dp = [[UIDocumentPickerViewController alloc] initWithDocumentTypes:types inMode:UIDocumentPickerModeImport];
+            dp.delegate = self;
+            [self presentViewController:dp animated:YES completion:nil];
+            return;
+        }
+        return;
+    }
+
+
+
+    if (indexPath.section == SectionRepoTweaks) {
+        NSDictionary *row = [self rowsForSection:indexPath.section][indexPath.row];
+        if (![row[@"kind"] isEqualToString:@"button"]) return;
+        
+        NSString *action = row[@"action"];
+        
+        if ([action isEqualToString:@"repotweaks-open-manager"]) {
+            RepoManagerController *vc = [[RepoManagerController alloc] initWithStyle:UITableViewStyleGrouped];
+            [self.navigationController pushViewController:vc animated:YES];
+        }
+        return;
+    }
+
+
     if (indexPath.section == SectionThemer) {
         NSDictionary *row = [self rowsForSection:indexPath.section][indexPath.row];
         if (![row[@"kind"] isEqualToString:@"button"]) return;
@@ -12094,6 +13111,12 @@ void cyanide_present_contact(UIViewController *host)
                           withRowAnimation:UITableViewRowAnimationNone];
         }
     }
+}
+
+- (NSArray<NSDictionary *> *)repoTweaksRows {
+    return @[
+        @{ @"kind": @"button", @"action": @"repotweaks-open-manager", @"title": @"📦 Open Repo Manager" }
+    ];
 }
 
 @end

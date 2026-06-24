@@ -8038,8 +8038,7 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
     self.qlStandalone = self.quickLoaderStandalone;
     NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
 
-    //saving settings to storage
-    if (!self.qlRawScript && [d stringForKey:@"QuickLoaderSourceRawJS"]) {
+    if (!self.qlStandalone && !self.qlRawScript && [d stringForKey:@"QuickLoaderSourceRawJS"]) {
         self.qlScriptName = [d stringForKey:@"QuickLoaderSourceScriptName"];
         self.qlRawScript = [d stringForKey:@"QuickLoaderSourceRawJS"];
 
@@ -8089,9 +8088,16 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
 
     NSMutableArray *rows = [NSMutableArray array];
     NSUserDefaults *ud = [NSUserDefaults standardUserDefaults];
-    NSString *filename = self.qlScriptName ?: [ud stringForKey:@"QuickLoaderSourceScriptName"];
-    BOOL enabled = [ud boolForKey:kSettingsQuickLoaderEnabled];
-    BOOL hasRepoTweak = [ud stringForKey:@"QuickLoaderSourceRepoURL"].length > 0;
+    NSString *filename;
+    BOOL enabled;
+    if (self.qlStandalone) {
+        filename = self.qlScriptName;
+        enabled = NO;
+    } else {
+        filename = self.qlScriptName ?: [ud stringForKey:@"QuickLoaderSourceScriptName"];
+        enabled = [ud boolForKey:kSettingsQuickLoaderEnabled];
+    }
+    BOOL hasRepoTweak = !self.qlStandalone && [ud stringForKey:@"QuickLoaderSourceRepoURL"].length > 0;
 
     if (filename) {
         NSString *source = hasRepoTweak ? @"From source repo" : @"Local file";
@@ -10250,6 +10256,29 @@ didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls
 // ==========================================
 // QUICKLOADER: injecting and saving
 // ==========================================
+- (NSString *)compileQuickLoaderScript {
+    if (!self.qlRawScript) return nil;
+
+    NSMutableString *finalScript = [NSMutableString stringWithString:@"//Variables injected by Cyanide\n"];
+    for (NSDictionary *param in self.qlParams) {
+        NSString *varName = param[@"varName"];
+        NSString *type = param[@"type"];
+        NSString *currentValue = settings_string_or_empty(self.qlValues[varName]);
+        if (!settings_js_identifier_valid(varName)) continue;
+
+        if ([type isEqualToString:@"switch"]) {
+            [finalScript appendFormat:@"var %@ = %@;\n", varName, [currentValue boolValue] ? @"true" : @"false"];
+        } else if ([type isEqualToString:@"text"] || [type isEqualToString:@"color"]) {
+            [finalScript appendFormat:@"var %@ = %@;\n", varName, settings_js_string_literal(currentValue)];
+        } else if ([type isEqualToString:@"slider"] || [type isEqualToString:@"number"]) {
+            [finalScript appendFormat:@"var %@ = %@;\n", varName, settings_js_number_literal(currentValue)];
+        }
+    }
+    [finalScript appendString:@"// --------------------------------------\n\n"];
+    [finalScript appendString:self.qlRawScript];
+    return finalScript;
+}
+
 - (void)applyQuickLoaderScript {
     if (!self.qlRawScript) return;
 

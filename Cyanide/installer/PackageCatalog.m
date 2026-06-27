@@ -6,7 +6,7 @@
 #import "PackageCatalog.h"
 #import "../SettingsViewController.h"
 #import "../tweaks/RepoTweaks.h"
-#import "../tweaks/private_compat.h"
+#import "../tweaks/experimental_tweaks.h"
 
 @interface Package ()
 @property (nonatomic, readwrite, copy) NSString *symbolName;
@@ -190,7 +190,7 @@ static const NSInteger kSecRepoTweaks       = 26;
                                           isNew:NO];
         niceBarLite.settingsSection = kSecNiceBarLite;
 
-#if CYANIDE_PRIVATE_TWEAKS_AVAILABLE
+#if CYANIDE_EXPERIMENTAL_TWEAKS_AVAILABLE
         Package *signal = [[Package alloc] initWithIdentifier:@"com.darksword.rssidisplay"
                                            name:@"Signal Readouts"
                                shortDescription:@"RSRP dBm on cellular, bar count on WiFi"
@@ -246,7 +246,7 @@ static const NSInteger kSecRepoTweaks       = 26;
                                           isNew:NO];
         axon.unstableWarning = @"⚠️ Experimental: work-in-progress. Expect SpringBoard crashes, dropped notifications, layout glitches, and breakage between Cyanide builds. Don't rely on it for anything important.";
 
-#if CYANIDE_PRIVATE_TWEAKS_AVAILABLE
+#if CYANIDE_EXPERIMENTAL_TWEAKS_AVAILABLE
         Package *typeBanner = [[Package alloc] initWithIdentifier:@"com.darksword.typebanner"
                                            name:@"TypeBanner"
                                shortDescription:@"iMessage typing banner under the Dynamic Island"
@@ -428,7 +428,7 @@ static const NSInteger kSecRepoTweaks       = 26;
         quickLoader.settingsSection = kSecQuickLoader;
         quickLoader.unstableWarning = @"Runs user-selected JavaScript with access to Cyanide's RemoteCall helpers. Only use scripts you trust; bad scripts can crash SpringBoard.";
 
-#if CYANIDE_PRIVATE_TWEAKS_AVAILABLE
+#if CYANIDE_EXPERIMENTAL_TWEAKS_AVAILABLE
         Package *fastLockXLite = [[Package alloc] initWithIdentifier:@"com.darksword.fastlockx-lite"
                                            name:@"FastLockX Lite"
                                shortDescription:@"Face ID retry + unlock controls"
@@ -588,14 +588,14 @@ static const NSInteger kSecRepoTweaks       = 26;
             otaBlock,
 
             // Higher-risk/manual packages last so their warnings sit below core tweaks.
-#if CYANIDE_PRIVATE_TWEAKS_AVAILABLE
+#if CYANIDE_EXPERIMENTAL_TWEAKS_AVAILABLE
             signal,
 #endif
             axon,
             nanoRegistry,
             callRecordingSound,
             hideHomeBar,
-#if CYANIDE_PRIVATE_TWEAKS_AVAILABLE
+#if CYANIDE_EXPERIMENTAL_TWEAKS_AVAILABLE
             typeBanner,
             notificationIsland,
             ipaDecryptor,

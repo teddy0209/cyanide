@@ -9,7 +9,7 @@
 #import "tweaks/sbcustomizer.h"
 #import "tweaks/powercuff.h"
 #import "tweaks/statbar.h"
-#import "tweaks/private_compat.h"
+#import "tweaks/experimental_tweaks.h"
 #import "tweaks/nsbar.h"
 #import "tweaks/nicebarlite.h"
 #import "tweaks/axonlite.h"
@@ -1791,27 +1791,27 @@ static BOOL settings_experimental_tweaks_enabled(void)
 
 static BOOL settings_rssi_install_allowed(void)
 {
-    return cyanide_private_tweaks_available() && settings_experimental_tweaks_enabled();
+    return cyanide_experimental_tweaks_available() && settings_experimental_tweaks_enabled();
 }
 
 static BOOL settings_typebanner_install_allowed(void)
 {
-    return cyanide_private_tweaks_available() && settings_experimental_tweaks_enabled();
+    return cyanide_experimental_tweaks_available() && settings_experimental_tweaks_enabled();
 }
 
 static BOOL settings_notificationisland_install_allowed(void)
 {
-    return cyanide_private_tweaks_available() && settings_experimental_tweaks_enabled();
+    return cyanide_experimental_tweaks_available() && settings_experimental_tweaks_enabled();
 }
 
 static BOOL settings_stagestrip_install_allowed(void)
 {
-    return cyanide_private_tweaks_available();
+    return cyanide_experimental_tweaks_available();
 }
 
 static BOOL settings_fastlockx_lite_install_allowed(void)
 {
-    return cyanide_private_tweaks_available();
+    return cyanide_experimental_tweaks_available();
 }
 
 static NSString *settings_legacy_access_label(void)
@@ -6947,7 +6947,7 @@ void settings_register_defaults(void)
     }];
     settings_purge_legacy_access_auth();
     repotweaks_seed_default_repos();
-    if (!cyanide_private_tweaks_available()) {
+    if (!cyanide_experimental_tweaks_available()) {
         BOOL changed = NO;
         NSArray<NSString *> *privateKeys = @[
             kSettingsRSSIDisplayEnabled,
@@ -9092,11 +9092,11 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
         @{ @"title": @"StatBar",            @"icon": @"thermometer.medium",                  @"color": [UIColor systemRedColor],    @"section": @(SectionStatBar) },
         @{ @"title": @"NSBar",              @"icon": @"network",                             @"color": [UIColor systemBlueColor],   @"section": @(SectionNSBar) },
         @{ @"title": @"NiceBar Lite",       @"icon": @"textformat.size",                     @"color": [UIColor systemTealColor],   @"section": @(SectionNiceBarLite) },
-#if CYANIDE_PRIVATE_TWEAKS_AVAILABLE
+#if CYANIDE_EXPERIMENTAL_TWEAKS_AVAILABLE
         @{ @"title": @"Signal Display",     @"icon": @"antenna.radiowaves.left.and.right",   @"color": [UIColor systemBlueColor],   @"section": @(SectionRSSI), @"indev": @YES },
 #endif
         @{ @"title": @"Axon Lite",          @"icon": @"bell.badge.fill",                     @"color": [UIColor systemRedColor],    @"section": @(SectionAxonLite) },
-#if CYANIDE_PRIVATE_TWEAKS_AVAILABLE
+#if CYANIDE_EXPERIMENTAL_TWEAKS_AVAILABLE
         @{ @"title": @"TypeBanner",         @"icon": @"ellipsis.bubble.fill",                @"color": [UIColor systemTealColor],   @"section": @(SectionTypeBanner), @"indev": @YES },
         @{ @"title": @"Notification Island", @"icon": @"bell.and.waves.left.and.right.fill",  @"color": [UIColor systemOrangeColor], @"section": @(SectionNotificationIsland), @"indev": @YES },
         @{ @"title": @"IPA Decryptor",      @"icon": @"lock.open.fill",                      @"color": [UIColor systemPurpleColor], @"section": @(SectionIPADecryptor), @"indev": @YES },

@@ -39,6 +39,7 @@
 		FB6E0D8C2FD617F8003D17B7 /* ChOma.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = ChOma.xcodeproj; sourceTree = "<group>"; };
 		FBA008522FB522840080FFE2 /* ChOma.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = ChOma.xcodeproj; sourceTree = "<group>"; };
 		FBA376182FB7FE5600886898 /* ChOma.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = ChOma.xcodeproj; sourceTree = "<group>"; };
+		FBA40B372FF02FE40094D8DA /* ChOma.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = ChOma.xcodeproj; sourceTree = "<group>"; };
 		FBAA37D72FB96407003A81C6 /* ChOma.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = ChOma.xcodeproj; sourceTree = "<group>"; };
 		FBBF227D2FAE5E7E00AF5849 /* ChOma.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = ChOma.xcodeproj; sourceTree = "<group>"; };
 		FBCF789E2FEC78CD009B4312 /* ChOma.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = ChOma.xcodeproj; sourceTree = "<group>"; };
@@ -57,10 +58,10 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
-				tweaks/private/NotificationIslandActivityAttributes.swift,
-				tweaks/private/NotificationIslandLiveActivityBridge.swift,
-				tweaks/private/NotificationIslandWidget/Info.plist,
-				tweaks/private/NotificationIslandWidget/NotificationIslandWidgetBundle.swift,
+				tweaks/experimental/NotificationIslandActivityAttributes.swift,
+				tweaks/experimental/NotificationIslandLiveActivityBridge.swift,
+				tweaks/experimental/NotificationIslandWidget/Info.plist,
+				tweaks/experimental/NotificationIslandWidget/NotificationIslandWidgetBundle.swift,
 				XPF/.gitignore,
 				XPF/.gitmodules,
 				XPF/.vscode/settings.json,
@@ -311,6 +312,13 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
+		FBA40B782FF02FE40094D8DA /* Products */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
 		FBAA38092FB96407003A81C6 /* Products */ = {
 			isa = PBXGroup;
 			children = (
@@ -444,8 +452,8 @@
 			projectDirPath = "";
 			projectReferences = (
 				{
-					ProductGroup = AA73F7C72F7BC6CB00134C31 /* Products */;
-					ProjectRef = AA73F7982F7BC6CB00134C31 /* ChOma.xcodeproj */;
+					ProductGroup = FBA376492FB7FE5600886898 /* Products */;
+					ProjectRef = FBA376182FB7FE5600886898 /* ChOma.xcodeproj */;
 				},
 				{
 					ProductGroup = FBEF03792FAC52D5005E14B9 /* Products */;
@@ -544,6 +552,10 @@
 					ProjectRef = FBE3DA332FD4A45700529B2F /* ChOma.xcodeproj */;
 				},
 				{
+					ProductGroup = FBA40B782FF02FE40094D8DA /* Products */;
+					ProjectRef = FBA40B372FF02FE40094D8DA /* ChOma.xcodeproj */;
+				},
+				{
 					ProductGroup = FBE1D66F2FC239CE0043E3DA /* Products */;
 					ProjectRef = FBE1D63D2FC239CE0043E3DA /* ChOma.xcodeproj */;
 				},
@@ -560,8 +572,8 @@
 					ProjectRef = FB5948FE2FC0DFEA006FB8AE /* ChOma.xcodeproj */;
 				},
 				{
-					ProductGroup = FBA376492FB7FE5600886898 /* Products */;
-					ProjectRef = FBA376182FB7FE5600886898 /* ChOma.xcodeproj */;
+					ProductGroup = AA73F7C72F7BC6CB00134C31 /* Products */;
+					ProjectRef = AA73F7982F7BC6CB00134C31 /* ChOma.xcodeproj */;
 				},
 			);
 			projectRoot = "";

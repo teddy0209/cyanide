@@ -394,18 +394,7 @@ compute_extra_bullets() {
 
     while IFS= read -r path; do
         [ -z "$path" ] && continue
-        sub_files="$(
-            {
-                git -C "$path" diff --name-only --diff-filter=ACMRT HEAD -- 2>/dev/null || true
-                git -C "$path" ls-files --others --exclude-standard 2>/dev/null || true
-            } | sort -u
-        )"
-        if [ "$path" = "Cyanide/tweaks/private" ] &&
-           printf '%s\n' "$sub_files" | grep -Fxq 'stagestrip.m'; then
-            add_bullet "Reduce Dynamic Stage Strip flicker during resize and app transitions" "Dynamic Stage Strip"
-        else
-            add_bullet "Update $(basename "$path") submodule" "$(basename "$path") submodule"
-        fi
+        add_bullet "Update $(basename "$path") submodule" "$(basename "$path") submodule"
     done <<< "$DIRTY_SUBMODULES_BEFORE"
 
     while IFS= read -r f; do

@@ -19,11 +19,11 @@ Avoid vague bullets like "Update settings", "Change project files", or
 
 It is OK to mention user-visible beta or experimental tweaks when describing
 added or improved features. Credit original tweak or project authors alongside
-the Cyanide port author when known. Do not mention private submodule activity,
-internal/private source movement, private repository names, private
-implementation details, or commentary about which experimental pieces are
-working versus not wired. If the change cannot be phrased as a user-facing
-feature or fix without revealing private activity, omit it.
+the Cyanide port author when known. Do not mention experimental source movement,
+non-public repository names, non-public implementation details, or commentary
+about which experimental pieces are working versus not wired. If the change
+cannot be phrased as a user-facing feature or fix without revealing internal
+activity, omit it.
 
 ## Pending
 
@@ -199,7 +199,7 @@ feature or fix without revealing private activity, omit it.
 
 - [x] Replaced the first-launch log collection notice with a Cyanide Signal group invite for feedback, feature requests, and support.
 - [x] Added NSBar, NiceBar Lite, SnowBoard Lite, and LiveWP ports from d1y/cyanide-ios, with Settings controls and Installer package credits.
-- [x] Allowed public Cyanide checkouts to build without the private experimental tweak submodule.
+- [x] Allowed public Cyanide checkouts to build without optional experimental tweak sources.
 
 ### v1.2.4 - 2026-06-03
 

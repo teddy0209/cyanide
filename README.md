@@ -1,19 +1,15 @@
 ## Project status
 
-Cyanide is no longer actively maintained by `zeroxjf`.
+Cyanide is now actively maintained by `Nnnnnnn274` but it is no longer the original this is my fork!
 
-Patreon integration has been removed, all installable Cyanide tweaks are free,
-and previously unreleased work-in-progress tweak code has been opened under
-AGPL-3.0. Anyone can fork it, study it, continue it, or reuse it under the
-license terms.
+## Goals
 
-This was originally an AI vibe-coded project, so the codebase should be
-approachable for someone who wants to pick it up, clean it up, or continue
-experimenting.
+Make tweaks more stable and continue the old unfinished tweaks.
+Make new tweaks and stuff.
+Add new exploits.
+And make the experience better!
 
-The old README is preserved below for historical context and build details, but
-parts of it may become stale now that this repository is no longer actively
-maintained.
+## The old README is here
 
 <details>
 <summary>Archived project README</summary>

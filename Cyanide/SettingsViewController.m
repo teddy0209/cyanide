@@ -979,6 +979,14 @@ NSString * const kSettingsFastLockXLiteEnabled = @"FastLockXLiteEnabled";
 static NSString * const kSettingsFastLockXLiteBlockMusic = @"FastLockXLiteBlockMusic";
 static NSString * const kSettingsFastLockXLiteBlockFlashlight = @"FastLockXLiteBlockFlashlight";
 static NSString * const kSettingsFastLockXLiteBlockLowPower = @"FastLockXLiteBlockLowPower";
+NSString * const kSettingsVelvetEnabled = @"VelvetEnabled";
+NSString * const kSettingsVelvetBgColor = @"VelvetBgColor";
+NSString * const kSettingsVelvetBorderColor = @"VelvetBorderColor";
+NSString * const kSettingsVelvetBorderWidth = @"VelvetBorderWidth";
+NSString * const kSettingsVelvetTitleColor = @"VelvetTitleColor";
+NSString * const kSettingsVelvetMessageColor = @"VelvetMessageColor";
+NSString * const kSettingsVelvetDateColor = @"VelvetDateColor";
+NSString * const kSettingsVelvetCornerRadius = @"VelvetCornerRadius";
 static NSString * const kSettingsFastLockXLiteRetryInterval = @"FastLockXLiteRetryInterval";
 static NSString * const kSettingsHideHomeBarHidden = @"HideHomeBarHidden";
 static NSString * const kSettingsHideHomeBarMaterialKitBootTime = @"HideHomeBarMaterialKitBootTime";
@@ -1077,6 +1085,8 @@ static volatile int g_typebanner_live_running = 0;
 static volatile int g_typebanner_live_stop_requested = 0;
 static volatile int g_notificationisland_live_running = 0;
 static volatile int g_notificationisland_live_stop_requested = 0;
+static volatile int g_velvet_live_running = 0;
+static volatile int g_velvet_live_stop_requested = 0;
 static volatile int g_gravitylite_background_armed = 0;
 static volatile int g_gravitylite_start_worker_running = 0;
 static volatile int g_gravity_motion_stop_requested = 1;
@@ -1192,6 +1202,7 @@ static void settings_request_axonlite_stop(void) { g_axonlite_live_stop_requeste
 static void settings_request_typebanner_stop(void) { g_typebanner_live_stop_requested = 1; }
 static void settings_request_notificationisland_stop(void) { g_notificationisland_live_stop_requested = 1; }
 static void settings_request_themer_stop(void) { g_themer_live_stop_requested = 1; }
+static void settings_request_velvet_stop(void) { g_velvet_live_stop_requested = 1; }
 static void settings_request_gravitylite_stop(void)
 {
     __sync_lock_test_and_set(&g_gravitylite_background_armed, 0);
@@ -1207,6 +1218,7 @@ static BOOL settings_rssi_running(void) { return g_rssi_live_running != 0; }
 static BOOL settings_axonlite_running(void) { return g_axonlite_live_running != 0; }
 static BOOL settings_typebanner_running(void) { return g_typebanner_live_running != 0; }
 static BOOL settings_notificationisland_running(void) { return g_notificationisland_live_running != 0; }
+static BOOL settings_velvet_running(void) { return g_velvet_live_running != 0; }
 static BOOL settings_themer_running(void) { return g_themer_live_running != 0 || g_themer_repair_running != 0; }
 static BOOL settings_livewp_running(void) { return g_livewp_live_running != 0; }
 
@@ -1501,6 +1513,9 @@ static const NSUInteger kTypeBannerLiveMaxTicks = 28800;
 static const useconds_t kNotificationIslandLiveIntervalUS = 750000;
 static const useconds_t kNotificationIslandLiveBackgroundIntervalUS = 1500000;
 static const NSUInteger kNotificationIslandLiveMaxTicks = 43200;
+static const useconds_t kVelvetLiveIntervalUS = 1000000;
+static const useconds_t kVelvetLiveBackgroundIntervalUS = 2000000;
+static const NSUInteger kVelvetLiveMaxTicks = 7200;
 // Only Clock/Calendar need periodic repair; normal icons persist through the
 // model graft and should not be repainted during SpringBoard animations.
 static const useconds_t kThemerLiveIntervalUS = 2000000;
@@ -1733,6 +1748,7 @@ static void settings_apply_rssi_once_async(const char *reason);
 static void settings_start_rssi_live_loop(void);
 static void settings_start_typebanner_live_loop(void);
 static void settings_start_notificationisland_live_loop(void);
+static void settings_start_velvet_live_loop(void);
 static void settings_start_themer_live_loop(void);
 static void settings_schedule_themer_repair_burst(const char *reason);
 static void settings_schedule_themer_quiet_repair_burst(const char *reason);
@@ -1812,6 +1828,11 @@ static BOOL settings_stagestrip_install_allowed(void)
 static BOOL settings_fastlockx_lite_install_allowed(void)
 {
     return cyanide_experimental_tweaks_available();
+}
+
+static BOOL settings_velvet_install_allowed(void)
+{
+    return cyanide_experimental_tweaks_available() && settings_experimental_tweaks_enabled();
 }
 
 static NSString *settings_legacy_access_label(void)
@@ -3599,6 +3620,19 @@ static FastLockXLiteConfig settings_fastlockx_lite_config_from_defaults(NSUserDe
         .retryIntervalSeconds = settings_fastlockx_lite_retry_interval(d),
     };
     return config;
+}
+
+static VelvetStyle settings_velvet_style_from_defaults(NSUserDefaults *d)
+{
+    VelvetStyle style;
+    style.background = velvet_color_from_hex([d stringForKey:kSettingsVelvetBgColor] ?: @"#1E1E1E");
+    style.borderColor = velvet_color_from_hex([d stringForKey:kSettingsVelvetBorderColor] ?: @"#3A3A3A");
+    style.borderWidth = (CGFloat)[d doubleForKey:kSettingsVelvetBorderWidth];
+    style.titleColor = velvet_color_from_hex([d stringForKey:kSettingsVelvetTitleColor] ?: @"#FFFFFF");
+    style.messageColor = velvet_color_from_hex([d stringForKey:kSettingsVelvetMessageColor] ?: @"#CCCCCC");
+    style.dateColor = velvet_color_from_hex([d stringForKey:kSettingsVelvetDateColor] ?: @"#888888");
+    style.cornerRadius = (CGFloat)[d doubleForKey:kSettingsVelvetCornerRadius];
+    return style;
 }
 
 static void settings_restart_gravity_motion_if_active(const char *reason)
@@ -5548,7 +5582,8 @@ void settings_application_did_enter_background(void)
         themerLiveNeeded ||
         ([d boolForKey:kSettingsLiveWPEnabled]      && g_springboard_rc_ready) ||
         (settings_notificationisland_install_allowed() && [d boolForKey:kSettingsNotificationIslandEnabled] && g_springboard_rc_ready) ||
-        (settings_typebanner_install_allowed() && [d boolForKey:kSettingsTypeBannerEnabled]);
+        (settings_typebanner_install_allowed() && [d boolForKey:kSettingsTypeBannerEnabled]) ||
+        (settings_velvet_install_allowed() && [d boolForKey:kSettingsVelvetEnabled] && g_springboard_rc_ready);
     if (anyLiveLoopNeeded) {
         if ([d boolForKey:kSettingsKeepAlive]) {
             ds_keepalive_apply_enabled(YES);
@@ -5563,6 +5598,11 @@ void settings_application_did_enter_background(void)
         [d boolForKey:kSettingsNotificationIslandEnabled] &&
         g_springboard_rc_ready) {
         settings_start_notificationisland_live_loop();
+    }
+    if (settings_velvet_install_allowed() &&
+        [d boolForKey:kSettingsVelvetEnabled] &&
+        g_springboard_rc_ready) {
+        settings_start_velvet_live_loop();
     }
     if ([d boolForKey:kSettingsGravityLiteEnabled] && g_springboard_rc_ready) {
         if (g_gravitylite_background_armed != 0) {
@@ -5745,6 +5785,18 @@ static BOOL settings_key_is_typebanner(NSString *key)
 static BOOL settings_key_is_notificationisland(NSString *key)
 {
     return [key isEqualToString:kSettingsNotificationIslandEnabled];
+}
+
+static BOOL settings_key_is_velvet(NSString *key)
+{
+    return [key isEqualToString:kSettingsVelvetEnabled] ||
+           [key isEqualToString:kSettingsVelvetBgColor] ||
+           [key isEqualToString:kSettingsVelvetBorderColor] ||
+           [key isEqualToString:kSettingsVelvetBorderWidth] ||
+           [key isEqualToString:kSettingsVelvetTitleColor] ||
+           [key isEqualToString:kSettingsVelvetMessageColor] ||
+           [key isEqualToString:kSettingsVelvetDateColor] ||
+           [key isEqualToString:kSettingsVelvetCornerRadius];
 }
 
 static BOOL settings_key_is_appswitchergrid(NSString *key)
@@ -6405,6 +6457,52 @@ static void settings_schedule_live_apply_for_key(NSString *key)
         return;
     }
 
+    if (settings_key_is_velvet(key)) {
+        if (!settings_velvet_install_allowed()) {
+            if ([d boolForKey:kSettingsVelvetEnabled]) {
+                [d setBool:NO forKey:kSettingsVelvetEnabled];
+                [d synchronize];
+            }
+            g_velvet_live_stop_requested = 1;
+            settings_mark_tweak_applied(kSettingsVelvetEnabled, NO);
+            settings_notify_package_queue_changed_async();
+            velvet_forget_remote_state();
+            return;
+        }
+        if ([d boolForKey:kSettingsVelvetEnabled] && g_springboard_rc_ready) {
+            dispatch_async(dispatch_get_global_queue(0, 0), ^{
+                bool ok = false;
+                @synchronized (settings_rc_lock()) {
+                    if (settings_cleanup_in_progress() ||
+                        ![d boolForKey:kSettingsVelvetEnabled] ||
+                        !g_springboard_rc_ready) return;
+                    VelvetStyle style = settings_velvet_style_from_defaults(d);
+                    velvet_set_global_style(style);
+                    ok = velvet_apply_in_session();
+                    settings_mark_tweak_applied(kSettingsVelvetEnabled,
+                                                ok && [d boolForKey:kSettingsVelvetEnabled]);
+                    printf("[SETTINGS] live Velvet apply result=%d\n", ok);
+                }
+                if (ok) settings_start_velvet_live_loop();
+                settings_notify_package_queue_changed_async();
+            });
+        } else if (![d boolForKey:kSettingsVelvetEnabled]) {
+            g_velvet_live_stop_requested = 1;
+            settings_mark_tweak_applied(kSettingsVelvetEnabled, NO);
+            settings_notify_package_queue_changed_async();
+            if (g_springboard_rc_ready) {
+                dispatch_async(dispatch_get_global_queue(0, 0), ^{
+                    @synchronized (settings_rc_lock()) {
+                        if (g_springboard_rc_ready) velvet_stop_in_session();
+                    }
+                });
+            } else {
+                velvet_forget_remote_state();
+            }
+        }
+        return;
+    }
+
     if (settings_key_is_appswitchergrid(key)) {
         if ([d boolForKey:kSettingsAppSwitcherGridEnabled] && g_springboard_rc_ready) {
             dispatch_async(dispatch_get_global_queue(0, 0), ^{
@@ -6896,6 +6994,15 @@ void settings_register_defaults(void)
         kSettingsFastLockXLiteBlockLowPower: @NO,
         kSettingsFastLockXLiteRetryInterval: @0.3,
 
+        kSettingsVelvetEnabled: @NO,
+        kSettingsVelvetBgColor: @"#1E1E1E",
+        kSettingsVelvetBorderColor: @"#3A3A3A",
+        kSettingsVelvetBorderWidth: @1.0,
+        kSettingsVelvetTitleColor: @"#FFFFFF",
+        kSettingsVelvetMessageColor: @"#CCCCCC",
+        kSettingsVelvetDateColor: @"#888888",
+        kSettingsVelvetCornerRadius: @13.0,
+
         kSettingsGravityLiteEnabled: @NO,
         kSettingsGravityLiteDockEnabled: @YES,
         kSettingsGravityLiteMagnitudePct: @100,
@@ -6955,6 +7062,7 @@ void settings_register_defaults(void)
             kSettingsNotificationIslandEnabled,
             kSettingsStageStripEnabled,
             kSettingsFastLockXLiteEnabled,
+            kSettingsVelvetEnabled,
         ];
         for (NSString *key in privateKeys) {
             if ([defaults boolForKey:key]) {
@@ -6970,6 +7078,7 @@ void settings_register_defaults(void)
             kSettingsRSSIDisplayEnabled,
             kSettingsTypeBannerEnabled,
             kSettingsNotificationIslandEnabled,
+            kSettingsVelvetEnabled,
         ];
         if ([defaults boolForKey:kSettingsExperimentalTweaksEnabled]) {
             [defaults setBool:NO forKey:kSettingsExperimentalTweaksEnabled];
@@ -7039,6 +7148,7 @@ static void settings_run_actions_internal(BOOL pendingOnly)
             BOOL axonLiteEnabled = [d boolForKey:kSettingsAxonLiteEnabled];
             BOOL typeBannerEnabled = settings_typebanner_install_allowed() && [d boolForKey:kSettingsTypeBannerEnabled];
             BOOL notificationIslandEnabled = settings_notificationisland_install_allowed() && [d boolForKey:kSettingsNotificationIslandEnabled];
+            BOOL velvetEnabled = settings_velvet_install_allowed() && [d boolForKey:kSettingsVelvetEnabled];
             BOOL appSwitcherGridEnabled = [d boolForKey:kSettingsAppSwitcherGridEnabled];
             BOOL themerEnabled = [d boolForKey:kSettingsThemerEnabled];
             BOOL snowboardLiteEnabled = [d boolForKey:kSettingsSnowBoardLiteEnabled];
@@ -7055,6 +7165,7 @@ static void settings_run_actions_internal(BOOL pendingOnly)
             BOOL runAxonLite = settings_enabled_tweak_should_run(d, kSettingsAxonLiteEnabled, springBoardPendingOnly);
             BOOL runTypeBanner = settings_typebanner_install_allowed() && settings_enabled_tweak_should_run(d, kSettingsTypeBannerEnabled, springBoardPendingOnly);
             BOOL runNotificationIsland = settings_notificationisland_install_allowed() && settings_enabled_tweak_should_run(d, kSettingsNotificationIslandEnabled, springBoardPendingOnly);
+            BOOL runVelvet = settings_velvet_install_allowed() && settings_enabled_tweak_should_run(d, kSettingsVelvetEnabled, springBoardPendingOnly);
             BOOL runAppSwitcherGrid = settings_enabled_tweak_should_run(d, kSettingsAppSwitcherGridEnabled, springBoardPendingOnly);
             BOOL runThemer = settings_enabled_tweak_should_run(d, kSettingsThemerEnabled, springBoardPendingOnly);
             BOOL runSnowBoardLite = settings_enabled_tweak_should_run(d, kSettingsSnowBoardLiteEnabled, springBoardPendingOnly);
@@ -7070,7 +7181,7 @@ static void settings_run_actions_internal(BOOL pendingOnly)
                 settings_note_themer_stage_conflict(YES);
             }
             BOOL cleanupDisabledSpringBoardTweaks = settings_disabled_applied_springboard_cleanup_needed(d);
-            BOOL needsSpringBoardWork = runSBC || runDarkTweaks || runStatBar || runNSBar || runNiceBarLite || runRSSI || runAxonLite || runGravityLite || runLayoutExtras || runTypeBanner || runNotificationIsland || runAppSwitcherGrid || runThemer || runSnowBoardLite || runLiveWP || runStageStrip || runFastLockXLite || runQuickLoader || runRepoTweaks || cleanupDisabledSpringBoardTweaks;
+            BOOL needsSpringBoardWork = runSBC || runDarkTweaks || runStatBar || runNSBar || runNiceBarLite || runRSSI || runAxonLite || runGravityLite || runLayoutExtras || runTypeBanner || runNotificationIsland || runVelvet || runAppSwitcherGrid || runThemer || runSnowBoardLite || runLiveWP || runStageStrip || runFastLockXLite || runQuickLoader || runRepoTweaks || cleanupDisabledSpringBoardTweaks;
             BOOL runSandboxEscape = [d boolForKey:kSettingsRunSandboxEscape] && (!pendingOnly || needsSpringBoardWork);
             // TypeBanner prewarms its hidden SpringBoard window during Apply
             // and reuses the open SpringBoard session for text-only updates.
@@ -7102,6 +7213,7 @@ static void settings_run_actions_internal(BOOL pendingOnly)
             if (runGravityLite) total++;
             if (runTypeBanner) total++;
             if (runNotificationIsland) total++;
+            if (runVelvet) total++;
             if (runAppSwitcherGrid) total++;
             if (runStageStrip) total++;
             if (runFastLockXLite) total++;
@@ -7121,6 +7233,7 @@ static void settings_run_actions_internal(BOOL pendingOnly)
             if (runRSSI) [enabledTweaks addObject:@"rssi"];
             if (runAxonLite) [enabledTweaks addObject:@"axon"];
             if (runNotificationIsland) [enabledTweaks addObject:@"notification-island"];
+            if (runVelvet) [enabledTweaks addObject:@"velvet"];
             if (runAppSwitcherGrid) [enabledTweaks addObject:@"app-switcher-grid"];
             if (runGravityLite) [enabledTweaks addObject:[NSString stringWithFormat:@"gravity(%ld%%)", (long)[d integerForKey:kSettingsGravityLiteMagnitudePct]]];
             if (runPowercuff) [enabledTweaks addObject:[NSString stringWithFormat:@"power(%@)", [d stringForKey:kSettingsPowercuffLevel] ?: @"nominal"]];
@@ -7151,6 +7264,7 @@ static void settings_run_actions_internal(BOOL pendingOnly)
                 if (!axonLiteEnabled) g_axonlite_live_stop_requested = 1;
                 if (!typeBannerEnabled) g_typebanner_live_stop_requested = 1;
                 if (!notificationIslandEnabled) g_notificationisland_live_stop_requested = 1;
+                if (!velvetEnabled) g_velvet_live_stop_requested = 1;
                 if (!themerEnabled && !snowboardLiteEnabled) g_themer_live_stop_requested = 1;
                 if (!liveWPEnabled) g_livewp_live_stop_requested = 1;
                 if (!gravityLiteEnabled) settings_request_gravitylite_stop();
@@ -7474,6 +7588,21 @@ static void settings_run_actions_internal(BOOL pendingOnly)
                                                          @"notification-island-initial-failed");
                     }
 
+                    if (runVelvet) {
+                        settings_progress(&step, total, "Applying Velvet notification backgrounds");
+                        VelvetStyle style = settings_velvet_style_from_defaults(d);
+                        velvet_set_global_style(style);
+                        bool ok = velvet_apply_in_session();
+                        settings_mark_tweak_applied(kSettingsVelvetEnabled,
+                                                    ok && [d boolForKey:kSettingsVelvetEnabled]);
+                        printf("[SETTINGS] Velvet result=%d\n", ok);
+                        log_user("%s Velvet %s.\n",
+                                 ok ? "[OK]" : "[WARN]",
+                                 ok ? "notification backgrounds active" : "did not start cleanly");
+                        cyanide_upload_log_milestone(ok ? @"velvet-initial-applied" :
+                                                         @"velvet-initial-failed");
+                    }
+
                     if (runAppSwitcherGrid) {
                         settings_progress(&step, total, "Enabling App Switcher Grid");
                         bool ok = appswitchergrid_apply_in_session();
@@ -7576,6 +7705,11 @@ static void settings_run_actions_internal(BOOL pendingOnly)
                     settings_start_notificationisland_live_loop();
                 } else if (!notificationIslandEnabled) {
                     g_notificationisland_live_stop_requested = 1;
+                }
+                if (runVelvet) {
+                    settings_start_velvet_live_loop();
+                } else if (!velvetEnabled) {
+                    g_velvet_live_stop_requested = 1;
                 }
             }
 
@@ -7697,6 +7831,7 @@ typedef NS_ENUM(NSInteger, SettingsSection) {
     SectionAppSwitcherGrid,
     SectionIPADecryptor,
     SectionFastLockXLite,
+    SectionVelvet,
     SectionQuickLoader,
     SectionRepoTweaks,
     SectionCount,
@@ -8649,6 +8784,20 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
     ];
 }
 
+- (NSArray<NSDictionary *> *)velvetRows
+{
+    return @[
+        @{ @"kind": @"toggle", @"key": kSettingsVelvetEnabled, @"title": @"Enable Velvet" },
+        @{ @"kind": @"color",  @"key": kSettingsVelvetBgColor, @"title": @"Background Color" },
+        @{ @"kind": @"color",  @"key": kSettingsVelvetBorderColor, @"title": @"Border Color" },
+        @{ @"kind": @"slider", @"key": kSettingsVelvetBorderWidth, @"title": @"Border Width", @"min": @0, @"max": @5, @"step": @0.5, @"default": @1.0 },
+        @{ @"kind": @"slider", @"key": kSettingsVelvetCornerRadius, @"title": @"Corner Radius", @"min": @0, @"max": @25, @"step": @1, @"default": @13 },
+        @{ @"kind": @"color",  @"key": kSettingsVelvetTitleColor, @"title": @"Title Color" },
+        @{ @"kind": @"color",  @"key": kSettingsVelvetMessageColor, @"title": @"Message Color" },
+        @{ @"kind": @"color",  @"key": kSettingsVelvetDateColor, @"title": @"Date Color" },
+    ];
+}
+
 - (NSArray<NSDictionary *> *)notificationIslandRows
 {
     return @[
@@ -9012,6 +9161,11 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
                          @"value": [NSString stringWithFormat:@"%.1fs", settings_fastlockx_lite_retry_interval(d)]}];
         [out addObject:@{@"title": @"Blockers",
                          @"value": @"In progress"}];
+    } else if (section == SectionVelvet) {
+        BOOL intent = [d boolForKey:kSettingsVelvetEnabled];
+        BOOL applied = settings_tweak_is_applied(kSettingsVelvetEnabled);
+        [out addObject:@{@"title": @"Velvet",
+                         @"value": applied ? @"Active" : (intent ? @"Queued" : @"Off")}];
     } else if (section == SectionPowercuff) {
         NSString *lvl = [d stringForKey:kSettingsPowercuffLevel] ?: @"nominal";
         [out addObject:@{@"title": @"Level", @"value": lvl}];
@@ -9064,6 +9218,7 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
         case SectionAxonLite:  return self.axonLiteRows;
         case SectionTypeBanner: return self.typebannerRows;
         case SectionNotificationIsland: return self.notificationIslandRows;
+        case SectionVelvet: return settings_velvet_install_allowed() ? self.velvetRows : @[];
         case SectionAppSwitcherGrid: return self.appSwitcherGridRows;
         case SectionFastLockXLite: return settings_fastlockx_lite_install_allowed() ? self.fastLockXLiteRows : @[];
         case SectionGravityLite: return self.gravityLiteRows;
@@ -9100,6 +9255,7 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
         @{ @"title": @"Notification Island", @"icon": @"bell.and.waves.left.and.right.fill",  @"color": [UIColor systemOrangeColor], @"section": @(SectionNotificationIsland), @"indev": @YES },
         @{ @"title": @"IPA Decryptor",      @"icon": @"lock.open.fill",                      @"color": [UIColor systemPurpleColor], @"section": @(SectionIPADecryptor), @"indev": @YES },
         @{ @"title": @"FastLockX Lite",     @"icon": @"lock.open.fill",                      @"color": [UIColor systemGreenColor],  @"section": @(SectionFastLockXLite) },
+        @{ @"title": @"Velvet",             @"icon": @"rectangle.3.group.fill",              @"color": [UIColor systemPurpleColor], @"section": @(SectionVelvet), @"indev": @YES },
 #endif
         @{ @"title": @"Gravity Lite",       @"icon": @"arrow.down.circle.fill",              @"color": [UIColor systemGreenColor],  @"section": @(SectionGravityLite) },
         @{ @"title": @"App Switcher Grid",  @"icon": @"square.grid.2x2.fill",                @"color": [UIColor systemOrangeColor], @"section": @(SectionAppSwitcherGrid) },
@@ -9281,6 +9437,9 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
     }
     if (s == SectionNotificationIsland) {
         return @"Experimental Dynamic Island notification route. Cyanide polls SpringBoard's active banner request through the shared RemoteCall session, then mirrors it through the app's ActivityKit Live Activity.";
+    }
+    if (s == SectionVelvet) {
+        return @"Custom notification background styles. Velvet applies background color, border, corner radius, and text colors to notification banners and Notification Center cells through SpringBoard's RemoteCall session. Experimental — may need reapply after respring.";
     }
     if (s == SectionAppSwitcherGrid) {
         return @"Runtime patch. It changes SpringBoard's app switcher style in memory, writes no system files, and a respring restores stock. Unsupported builds may glitch the app switcher or crash SpringBoard.";

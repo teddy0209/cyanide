@@ -61,6 +61,15 @@ extern NSString * const kSettingsNotificationIslandEnabled;
 extern NSString * const kSettingsAppSwitcherGridEnabled;
 extern NSString * const kSettingsFastLockXLiteEnabled;
 
+extern NSString * const kSettingsVelvetEnabled;
+extern NSString * const kSettingsVelvetBgColor;
+extern NSString * const kSettingsVelvetBorderColor;
+extern NSString * const kSettingsVelvetBorderWidth;
+extern NSString * const kSettingsVelvetTitleColor;
+extern NSString * const kSettingsVelvetMessageColor;
+extern NSString * const kSettingsVelvetDateColor;
+extern NSString * const kSettingsVelvetCornerRadius;
+
 extern NSString * const kSettingsGravityLiteEnabled;
 extern NSString * const kSettingsGravityLiteDockEnabled;
 extern NSString * const kSettingsGravityLiteMagnitudePct;

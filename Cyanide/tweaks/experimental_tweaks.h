@@ -20,6 +20,7 @@
 #import "experimental/stagestrip.h"
 #import "experimental/ipadecryptor.h"
 #import "experimental/fastlockx_lite.h"
+#import "experimental/velvet.h"
 
 #define CYANIDE_EXPERIMENTAL_TWEAKS_AVAILABLE 1
 

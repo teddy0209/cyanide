@@ -1931,16 +1931,16 @@ static BOOL settings_velvet_install_allowed(void)
     return cyanide_experimental_tweaks_available() && settings_experimental_tweaks_enabled();
 }
 
-static BOOL settings_cleannc_install_allowed(void) { return cyanide_experimental_tweaks_available() && settings_experimental_tweaks_enabled(); }
-static BOOL settings_undertime_install_allowed(void) { return cyanide_experimental_tweaks_available() && settings_experimental_tweaks_enabled(); }
-static BOOL settings_zeppelinlite_install_allowed(void) { return cyanide_experimental_tweaks_available() && settings_experimental_tweaks_enabled(); }
-static BOOL settings_cleanhomescreen_install_allowed(void) { return cyanide_experimental_tweaks_available() && settings_experimental_tweaks_enabled(); }
-static BOOL settings_realcc_install_allowed(void) { return cyanide_experimental_tweaks_available() && settings_experimental_tweaks_enabled(); }
-static BOOL settings_hidellabels_install_allowed(void) { return cyanide_experimental_tweaks_available() && settings_experimental_tweaks_enabled(); }
-static BOOL settings_fakeclockup_install_allowed(void) { return cyanide_experimental_tweaks_available() && settings_experimental_tweaks_enabled(); }
-static BOOL settings_pancake_install_allowed(void) { return cyanide_experimental_tweaks_available() && settings_experimental_tweaks_enabled(); }
-static BOOL settings_cylinderlite_install_allowed(void) { return cyanide_experimental_tweaks_available() && settings_experimental_tweaks_enabled(); }
-static BOOL settings_tweakloader_install_allowed(void) { return cyanide_experimental_tweaks_available() && settings_experimental_tweaks_enabled(); }
+static BOOL settings_cleannc_install_allowed(void) { return cyanide_experimental_tweaks_available(); }
+static BOOL settings_undertime_install_allowed(void) { return cyanide_experimental_tweaks_available(); }
+static BOOL settings_zeppelinlite_install_allowed(void) { return cyanide_experimental_tweaks_available(); }
+static BOOL settings_cleanhomescreen_install_allowed(void) { return cyanide_experimental_tweaks_available(); }
+static BOOL settings_realcc_install_allowed(void) { return cyanide_experimental_tweaks_available(); }
+static BOOL settings_hidellabels_install_allowed(void) { return cyanide_experimental_tweaks_available(); }
+static BOOL settings_fakeclockup_install_allowed(void) { return cyanide_experimental_tweaks_available(); }
+static BOOL settings_pancake_install_allowed(void) { return cyanide_experimental_tweaks_available(); }
+static BOOL settings_cylinderlite_install_allowed(void) { return cyanide_experimental_tweaks_available(); }
+static BOOL settings_tweakloader_install_allowed(void) { return cyanide_experimental_tweaks_available(); }
 
 static NSString *settings_legacy_access_label(void)
 {
@@ -10223,16 +10223,16 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
         @{ @"title": @"Notification Island", @"icon": @"bell.and.waves.left.and.right.fill",  @"color": [UIColor systemOrangeColor], @"section": @(SectionNotificationIsland), @"indev": @YES },
         @{ @"title": @"IPA Decryptor",      @"icon": @"lock.open.fill",                      @"color": [UIColor systemPurpleColor], @"section": @(SectionIPADecryptor), @"indev": @YES },
         @{ @"title": @"FastLockX Lite",     @"icon": @"lock.open.fill",                      @"color": [UIColor systemGreenColor],  @"section": @(SectionFastLockXLite) },
-        @{ @"title": @"CleanNC",            @"icon": @"rectangle.3.group.fill",              @"color": [UIColor systemPurpleColor], @"section": @(SectionCleanNC), @"indev": @YES },
-        @{ @"title": @"UnderTime",          @"icon": @"clock.fill",                          @"color": [UIColor systemBlueColor],   @"section": @(SectionUnderTime), @"indev": @YES },
-        @{ @"title": @"Zeppelin Lite",      @"icon": @"textformat.alt",                      @"color": [UIColor systemOrangeColor], @"section": @(SectionZeppelinLite), @"indev": @YES },
-        @{ @"title": @"CleanHomeScreen",    @"icon": @"square.dashed",                       @"color": [UIColor systemGreenColor],  @"section": @(SectionCleanHomeScreen), @"indev": @YES },
-        @{ @"title": @"RealCC",             @"icon": @"wifi.slash",                          @"color": [UIColor systemRedColor],    @"section": @(SectionRealCC), @"indev": @YES },
-        @{ @"title": @"HideLabels",         @"icon": @"eye.slash",                           @"color": [UIColor systemGrayColor],   @"section": @(SectionHideLabels), @"indev": @YES },
-        @{ @"title": @"FakeClockUp",        @"icon": @"forward.fill",                        @"color": [UIColor systemYellowColor], @"section": @(SectionFakeClockUp), @"indev": @YES },
-        @{ @"title": @"Pancake",            @"icon": @"hand.point.left.fill",                @"color": [UIColor systemIndigoColor], @"section": @(SectionPancake), @"indev": @YES },
-        @{ @"title": @"Cylinder Lite",      @"icon": @"perspective",                         @"color": [UIColor systemTealColor],   @"section": @(SectionCylinderLite), @"indev": @YES },
-        @{ @"title": @"TweakLoader",        @"icon": @"arrow.down.circle.dotted",            @"color": [UIColor systemOrangeColor], @"section": @(SectionTweakLoader), @"indev": @YES },
+        @{ @"title": @"CleanNC",            @"icon": @"rectangle.3.group.fill",              @"color": [UIColor systemPurpleColor], @"section": @(SectionCleanNC) },
+        @{ @"title": @"UnderTime",          @"icon": @"clock.fill",                          @"color": [UIColor systemBlueColor],   @"section": @(SectionUnderTime) },
+        @{ @"title": @"Zeppelin Lite",      @"icon": @"textformat.alt",                      @"color": [UIColor systemOrangeColor], @"section": @(SectionZeppelinLite) },
+        @{ @"title": @"CleanHomeScreen",    @"icon": @"square.dashed",                       @"color": [UIColor systemGreenColor],  @"section": @(SectionCleanHomeScreen) },
+        @{ @"title": @"RealCC",             @"icon": @"wifi.slash",                          @"color": [UIColor systemRedColor],    @"section": @(SectionRealCC) },
+        @{ @"title": @"HideLabels",         @"icon": @"eye.slash",                           @"color": [UIColor systemGrayColor],   @"section": @(SectionHideLabels) },
+        @{ @"title": @"FakeClockUp",        @"icon": @"forward.fill",                        @"color": [UIColor systemYellowColor], @"section": @(SectionFakeClockUp) },
+        @{ @"title": @"Pancake",            @"icon": @"hand.point.left.fill",                @"color": [UIColor systemIndigoColor], @"section": @(SectionPancake) },
+        @{ @"title": @"Cylinder Lite",      @"icon": @"perspective",                         @"color": [UIColor systemTealColor],   @"section": @(SectionCylinderLite) },
+        @{ @"title": @"TweakLoader",        @"icon": @"arrow.down.circle.dotted",            @"color": [UIColor systemOrangeColor], @"section": @(SectionTweakLoader) },
         @{ @"title": @"Velvet",             @"icon": @"rectangle.3.group.fill",              @"color": [UIColor systemPurpleColor], @"section": @(SectionVelvet), @"indev": @YES },
 #endif
         @{ @"title": @"Gravity Lite",       @"icon": @"arrow.down.circle.fill",              @"color": [UIColor systemGreenColor],  @"section": @(SectionGravityLite) },

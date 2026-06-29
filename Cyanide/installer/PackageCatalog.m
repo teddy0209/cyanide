@@ -124,8 +124,18 @@ static const NSInteger kSecGravityLite      = 21;
 static const NSInteger kSecAppSwitcherGrid  = 22;
 static const NSInteger kSecIPADecryptor     = 23;
 static const NSInteger kSecFastLockXLite    = 24;
-static const NSInteger kSecQuickLoader      = 25;
-static const NSInteger kSecRepoTweaks       = 26;
+static const NSInteger kSecCleanNC          = 26;
+static const NSInteger kSecUnderTime        = 27;
+static const NSInteger kSecZeppelinLite     = 28;
+static const NSInteger kSecCleanHomeScreen  = 29;
+static const NSInteger kSecRealCC           = 30;
+static const NSInteger kSecHideLabels       = 31;
+static const NSInteger kSecFakeClockUp      = 32;
+static const NSInteger kSecPancake          = 33;
+static const NSInteger kSecCylinderLite     = 34;
+static const NSInteger kSecTweakLoader      = 35;
+static const NSInteger kSecQuickLoader      = 36;
+static const NSInteger kSecRepoTweaks       = 37;
 
 + (NSArray<Package *> *)allPackages
 {

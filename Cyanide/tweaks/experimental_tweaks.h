@@ -30,6 +30,7 @@
 #import "experimental/fakeclockup.h"
 #import "experimental/pancake.h"
 #import "experimental/cylinderlite.h"
+#import "experimental/tweakloader.h"
 
 #define CYANIDE_EXPERIMENTAL_TWEAKS_AVAILABLE 1
 

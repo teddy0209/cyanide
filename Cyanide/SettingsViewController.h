@@ -86,6 +86,7 @@ extern NSString * const kSettingsFakeClockUpEnabled;
 extern NSString * const kSettingsFakeClockUpSpeed;
 extern NSString * const kSettingsPancakeEnabled;
 extern NSString * const kSettingsCylinderLiteEnabled;
+extern NSString * const kSettingsTweakLoaderEnabled;
 
 extern NSString * const kSettingsGravityLiteEnabled;
 extern NSString * const kSettingsGravityLiteDockEnabled;

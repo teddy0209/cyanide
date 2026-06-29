@@ -1004,6 +1004,7 @@ NSString * const kSettingsFakeClockUpEnabled = @"FakeClockUpEnabled";
 NSString * const kSettingsFakeClockUpSpeed = @"FakeClockUpSpeed";
 NSString * const kSettingsPancakeEnabled = @"PancakeEnabled";
 NSString * const kSettingsCylinderLiteEnabled = @"CylinderLiteEnabled";
+NSString * const kSettingsTweakLoaderEnabled = @"TweakLoaderEnabled";
 
 static NSString * const kSettingsFastLockXLiteRetryInterval = @"FastLockXLiteRetryInterval";
 static NSString * const kSettingsHideHomeBarHidden = @"HideHomeBarHidden";
@@ -1420,6 +1421,12 @@ static bool settings_stop_cylinderlite_registered(BOOL springboardWillDie)
     return cylinderlite_stop_in_session();
 }
 
+static bool settings_stop_tweakloader_registered(BOOL springboardWillDie)
+{
+    (void)springboardWillDie;
+    return tweakloader_stop_in_session();
+}
+
 static bool settings_stop_livewp_registered(BOOL springboardWillDie)
 {
     (void)springboardWillDie;
@@ -1436,60 +1443,6 @@ static bool settings_stop_repotweaks_registered(BOOL springboardWillDie)
 {
     (void)springboardWillDie;
     return repotweaks_stop_in_session();
-}
-
-static bool settings_stop_cleannc_registered(BOOL springboardWillDie)
-{
-    (void)springboardWillDie;
-    return cleannc_stop_in_session();
-}
-
-static bool settings_stop_undertime_registered(BOOL springboardWillDie)
-{
-    (void)springboardWillDie;
-    return undertime_stop_in_session();
-}
-
-static bool settings_stop_zeppelinlite_registered(BOOL springboardWillDie)
-{
-    (void)springboardWillDie;
-    return zeppelinlite_stop_in_session();
-}
-
-static bool settings_stop_cleanhomescreen_registered(BOOL springboardWillDie)
-{
-    (void)springboardWillDie;
-    return cleanhomescreen_stop_in_session();
-}
-
-static bool settings_stop_realcc_registered(BOOL springboardWillDie)
-{
-    (void)springboardWillDie;
-    return realcc_restore();
-}
-
-static bool settings_stop_hidellabels_registered(BOOL springboardWillDie)
-{
-    (void)springboardWillDie;
-    return hidellabels_stop_in_session();
-}
-
-static bool settings_stop_fakeclockup_registered(BOOL springboardWillDie)
-{
-    (void)springboardWillDie;
-    return fakeclockup_stop_in_session();
-}
-
-static bool settings_stop_pancake_registered(BOOL springboardWillDie)
-{
-    (void)springboardWillDie;
-    return pancake_stop_in_session();
-}
-
-static bool settings_stop_cylinderlite_registered(BOOL springboardWillDie)
-{
-    (void)springboardWillDie;
-    return cylinderlite_stop_in_session();
 }
 
 static void settings_each_springboard_cleanup_entry(void (^block)(const SettingsSpringBoardTweakCleanupEntry *entry))
@@ -1522,6 +1475,7 @@ static void settings_each_springboard_cleanup_entry(void (^block)(const Settings
         { kSettingsFakeClockUpEnabled, "FakeClockUp", NULL, settings_stop_fakeclockup_registered, fakeclockup_forget_remote_state, NULL, YES, YES },
         { kSettingsPancakeEnabled, "Pancake", NULL, settings_stop_pancake_registered, pancake_forget_remote_state, NULL, YES, YES },
         { kSettingsCylinderLiteEnabled, "Cylinder Lite", NULL, settings_stop_cylinderlite_registered, cylinderlite_forget_remote_state, NULL, YES, YES },
+        { kSettingsTweakLoaderEnabled, "TweakLoader", NULL, settings_stop_tweakloader_registered, tweakloader_forget_remote_state, NULL, YES, YES },
         { kSettingsQuickLoaderEnabled, "QuickLoader", NULL, settings_stop_quickloader_registered, NULL, NULL, YES, YES },
         { kSettingsRepoTweaksEnabled, "RepoTweaks", NULL, settings_stop_repotweaks_registered, NULL, NULL, YES, YES },
         { nil, "Kill All Apps", NULL, NULL, killallapps_forget_remote_state, NULL, NO, NO },
@@ -1986,6 +1940,7 @@ static BOOL settings_hidellabels_install_allowed(void) { return cyanide_experime
 static BOOL settings_fakeclockup_install_allowed(void) { return cyanide_experimental_tweaks_available() && settings_experimental_tweaks_enabled(); }
 static BOOL settings_pancake_install_allowed(void) { return cyanide_experimental_tweaks_available() && settings_experimental_tweaks_enabled(); }
 static BOOL settings_cylinderlite_install_allowed(void) { return cyanide_experimental_tweaks_available() && settings_experimental_tweaks_enabled(); }
+static BOOL settings_tweakloader_install_allowed(void) { return cyanide_experimental_tweaks_available() && settings_experimental_tweaks_enabled(); }
 
 static NSString *settings_legacy_access_label(void)
 {
@@ -6146,6 +6101,11 @@ static BOOL settings_key_is_cylinderlite(NSString *key)
     return [key isEqualToString:kSettingsCylinderLiteEnabled];
 }
 
+static BOOL settings_key_is_tweakloader(NSString *key)
+{
+    return [key isEqualToString:kSettingsTweakLoaderEnabled];
+}
+
 static BOOL settings_key_is_appswitchergrid(NSString *key)
 {
     return [key isEqualToString:kSettingsAppSwitcherGridEnabled];
@@ -7125,41 +7085,75 @@ static void settings_schedule_live_apply_for_key(NSString *key)
         return;
     }
 
-    if (settings_key_is_cylinderlite(key)) {
-        if (!settings_cylinderlite_install_allowed()) {
-            if ([d boolForKey:kSettingsCylinderLiteEnabled]) {
-                [d setBool:NO forKey:kSettingsCylinderLiteEnabled];
-                [d synchronize];
-            }
-            settings_mark_tweak_applied(kSettingsCylinderLiteEnabled, NO);
-            settings_notify_package_queue_changed_async();
-            return;
-        }
-        if ([d boolForKey:kSettingsCylinderLiteEnabled] && g_springboard_rc_ready) {
-            dispatch_async(dispatch_get_global_queue(0, 0), ^{
-                @synchronized (settings_rc_lock()) {
-                    if (settings_cleanup_in_progress() || ![d boolForKey:kSettingsCylinderLiteEnabled] || !g_springboard_rc_ready) return;
-                    bool ok = cylinderlite_apply_in_session();
-                    settings_mark_tweak_applied(kSettingsCylinderLiteEnabled, ok && [d boolForKey:kSettingsCylinderLiteEnabled]);
-                    printf("[SETTINGS] live Cylinder Lite apply result=%d\n", ok);
+        if (settings_key_is_cylinderlite(key)) {
+            if (!settings_cylinderlite_install_allowed()) {
+                if ([d boolForKey:kSettingsCylinderLiteEnabled]) {
+                    [d setBool:NO forKey:kSettingsCylinderLiteEnabled];
+                    [d synchronize];
                 }
+                settings_mark_tweak_applied(kSettingsCylinderLiteEnabled, NO);
                 settings_notify_package_queue_changed_async();
-            });
-        } else if (![d boolForKey:kSettingsCylinderLiteEnabled]) {
-            settings_mark_tweak_applied(kSettingsCylinderLiteEnabled, NO);
-            settings_notify_package_queue_changed_async();
-            if (g_springboard_rc_ready) {
+                return;
+            }
+            if ([d boolForKey:kSettingsCylinderLiteEnabled] && g_springboard_rc_ready) {
                 dispatch_async(dispatch_get_global_queue(0, 0), ^{
                     @synchronized (settings_rc_lock()) {
-                        if (g_springboard_rc_ready) cylinderlite_stop_in_session();
+                        if (settings_cleanup_in_progress() || ![d boolForKey:kSettingsCylinderLiteEnabled] || !g_springboard_rc_ready) return;
+                        bool ok = cylinderlite_apply_in_session();
+                        settings_mark_tweak_applied(kSettingsCylinderLiteEnabled, ok && [d boolForKey:kSettingsCylinderLiteEnabled]);
+                        printf("[SETTINGS] live Cylinder Lite apply result=%d\n", ok);
                     }
+                    settings_notify_package_queue_changed_async();
                 });
+            } else if (![d boolForKey:kSettingsCylinderLiteEnabled]) {
+                settings_mark_tweak_applied(kSettingsCylinderLiteEnabled, NO);
+                settings_notify_package_queue_changed_async();
+                if (g_springboard_rc_ready) {
+                    dispatch_async(dispatch_get_global_queue(0, 0), ^{
+                        @synchronized (settings_rc_lock()) {
+                            if (g_springboard_rc_ready) cylinderlite_stop_in_session();
+                        }
+                    });
+                }
             }
+            return;
         }
-        return;
-    }
 
-    if (settings_key_is_appswitchergrid(key)) {
+        if (settings_key_is_tweakloader(key)) {
+            if (!settings_tweakloader_install_allowed()) {
+                if ([d boolForKey:kSettingsTweakLoaderEnabled]) {
+                    [d setBool:NO forKey:kSettingsTweakLoaderEnabled];
+                    [d synchronize];
+                }
+                settings_mark_tweak_applied(kSettingsTweakLoaderEnabled, NO);
+                settings_notify_package_queue_changed_async();
+                return;
+            }
+            if ([d boolForKey:kSettingsTweakLoaderEnabled] && g_springboard_rc_ready) {
+                dispatch_async(dispatch_get_global_queue(0, 0), ^{
+                    @synchronized (settings_rc_lock()) {
+                        if (settings_cleanup_in_progress() || ![d boolForKey:kSettingsTweakLoaderEnabled] || !g_springboard_rc_ready) return;
+                        bool ok = tweakloader_apply_in_session();
+                        settings_mark_tweak_applied(kSettingsTweakLoaderEnabled, ok && [d boolForKey:kSettingsTweakLoaderEnabled]);
+                        printf("[SETTINGS] live TweakLoader apply result=%d\n", ok);
+                    }
+                    settings_notify_package_queue_changed_async();
+                });
+            } else if (![d boolForKey:kSettingsTweakLoaderEnabled]) {
+                settings_mark_tweak_applied(kSettingsTweakLoaderEnabled, NO);
+                settings_notify_package_queue_changed_async();
+                if (g_springboard_rc_ready) {
+                    dispatch_async(dispatch_get_global_queue(0, 0), ^{
+                        @synchronized (settings_rc_lock()) {
+                            if (g_springboard_rc_ready) tweakloader_stop_in_session();
+                        }
+                    });
+                }
+            }
+            return;
+        }
+
+        if (settings_key_is_appswitchergrid(key)) {
         if ([d boolForKey:kSettingsAppSwitcherGridEnabled] && g_springboard_rc_ready) {
             dispatch_async(dispatch_get_global_queue(0, 0), ^{
                 @synchronized (settings_rc_lock()) {
@@ -7675,6 +7669,7 @@ void settings_register_defaults(void)
         kSettingsFakeClockUpSpeed: @2.0,
         kSettingsPancakeEnabled: @NO,
         kSettingsCylinderLiteEnabled: @NO,
+        kSettingsTweakLoaderEnabled: @NO,
 
         kSettingsGravityLiteEnabled: @NO,
         kSettingsGravityLiteDockEnabled: @YES,
@@ -7745,6 +7740,7 @@ void settings_register_defaults(void)
             kSettingsFakeClockUpEnabled,
             kSettingsPancakeEnabled,
             kSettingsCylinderLiteEnabled,
+            kSettingsTweakLoaderEnabled,
         ];
         for (NSString *key in privateKeys) {
             if ([defaults boolForKey:key]) {
@@ -7770,6 +7766,7 @@ void settings_register_defaults(void)
             kSettingsFakeClockUpEnabled,
             kSettingsPancakeEnabled,
             kSettingsCylinderLiteEnabled,
+            kSettingsTweakLoaderEnabled,
         ];
         if ([defaults boolForKey:kSettingsExperimentalTweaksEnabled]) {
             [defaults setBool:NO forKey:kSettingsExperimentalTweaksEnabled];
@@ -7849,6 +7846,7 @@ static void settings_run_actions_internal(BOOL pendingOnly)
             BOOL fakeClockUpEnabled = [d boolForKey:kSettingsFakeClockUpEnabled];
             BOOL pancakeEnabled = [d boolForKey:kSettingsPancakeEnabled];
             BOOL cylinderLiteEnabled = [d boolForKey:kSettingsCylinderLiteEnabled];
+            BOOL tweakLoaderEnabled = [d boolForKey:kSettingsTweakLoaderEnabled];
             BOOL appSwitcherGridEnabled = [d boolForKey:kSettingsAppSwitcherGridEnabled];
             BOOL themerEnabled = [d boolForKey:kSettingsThemerEnabled];
             BOOL snowboardLiteEnabled = [d boolForKey:kSettingsSnowBoardLiteEnabled];
@@ -7875,6 +7873,7 @@ static void settings_run_actions_internal(BOOL pendingOnly)
             BOOL runFakeClockUp = settings_fakeclockup_install_allowed() && settings_enabled_tweak_should_run(d, kSettingsFakeClockUpEnabled, springBoardPendingOnly);
             BOOL runPancake = settings_pancake_install_allowed() && settings_enabled_tweak_should_run(d, kSettingsPancakeEnabled, springBoardPendingOnly);
             BOOL runCylinderLite = settings_cylinderlite_install_allowed() && settings_enabled_tweak_should_run(d, kSettingsCylinderLiteEnabled, springBoardPendingOnly);
+            BOOL runTweakLoader = settings_tweakloader_install_allowed() && settings_enabled_tweak_should_run(d, kSettingsTweakLoaderEnabled, springBoardPendingOnly);
             BOOL runAppSwitcherGrid = settings_enabled_tweak_should_run(d, kSettingsAppSwitcherGridEnabled, springBoardPendingOnly);
             BOOL runThemer = settings_enabled_tweak_should_run(d, kSettingsThemerEnabled, springBoardPendingOnly);
             BOOL runSnowBoardLite = settings_enabled_tweak_should_run(d, kSettingsSnowBoardLiteEnabled, springBoardPendingOnly);
@@ -7890,7 +7889,7 @@ static void settings_run_actions_internal(BOOL pendingOnly)
                 settings_note_themer_stage_conflict(YES);
             }
             BOOL cleanupDisabledSpringBoardTweaks = settings_disabled_applied_springboard_cleanup_needed(d);
-            BOOL needsSpringBoardWork = runSBC || runDarkTweaks || runStatBar || runNSBar || runNiceBarLite || runRSSI || runAxonLite || runGravityLite || runLayoutExtras || runTypeBanner || runNotificationIsland || runVelvet || runCleanNC || runUnderTime || runZeppelinLite || runCleanHomeScreen || runRealCC || runHideLabels || runFakeClockUp || runPancake || runCylinderLite || runAppSwitcherGrid || runThemer || runSnowBoardLite || runLiveWP || runStageStrip || runFastLockXLite || runQuickLoader || runRepoTweaks || cleanupDisabledSpringBoardTweaks;
+            BOOL needsSpringBoardWork = runSBC || runDarkTweaks || runStatBar || runNSBar || runNiceBarLite || runRSSI || runAxonLite || runGravityLite || runLayoutExtras || runTypeBanner || runNotificationIsland || runVelvet || runCleanNC || runUnderTime || runZeppelinLite || runCleanHomeScreen || runRealCC || runHideLabels || runFakeClockUp || runPancake || runCylinderLite || runTweakLoader || runAppSwitcherGrid || runThemer || runSnowBoardLite || runLiveWP || runStageStrip || runFastLockXLite || runQuickLoader || runRepoTweaks || cleanupDisabledSpringBoardTweaks;
             BOOL runSandboxEscape = [d boolForKey:kSettingsRunSandboxEscape] && (!pendingOnly || needsSpringBoardWork);
             // TypeBanner prewarms its hidden SpringBoard window during Apply
             // and reuses the open SpringBoard session for text-only updates.
@@ -7932,6 +7931,7 @@ static void settings_run_actions_internal(BOOL pendingOnly)
             if (runFakeClockUp) total++;
             if (runPancake) total++;
             if (runCylinderLite) total++;
+            if (runTweakLoader) total++;
             if (runAppSwitcherGrid) total++;
             if (runStageStrip) total++;
             if (runFastLockXLite) total++;
@@ -7961,6 +7961,7 @@ static void settings_run_actions_internal(BOOL pendingOnly)
             if (runFakeClockUp) [enabledTweaks addObject:@"fakeclockup"];
             if (runPancake) [enabledTweaks addObject:@"pancake"];
             if (runCylinderLite) [enabledTweaks addObject:@"cylinderlite"];
+            if (runTweakLoader) [enabledTweaks addObject:@"tweakloader"];
             if (runAppSwitcherGrid) [enabledTweaks addObject:@"app-switcher-grid"];
             if (runGravityLite) [enabledTweaks addObject:[NSString stringWithFormat:@"gravity(%ld%%)", (long)[d integerForKey:kSettingsGravityLiteMagnitudePct]]];
             if (runPowercuff) [enabledTweaks addObject:[NSString stringWithFormat:@"power(%@)", [d stringForKey:kSettingsPowercuffLevel] ?: @"nominal"]];
@@ -8414,6 +8415,15 @@ static void settings_run_actions_internal(BOOL pendingOnly)
                         cyanide_upload_log_milestone(ok ? @"cylinderlite-applied" : @"cylinderlite-failed");
                     }
 
+                    if (runTweakLoader) {
+                        settings_progress(&step, total, "Applying TweakLoader");
+                        bool ok = tweakloader_apply_in_session();
+                        settings_mark_tweak_applied(kSettingsTweakLoaderEnabled, ok && [d boolForKey:kSettingsTweakLoaderEnabled]);
+                        printf("[SETTINGS] TweakLoader result=%d\n", ok);
+                        log_user("%s TweakLoader %s.\n", ok ? "[OK]" : "[WARN]", ok ? "active" : "did not start cleanly");
+                        cyanide_upload_log_milestone(ok ? @"tweakloader-applied" : @"tweakloader-failed");
+                    }
+
                     if (runAppSwitcherGrid) {
                         settings_progress(&step, total, "Enabling App Switcher Grid");
                         bool ok = appswitchergrid_apply_in_session();
@@ -8652,6 +8662,7 @@ typedef NS_ENUM(NSInteger, SettingsSection) {
     SectionFakeClockUp,
     SectionPancake,
     SectionCylinderLite,
+    SectionTweakLoader,
     SectionQuickLoader,
     SectionRepoTweaks,
     SectionCount,
@@ -9688,6 +9699,13 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
     ];
 }
 
+- (NSArray<NSDictionary *> *)tweakloaderRows
+{
+    return @[
+        @{ @"kind": @"toggle", @"key": kSettingsTweakLoaderEnabled, @"title": @"Enable TweakLoader" },
+    ];
+}
+
 - (NSArray<NSDictionary *> *)notificationIslandRows
 {
     return @[
@@ -10101,6 +10119,11 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
         BOOL applied = settings_tweak_is_applied(kSettingsCylinderLiteEnabled);
         [out addObject:@{@"title": @"Cylinder Lite",
                          @"value": applied ? @"Active" : (intent ? @"Queued" : @"Off")}];
+    } else if (section == SectionTweakLoader) {
+        BOOL intent = [d boolForKey:kSettingsTweakLoaderEnabled];
+        BOOL applied = settings_tweak_is_applied(kSettingsTweakLoaderEnabled);
+        [out addObject:@{@"title": @"TweakLoader",
+                         @"value": applied ? @"Active" : (intent ? @"Queued" : @"Off")}];
     } else if (section == SectionPowercuff) {
         NSString *lvl = [d stringForKey:kSettingsPowercuffLevel] ?: @"nominal";
         [out addObject:@{@"title": @"Level", @"value": lvl}];
@@ -10163,6 +10186,7 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
         case SectionFakeClockUp: return settings_fakeclockup_install_allowed() ? self.fakeclockupRows : @[];
         case SectionPancake: return settings_pancake_install_allowed() ? self.pancakeRows : @[];
         case SectionCylinderLite: return settings_cylinderlite_install_allowed() ? self.cylinderliteRows : @[];
+        case SectionTweakLoader: return settings_tweakloader_install_allowed() ? self.tweakloaderRows : @[];
         case SectionAppSwitcherGrid: return self.appSwitcherGridRows;
         case SectionFastLockXLite: return settings_fastlockx_lite_install_allowed() ? self.fastLockXLiteRows : @[];
         case SectionGravityLite: return self.gravityLiteRows;
@@ -10208,6 +10232,7 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
         @{ @"title": @"FakeClockUp",        @"icon": @"forward.fill",                        @"color": [UIColor systemYellowColor], @"section": @(SectionFakeClockUp), @"indev": @YES },
         @{ @"title": @"Pancake",            @"icon": @"hand.point.left.fill",                @"color": [UIColor systemIndigoColor], @"section": @(SectionPancake), @"indev": @YES },
         @{ @"title": @"Cylinder Lite",      @"icon": @"perspective",                         @"color": [UIColor systemTealColor],   @"section": @(SectionCylinderLite), @"indev": @YES },
+        @{ @"title": @"TweakLoader",        @"icon": @"arrow.down.circle.dotted",            @"color": [UIColor systemOrangeColor], @"section": @(SectionTweakLoader), @"indev": @YES },
         @{ @"title": @"Velvet",             @"icon": @"rectangle.3.group.fill",              @"color": [UIColor systemPurpleColor], @"section": @(SectionVelvet), @"indev": @YES },
 #endif
         @{ @"title": @"Gravity Lite",       @"icon": @"arrow.down.circle.fill",              @"color": [UIColor systemGreenColor],  @"section": @(SectionGravityLite) },
@@ -10420,6 +10445,9 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
     }
     if (s == SectionCylinderLite) {
         return @"Adds perspective-based icon animations to the home screen when tilting the device.";
+    }
+    if (s == SectionTweakLoader) {
+        return @"Loads custom .dylib tweaks from the app's Documents/TweakLoader/ directory at runtime using dlopen. Place .dylib files with tweak_initialize/tweak_finalize entry points for auto-detection.";
     }
     if (s == SectionAppSwitcherGrid) {
         return @"Runtime patch. It changes SpringBoard's app switcher style in memory, writes no system files, and a respring restores stock. Unsupported builds may glitch the app switcher or crash SpringBoard.";

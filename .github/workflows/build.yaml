@@ -1,6 +1,7 @@
 name: Build Cyanide
 
 on:
+  push:
   workflow_dispatch:
 
 jobs:
@@ -34,3 +35,91 @@ jobs:
           name: Cyanide-TweakRunner
           path: build/Cyanide.ipa
           retention-days: 7
+
+      - name: Notify Discord – success
+        if: success()
+        shell: bash
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          curl -sS -H "Content-Type: application/json" \
+            -X POST \
+            -d "$(cat <<-JSON
+          {
+            "embeds": [{
+              "title": "✅ Cyanide build succeeded",
+              "color": 5763719,
+              "fields": [
+                {"name": "Commit", "value": "${{ github.sha }}", "inline": true},
+                {"name": "Branch", "value": "${{ github.ref_name }}", "inline": true}
+              ],
+              "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            }]
+          }
+          JSON
+          )" \
+            "$WEBHOOK"
+
+      - name: Notify Discord – failure
+        if: failure()
+        shell: bash
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          curl -sS -H "Content-Type: application/json" \
+            -X POST \
+            -d "$(cat <<-JSON
+          {
+            "embeds": [{
+              "title": "❌ Cyanide build failed",
+              "color": 15548997,
+              "fields": [
+                {"name": "Commit", "value": "${{ github.sha }}", "inline": true},
+                {"name": "Branch", "value": "${{ github.ref_name }}", "inline": true}
+              ],
+              "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            }]
+          }
+          JSON
+          )" \
+            "$WEBHOOK"
+
+  release:
+    name: Create Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate changelog
+        id: changelog
+        shell: bash
+        run: |
+          prev="$(git describe --tags --abbrev=0 HEAD~1 2>/dev/null || true)"
+          if [ -z "$prev" ]; then
+            log="$(git log --oneline --no-decorate HEAD)"
+          else
+            log="$(git log --oneline --no-decorate "$prev..HEAD")"
+          fi
+          delimiter="CHANGELOG_EOF_$(date +%s)"
+          echo "body<<$delimiter" >> "$GITHUB_OUTPUT"
+          echo "$log" >> "$GITHUB_OUTPUT"
+          echo "$delimiter" >> "$GITHUB_OUTPUT"
+
+      - name: Download IPA
+        uses: actions/download-artifact@v4
+        with:
+          name: Cyanide-TweakRunner
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body: ${{ steps.changelog.outputs.body }}
+          files: Cyanide.ipa
+          fail_on_unmatched_files: false
+          generate_release_notes: true

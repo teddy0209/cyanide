@@ -1584,14 +1584,11 @@ static bool ipadec_launch_and_suspend_app(NSString *bundleID, pid_t *pidOut)
         id proxy = ipadec_perform0(workspace, @selector(applicationWithBundleID:));
         if (proxy) {
             NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"%@://", bundleID]];
-            BOOL opened = [[UIApplication sharedApplication] openURL:url options:@{} completionHandler:nil];
-            if (opened) {
-                log_user("[IPADEC] Launched app %s\n", bundleID.UTF8String);
-                // Give it time to start
-                usleep(500000); // 500ms
-                *pidOut = 0; // Would need to wait and find the pid
-                return true;
-            }
+            [[UIApplication sharedApplication] openURL:url options:@{} completionHandler:nil];
+            log_user("[IPADEC] Attempted launch %s\n", bundleID.UTF8String);
+            usleep(500000);
+            *pidOut = 0;
+            return true;
         }
     } @catch (NSException *e) {
         log_user("[IPADEC] Exception launching app: %s\n", e.reason.UTF8String);

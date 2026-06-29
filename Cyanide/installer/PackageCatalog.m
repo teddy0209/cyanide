@@ -277,7 +277,7 @@ static const NSInteger kSecRepoTweaks       = 26;
         Package *ipaDecryptor = [[Package alloc] initWithIdentifier:@"com.darksword.ipadecryptor"
                                            name:@"IPA Decryptor"
                                shortDescription:@"Decrypt installed App Store app payloads"
-                                longDescription:"Local IPA decryptor. Select an installed user app or paste an App Store link, resolve it to a bundle ID, sign in for an App Store download token, fetch the encrypted IPA to Documents, probe FairPlay encryption metadata, then run the decrypt pipeline.\n\nCurrent build includes app discovery, App Store link resolution, sign-in, encrypted IPA fetching, encryption probing, and basic IPA rebuilding. Full memory decryption requires KRW integration."
+                                 longDescription:@"Local IPA decryptor. Select an installed user app or paste an App Store link, resolve it to a bundle ID, sign in for an App Store download token, fetch the encrypted IPA to Documents, probe FairPlay encryption metadata, then run the decrypt pipeline.\n\nCurrent build includes app discovery, App Store link resolution, sign-in, encrypted IPA fetching, encryption probing, and basic IPA rebuilding. Full memory decryption requires KRW integration."
                                         version:version
                                          author:@"londek / zeroxjf"
                                        category:@"System"

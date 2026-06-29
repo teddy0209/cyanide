@@ -438,6 +438,136 @@ static const NSInteger kSecRepoTweaks       = 26;
                                           isNew:NO];
         fastLockXLite.settingsSection = kSecFastLockXLite;
         fastLockXLite.unstableWarning = @"Beta / unstable: sends private SpringBoard lock-screen and biometric-resource messages. Always On runs SpringBoard timers while the device is locked, so disable it or respring if Face ID feels noisy or unstable.";
+
+        Package *cleanNC = [[Package alloc] initWithIdentifier:@"com.darksword.cleannc"
+                                           name:@"CleanNC"
+                               shortDescription:@"Hide Notification Center clutter"
+                                longDescription:@"Hides the search bar, 'No Older Notifications' text, and background grid views from Notification Center."
+                                        version:version
+                                         author:@"zeroxjf"
+                                       category:@"SpringBoard"
+                                     symbolName:@"rectangle.3.group.fill"
+                                           kind:PackageInstallKindToggle
+                                     enabledKey:kSettingsCleanNCEnabled
+                                          isNew:NO];
+        cleanNC.settingsSection = kSecCleanNC;
+
+        Package *underTime = [[Package alloc] initWithIdentifier:@"com.darksword.undertime"
+                                           name:@"UnderTime"
+                               shortDescription:@"Double-line clock in the status bar"
+                                longDescription:@"Sets the status bar time to a double-line format (hour on top, minutes below) using SpringBoard's internal time-item formatting API."
+                                        version:version
+                                         author:@"zeroxjf"
+                                       category:@"Beta"
+                                     symbolName:@"clock.fill"
+                                           kind:PackageInstallKindToggle
+                                     enabledKey:kSettingsUnderTimeEnabled
+                                          isNew:NO];
+        underTime.settingsSection = kSecUnderTime;
+
+        Package *zeppelinLite = [[Package alloc] initWithIdentifier:@"com.darksword.zeppelinlite"
+                                           name:@"Zeppelin Lite"
+                               shortDescription:@"Custom carrier text in the status bar"
+                                longDescription:@"Replaces the carrier name in the status bar with custom text using SpringBoard's carrier-item text API. Set your text in Settings."
+                                        version:version
+                                         author:@"zeroxjf"
+                                       category:@"SpringBoard"
+                                     symbolName:@"textformat.alt"
+                                           kind:PackageInstallKindToggle
+                                     enabledKey:kSettingsZeppelinLiteEnabled
+                                          isNew:NO];
+        zeppelinLite.settingsSection = kSecZeppelinLite;
+
+        Package *cleanHomeScreen = [[Package alloc] initWithIdentifier:@"com.darksword.cleanhomescreen"
+                                           name:@"CleanHomeScreen"
+                               shortDescription:@"Hide home screen badges, dots, and labels"
+                                longDescription:@"Hides notification badges, page dots, and icon labels on the home screen. Each element can be toggled individually in Settings."
+                                        version:version
+                                         author:@"zeroxjf"
+                                       category:@"Home Screen"
+                                     symbolName:@"square.dashed"
+                                           kind:PackageInstallKindToggle
+                                     enabledKey:kSettingsCleanHomeScreenEnabled
+                                          isNew:NO];
+        cleanHomeScreen.settingsSection = kSecCleanHomeScreen;
+
+        Package *realCC = [[Package alloc] initWithIdentifier:@"com.darksword.realcc"
+                                           name:@"RealCC"
+                               shortDescription:@"Disable Control Center toggles for WiFi and Bluetooth"
+                                longDescription:@"Writes system preference plists to disable WiFi and Bluetooth toggles in Control Center, then kills the associated daemons. Configure which radios to disable in Settings."
+                                        version:version
+                                         author:@"zeroxjf"
+                                       category:@"System"
+                                     symbolName:@"wifi.slash"
+                                           kind:PackageInstallKindToggle
+                                     enabledKey:kSettingsRealCCEnabled
+                                          isNew:NO];
+        realCC.settingsSection = kSecRealCC;
+
+        Package *hideLabels = [[Package alloc] initWithIdentifier:@"com.darksword.hidellabels"
+                                           name:@"HideLabels"
+                               shortDescription:@"Hide all icon labels on the home screen"
+                                longDescription:@"Zeros the alpha of all UILabel subviews inside home screen icon views, effectively hiding all icon labels."
+                                        version:version
+                                         author:@"zeroxjf"
+                                       category:@"Home Screen"
+                                     symbolName:@"eye.slash"
+                                           kind:PackageInstallKindToggle
+                                     enabledKey:kSettingsHideLabelsEnabled
+                                          isNew:NO];
+        hideLabels.settingsSection = kSecHideLabels;
+
+        Package *fakeClockUp = [[Package alloc] initWithIdentifier:@"com.darksword.fakeclockup"
+                                           name:@"FakeClockUp"
+                               shortDescription:@"Speed up or slow down clock animations"
+                                longDescription:@"Writes a speed multiplier into CALayer's animation duration, making clock hand animations faster or slower based on the value set in Settings."
+                                        version:version
+                                         author:@"zeroxjf"
+                                       category:@"SpringBoard"
+                                     symbolName:@"forward.fill"
+                                           kind:PackageInstallKindToggle
+                                     enabledKey:kSettingsFakeClockUpEnabled
+                                          isNew:NO];
+        fakeClockUp.settingsSection = kSecFakeClockUp;
+
+        Package *pancake = [[Package alloc] initWithIdentifier:@"com.darksword.pancake"
+                                           name:@"Pancake"
+                               shortDescription:@"Left-hand gesture hint for the home screen"
+                                longDescription:@"Adds a UIScreenEdgePanGestureRecognizer to the key window that triggers on all edges, providing a left-hand navigation hint."
+                                        version:version
+                                         author:@"zeroxjf"
+                                       category:@"Home Screen"
+                                     symbolName:@"hand.point.left.fill"
+                                           kind:PackageInstallKindToggle
+                                     enabledKey:kSettingsPancakeEnabled
+                                          isNew:NO];
+        pancake.settingsSection = kSecPancake;
+
+        Package *cylinderLite = [[Package alloc] initWithIdentifier:@"com.darksword.cylinderlite"
+                                           name:@"Cylinder Lite"
+                               shortDescription:@"Perspective icon animations"
+                                longDescription:@"Adds perspective-based depth transforms to home screen icons by setting negative zPosition on icon layers and applying perspective transforms on the icon list view."
+                                        version:version
+                                         author:@"zeroxjf"
+                                       category:@"Home Screen"
+                                     symbolName:@"perspective"
+                                           kind:PackageInstallKindToggle
+                                     enabledKey:kSettingsCylinderLiteEnabled
+                                          isNew:NO];
+        cylinderLite.settingsSection = kSecCylinderLite;
+
+        Package *tweakLoader = [[Package alloc] initWithIdentifier:@"com.darksword.tweakloader"
+                                           name:@"TweakLoader"
+                               shortDescription:@"Load custom dylib tweaks at runtime"
+                                longDescription:@"Loads custom .dylib tweaks from the app's Documents/TweakLoader/ directory at runtime using dlopen. Place .dylib files with tweak_initialize/tweak_finalize entry points for auto-detection."
+                                        version:version
+                                         author:@"zeroxjf"
+                                       category:@"System"
+                                     symbolName:@"arrow.down.circle.dotted"
+                                           kind:PackageInstallKindToggle
+                                     enabledKey:kSettingsTweakLoaderEnabled
+                                          isNew:NO];
+        tweakLoader.settingsSection = kSecTweakLoader;
 #endif
 
         Package *nanoRegistry = [[Package alloc] initWithIdentifier:@"com.darksword.nanoregistry"
@@ -597,6 +727,16 @@ static const NSInteger kSecRepoTweaks       = 26;
             ipaDecryptor,
             stageStrip,
             fastLockXLite,
+            cleanNC,
+            underTime,
+            zeppelinLite,
+            cleanHomeScreen,
+            realCC,
+            hideLabels,
+            fakeClockUp,
+            pancake,
+            cylinderLite,
+            tweakLoader,
 #endif
             locationSim,
             snowboardLite,

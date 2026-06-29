@@ -1,105 +1,93 @@
 #import "tweakloader.h"
 #import "../remote_objc.h"
-#import "../../TaskRop/RemoteCall.h"
-#import "../../LogTextView.h"
 
 #import <Foundation/Foundation.h>
-#import <dlfcn.h>
-#import <mach-o/dyld.h>
 
-#define TLDIR @"TweakLoader"
-
-typedef void (*tweak_ctor_t)(void);
-typedef void (*tweak_dtor_t)(void);
+#define MAX_TWEAKS 64
 
 typedef struct {
-    void *handle;
-    tweak_ctor_t ctor;
-    tweak_dtor_t dtor;
-    char name[256];
-} TLLoadedTweak;
+    char name[128];
+    tweakloader_func_t apply;
+    tweakloader_func_t stop;
+} TLRegisteredTweak;
 
-static TLLoadedTweak gTlTweaks[64];
+static TLRegisteredTweak gTlTweaks[MAX_TWEAKS];
 static unsigned int gTlCount = 0;
 static bool gTlApplied = false;
 
+// ---------------------------------------------------------------------------
+// Registration
+// ---------------------------------------------------------------------------
+
+void tweakloader_register(const char *name, tweakloader_func_t apply, tweakloader_func_t stop)
+{
+    if (!name || !apply || gTlCount >= MAX_TWEAKS) return;
+    TLRegisteredTweak *t = &gTlTweaks[gTlCount++];
+    snprintf(t->name, sizeof(t->name), "%s", name);
+    t->apply = apply;
+    t->stop = stop;
+}
+
 void tweakloader_reload_list(void)
 {
-    for (unsigned int i = 0; i < gTlCount; i++) {
-        if (gTlTweaks[i].handle) {
-            if (gTlTweaks[i].dtor) gTlTweaks[i].dtor();
-            dlclose(gTlTweaks[i].handle);
-        }
-    }
     gTlCount = 0;
     memset(gTlTweaks, 0, sizeof(gTlTweaks));
-
-    NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
-    if (paths.count == 0) return;
-    NSString *docDir = paths[0];
-    NSString *tlDir = [docDir stringByAppendingPathComponent:TLDIR];
-
-    BOOL isDir = NO;
-    if (![[NSFileManager defaultManager] fileExistsAtPath:tlDir isDirectory:&isDir] || !isDir) {
-        [[NSFileManager defaultManager] createDirectoryAtPath:tlDir
-                                  withIntermediateDirectories:YES attributes:nil error:nil];
-        return;
-    }
-
-    NSArray *files = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:tlDir error:nil];
-    for (NSString *file in files) {
-        if (![file hasSuffix:@".dylib"]) continue;
-        if (gTlCount >= 64) break;
-
-        NSString *fullPath = [tlDir stringByAppendingPathComponent:file];
-        void *handle = dlopen(fullPath.UTF8String, RTLD_LAZY);
-        if (!handle) {
-            printf("[TWEAKLOADER] dlopen failed for %s: %s\n", file.UTF8String, dlerror());
-            continue;
-        }
-
-        TLLoadedTweak *t = &gTlTweaks[gTlCount];
-        t->handle = handle;
-        snprintf(t->name, sizeof(t->name), "%s", file.UTF8String);
-
-        t->ctor = (tweak_ctor_t)dlsym(handle, "tweak_initialize");
-        t->dtor = (tweak_dtor_t)dlsym(handle, "tweak_finalize");
-
-        if (t->ctor) {
-            t->ctor();
-            printf("[TWEAKLOADER] loaded %s (ctor called)\n", t->name);
-        } else {
-            printf("[TWEAKLOADER] loaded %s (no tweak_initialize symbol)\n", t->name);
-        }
-        gTlCount++;
-    }
-    printf("[TWEAKLOADER] loaded %u dylibs from %s\n", gTlCount, TLDIR.UTF8String);
+    // Built-in demos register themselves here (or via +load).
+    // If you add a new .m/.h tweak, register it here.
+    extern void tweakloader_register_builtins(void);
+    tweakloader_register_builtins();
+    printf("[TWEAKLOADER] reloaded: %u registered tweak(s)\n", gTlCount);
 }
+
+// ---------------------------------------------------------------------------
+// Per-tweak apply / stop
+// ---------------------------------------------------------------------------
+
+bool tweakloader_apply_at(unsigned int index)
+{
+    if (index >= gTlCount || !gTlTweaks[index].apply) return false;
+    return gTlTweaks[index].apply();
+}
+
+bool tweakloader_stop_at(unsigned int index)
+{
+    if (index >= gTlCount || !gTlTweaks[index].stop) return false;
+    return gTlTweaks[index].stop();
+}
+
+// ---------------------------------------------------------------------------
+// All-at-once apply / stop (used by SettingsViewController toggle)
+// ---------------------------------------------------------------------------
 
 bool tweakloader_apply_in_session(void)
 {
-    printf("[TWEAKLOADER] apply\n");
+    printf("[TWEAKLOADER] apply all\n");
     if (gTlCount == 0) {
         tweakloader_reload_list();
     }
-    gTlApplied = true;
-    return true;
+    bool allOk = true;
+    for (unsigned int i = 0; i < gTlCount; i++) {
+        if (!tweakloader_apply_at(i)) {
+            printf("[TWEAKLOADER] apply failed for %s\n", gTlTweaks[i].name);
+            allOk = false;
+        }
+    }
+    gTlApplied = allOk;
+    return allOk;
 }
 
 bool tweakloader_stop_in_session(void)
 {
-    printf("[TWEAKLOADER] stop\n");
+    printf("[TWEAKLOADER] stop all\n");
+    bool allOk = true;
     for (unsigned int i = 0; i < gTlCount; i++) {
-        if (gTlTweaks[i].handle && gTlTweaks[i].dtor) {
-            gTlTweaks[i].dtor();
-        }
-        if (gTlTweaks[i].handle) {
-            dlclose(gTlTweaks[i].handle);
+        if (!tweakloader_stop_at(i)) {
+            printf("[TWEAKLOADER] stop failed for %s\n", gTlTweaks[i].name);
+            allOk = false;
         }
     }
-    gTlCount = 0;
     gTlApplied = false;
-    return true;
+    return allOk;
 }
 
 void tweakloader_forget_remote_state(void)
@@ -110,4 +98,63 @@ void tweakloader_forget_remote_state(void)
 unsigned int tweakloader_loaded_count(void)
 {
     return gTlCount;
+}
+
+const char *tweakloader_name_at(unsigned int index)
+{
+    if (index >= gTlCount) return NULL;
+    return gTlTweaks[index].name;
+}
+
+// ---------------------------------------------------------------------------
+// Built-in demo tweaks
+// ---------------------------------------------------------------------------
+
+static bool demo_hello_apply(void)
+{
+    printf("[TWEAKLOADER] demo_hello: creating NSString in SpringBoard\n");
+    uint64_t str = r_nsstr_retained("[TweakLoader] Hello from RemoteCall!");
+    if (r_is_objc_ptr(str)) {
+        printf("[TWEAKLOADER] demo_hello: RemoteCall OK\n");
+        r_free(str);
+        return true;
+    }
+    printf("[TWEAKLOADER] demo_hello: RemoteCall failed\n");
+    return false;
+}
+
+static bool demo_hello_stop(void)
+{
+    return true;
+}
+
+static bool demo_log_apply(void)
+{
+    printf("[TWEAKLOADER] demo_log: enumerating SpringBoard windows\n");
+    uint64_t app = r_msg2_main(r_class("UIApplication"), "sharedApplication", 0, 0, 0, 0);
+    if (r_is_objc_ptr(app)) {
+        uint64_t windows = r_msg2_main(app, "windows", 0, 0, 0, 0);
+        if (r_is_objc_ptr(windows)) {
+            printf("[TWEAKLOADER] demo_log: got windows array\n");
+            return true;
+        }
+    }
+    printf("[TWEAKLOADER] demo_log: no windows\n");
+    return false;
+}
+
+static bool demo_log_stop(void)
+{
+    return true;
+}
+
+void tweakloader_register_builtins(void)
+{
+    static bool registered = false;
+    if (registered) return;
+    registered = true;
+
+    tweakloader_register("Hello RemoteCall", demo_hello_apply, demo_hello_stop);
+    tweakloader_register("Log SpringBoard Windows", demo_log_apply, demo_log_stop);
+    printf("[TWEAKLOADER] built-in tweaks registered\n");
 }

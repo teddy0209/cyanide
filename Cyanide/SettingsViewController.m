@@ -9701,9 +9701,22 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
 
 - (NSArray<NSDictionary *> *)tweakloaderRows
 {
-    return @[
-        @{ @"kind": @"toggle", @"key": kSettingsTweakLoaderEnabled, @"title": @"Enable TweakLoader" },
-    ];
+    NSMutableArray *rows = [NSMutableArray array];
+    [rows addObject:@{ @"kind": @"toggle", @"key": kSettingsTweakLoaderEnabled, @"title": @"Enable TweakLoader" }];
+    [rows addObject:@{ @"kind": @"button", @"action": @"tweakloader-reload", @"title": @"Reload Tweak List" }];
+    [rows addObject:@{ @"kind": @"info", @"title": @"Source Files", @"subtitle": @"tweakloader.h / tweakloader.m" }];
+    unsigned int count = tweakloader_loaded_count();
+    if (count > 0) {
+        [rows addObject:@{ @"kind": @"info", @"title": @"Registered Tweaks", @"subtitle": [NSString stringWithFormat:@"%u built-in tweak(s)", count] }];
+        for (unsigned int i = 0; i < count; i++) {
+            const char *name = tweakloader_name_at(i);
+            if (name) {
+                [rows addObject:@{ @"kind": @"info", @"title": [NSString stringWithUTF8String:name],
+                                   @"subtitle": @"Precompiled .m/.h — uses RemoteCall" }];
+            }
+        }
+    }
+    return rows;
 }
 
 - (NSArray<NSDictionary *> *)notificationIslandRows
@@ -14476,6 +14489,17 @@ void cyanide_present_contact(UIViewController *host)
             [self presentSnowBoardLiteArchiveImporter];
         } else if ([action isEqualToString:@"sbl-clear"]) {
             [self clearSnowBoardLiteTheme];
+        }
+        return;
+    }
+
+    if (indexPath.section == SectionTweakLoader) {
+        NSDictionary *row = [self rowsForSection:indexPath.section][indexPath.row];
+        if (![row[@"kind"] isEqualToString:@"button"]) return;
+        NSString *action = row[@"action"];
+        if ([action isEqualToString:@"tweakloader-reload"]) {
+            tweakloader_reload_list();
+            [self.tableView reloadData];
         }
         return;
     }

@@ -36,54 +36,6 @@ jobs:
           path: build/Cyanide.ipa
           retention-days: 7
 
-      - name: Notify Discord – success
-        if: success()
-        shell: bash
-        env:
-          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
-        run: |
-          curl -sS -H "Content-Type: application/json" \
-            -X POST \
-            -d "$(cat <<-JSON
-          {
-            "embeds": [{
-              "title": "✅ Cyanide build succeeded",
-              "color": 5763719,
-              "fields": [
-                {"name": "Commit", "value": "${{ github.sha }}", "inline": true},
-                {"name": "Branch", "value": "${{ github.ref_name }}", "inline": true}
-              ],
-              "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            }]
-          }
-          JSON
-          )" \
-            "$WEBHOOK"
-
-      - name: Notify Discord – failure
-        if: failure()
-        shell: bash
-        env:
-          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
-        run: |
-          curl -sS -H "Content-Type: application/json" \
-            -X POST \
-            -d "$(cat <<-JSON
-          {
-            "embeds": [{
-              "title": "❌ Cyanide build failed",
-              "color": 15548997,
-              "fields": [
-                {"name": "Commit", "value": "${{ github.sha }}", "inline": true},
-                {"name": "Branch", "value": "${{ github.ref_name }}", "inline": true}
-              ],
-              "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            }]
-          }
-          JSON
-          )" \
-            "$WEBHOOK"
-
   release:
     name: Create Release
     if: startsWith(github.ref, 'refs/tags/v')
@@ -123,3 +75,53 @@ jobs:
           files: Cyanide.ipa
           fail_on_unmatched_files: false
           generate_release_notes: true
+
+  notify:
+    name: Notify Discord
+    if: always()
+    needs: [build, release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Determine overall status
+        id: status
+        shell: bash
+        run: |
+          build="${{ needs.build.result }}"
+          release="${{ needs.release.result }}"
+          if [ "$build" = "success" ]; then
+            if [ "$release" = "success" ]; then
+              echo "title=✅ Cyanide build + release succeeded" >> "$GITHUB_OUTPUT"
+              echo "color=5763719" >> "$GITHUB_OUTPUT"
+            else
+              echo "title=✅ Cyanide build succeeded" >> "$GITHUB_OUTPUT"
+              echo "color=5763719" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "title=❌ Cyanide build failed" >> "$GITHUB_OUTPUT"
+            echo "color=15548997" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Send Discord notification
+        shell: bash
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          TITLE: ${{ steps.status.outputs.title }}
+          COLOR: ${{ steps.status.outputs.color }}
+        run: |
+          curl -sS -H "Content-Type: application/json" \
+            -X POST \
+            -d "$(cat <<-JSON
+          {
+            "embeds": [{
+              "title": "$TITLE",
+              "color": $COLOR,
+              "fields": [
+                {"name": "Commit", "value": "${{ github.sha }}", "inline": true},
+                {"name": "Branch", "value": "${{ github.ref_name }}", "inline": true}
+              ],
+              "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            }]
+          }
+          JSON
+          )" \
+            "$WEBHOOK"

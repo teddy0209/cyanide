@@ -37,7 +37,7 @@ void tweakloader_reload_list(void)
     NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
     if (paths.count == 0) return;
     NSString *docDir = paths[0];
-    NSString *tlDir = [docDir stringByAppendingPathComponent:@TLDIR];
+    NSString *tlDir = [docDir stringByAppendingPathComponent:TLDIR];
 
     BOOL isDir = NO;
     if (![[NSFileManager defaultManager] fileExistsAtPath:tlDir isDirectory:&isDir] || !isDir) {

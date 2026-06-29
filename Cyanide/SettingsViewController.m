@@ -6892,7 +6892,7 @@ static void settings_schedule_live_apply_for_key(NSString *key)
             dispatch_async(dispatch_get_global_queue(0, 0), ^{
                 @synchronized (settings_rc_lock()) {
                     if (settings_cleanup_in_progress() || ![d boolForKey:kSettingsZeppelinLiteEnabled] || !g_springboard_rc_ready) return;
-                    bool ok = zeppelinlite_apply_in_session([d stringForKey:kSettingsZeppelinLiteText]);
+                    bool ok = zeppelinlite_apply_in_session([d stringForKey:kSettingsZeppelinLiteText].UTF8String);
                     settings_mark_tweak_applied(kSettingsZeppelinLiteEnabled, ok && [d boolForKey:kSettingsZeppelinLiteEnabled]);
                     printf("[SETTINGS] live Zeppelin Lite apply result=%d\n", ok);
                 }
@@ -6962,8 +6962,8 @@ static void settings_schedule_live_apply_for_key(NSString *key)
             dispatch_async(dispatch_get_global_queue(0, 0), ^{
                 @synchronized (settings_rc_lock()) {
                     if (settings_cleanup_in_progress() || ![d boolForKey:kSettingsRealCCEnabled] || !g_springboard_rc_ready) return;
-                    bool ok = realcc_apply_in_session([d boolForKey:kSettingsRealCCDisableWiFi],
-                                                      [d boolForKey:kSettingsRealCCDisableBT]);
+                    bool ok = realcc_apply([d boolForKey:kSettingsRealCCDisableWiFi],
+                                                       [d boolForKey:kSettingsRealCCDisableBT]);
                     settings_mark_tweak_applied(kSettingsRealCCEnabled, ok && [d boolForKey:kSettingsRealCCEnabled]);
                     printf("[SETTINGS] live RealCC apply result=%d\n", ok);
                 }
@@ -6975,7 +6975,7 @@ static void settings_schedule_live_apply_for_key(NSString *key)
             if (g_springboard_rc_ready) {
                 dispatch_async(dispatch_get_global_queue(0, 0), ^{
                     @synchronized (settings_rc_lock()) {
-                        if (g_springboard_rc_ready) realcc_stop_in_session();
+                        if (g_springboard_rc_ready) realcc_restore();
                     }
                 });
             }
@@ -6983,8 +6983,8 @@ static void settings_schedule_live_apply_for_key(NSString *key)
         return;
     }
 
-    if (settings_key_is_hidelabels(key)) {
-        if (!settings_hidelabels_install_allowed()) {
+    if (settings_key_is_hidellabels(key)) {
+        if (!settings_hidellabels_install_allowed()) {
             if ([d boolForKey:kSettingsHideLabelsEnabled]) {
                 [d setBool:NO forKey:kSettingsHideLabelsEnabled];
                 [d synchronize];
@@ -6997,7 +6997,7 @@ static void settings_schedule_live_apply_for_key(NSString *key)
             dispatch_async(dispatch_get_global_queue(0, 0), ^{
                 @synchronized (settings_rc_lock()) {
                     if (settings_cleanup_in_progress() || ![d boolForKey:kSettingsHideLabelsEnabled] || !g_springboard_rc_ready) return;
-                    bool ok = hidelabels_apply_in_session();
+                    bool ok = hidellabels_apply_in_session();
                     settings_mark_tweak_applied(kSettingsHideLabelsEnabled, ok && [d boolForKey:kSettingsHideLabelsEnabled]);
                     printf("[SETTINGS] live HideLabels apply result=%d\n", ok);
                 }
@@ -7009,7 +7009,7 @@ static void settings_schedule_live_apply_for_key(NSString *key)
             if (g_springboard_rc_ready) {
                 dispatch_async(dispatch_get_global_queue(0, 0), ^{
                     @synchronized (settings_rc_lock()) {
-                        if (g_springboard_rc_ready) hidelabels_stop_in_session();
+                        if (g_springboard_rc_ready) hidellabels_stop_in_session();
                     }
                 });
             }
@@ -7869,7 +7869,7 @@ static void settings_run_actions_internal(BOOL pendingOnly)
             BOOL runZeppelinLite = settings_zeppelinlite_install_allowed() && settings_enabled_tweak_should_run(d, kSettingsZeppelinLiteEnabled, springBoardPendingOnly);
             BOOL runCleanHomeScreen = settings_cleanhomescreen_install_allowed() && settings_enabled_tweak_should_run(d, kSettingsCleanHomeScreenEnabled, springBoardPendingOnly);
             BOOL runRealCC = settings_realcc_install_allowed() && settings_enabled_tweak_should_run(d, kSettingsRealCCEnabled, springBoardPendingOnly);
-            BOOL runHideLabels = settings_hidelabels_install_allowed() && settings_enabled_tweak_should_run(d, kSettingsHideLabelsEnabled, springBoardPendingOnly);
+            BOOL runHideLabels = settings_hidellabels_install_allowed() && settings_enabled_tweak_should_run(d, kSettingsHideLabelsEnabled, springBoardPendingOnly);
             BOOL runFakeClockUp = settings_fakeclockup_install_allowed() && settings_enabled_tweak_should_run(d, kSettingsFakeClockUpEnabled, springBoardPendingOnly);
             BOOL runPancake = settings_pancake_install_allowed() && settings_enabled_tweak_should_run(d, kSettingsPancakeEnabled, springBoardPendingOnly);
             BOOL runCylinderLite = settings_cylinderlite_install_allowed() && settings_enabled_tweak_should_run(d, kSettingsCylinderLiteEnabled, springBoardPendingOnly);
@@ -8351,7 +8351,7 @@ static void settings_run_actions_internal(BOOL pendingOnly)
 
                     if (runZeppelinLite) {
                         settings_progress(&step, total, "Applying Zeppelin Lite");
-                        bool ok = zeppelinlite_apply_in_session([d stringForKey:kSettingsZeppelinLiteText]);
+                        bool ok = zeppelinlite_apply_in_session([d stringForKey:kSettingsZeppelinLiteText].UTF8String);
                         settings_mark_tweak_applied(kSettingsZeppelinLiteEnabled, ok && [d boolForKey:kSettingsZeppelinLiteEnabled]);
                         printf("[SETTINGS] Zeppelin Lite result=%d\n", ok);
                         log_user("%s Zeppelin Lite %s.\n", ok ? "[OK]" : "[WARN]", ok ? "active" : "did not start cleanly");
@@ -8371,9 +8371,9 @@ static void settings_run_actions_internal(BOOL pendingOnly)
 
                     if (runRealCC) {
                         settings_progress(&step, total, "Applying RealCC");
-                        bool ok = realcc_apply_in_session([d boolForKey:kSettingsRealCCDisableWiFi],
-                                                          [d boolForKey:kSettingsRealCCDisableBT]);
-                        settings_mark_tweak_applied(kSettingsRealCCEnabled, ok && [d boolForKey:kSettingsRealCCEnabled]);
+                    bool ok = realcc_apply([d boolForKey:kSettingsRealCCDisableWiFi],
+                                                           [d boolForKey:kSettingsRealCCDisableBT]);
+                            settings_mark_tweak_applied(kSettingsRealCCEnabled, ok && [d boolForKey:kSettingsRealCCEnabled]);
                         printf("[SETTINGS] RealCC result=%d\n", ok);
                         log_user("%s RealCC %s.\n", ok ? "[OK]" : "[WARN]", ok ? "active" : "did not start cleanly");
                         cyanide_upload_log_milestone(ok ? @"realcc-applied" : @"realcc-failed");
@@ -8381,7 +8381,7 @@ static void settings_run_actions_internal(BOOL pendingOnly)
 
                     if (runHideLabels) {
                         settings_progress(&step, total, "Applying HideLabels");
-                        bool ok = hidelabels_apply_in_session();
+                        bool ok = hidellabels_apply_in_session();
                         settings_mark_tweak_applied(kSettingsHideLabelsEnabled, ok && [d boolForKey:kSettingsHideLabelsEnabled]);
                         printf("[SETTINGS] HideLabels result=%d\n", ok);
                         log_user("%s HideLabels %s.\n", ok ? "[OK]" : "[WARN]", ok ? "active" : "did not start cleanly");
@@ -10182,7 +10182,7 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
         case SectionZeppelinLite: return settings_zeppelinlite_install_allowed() ? self.zeppelinliteRows : @[];
         case SectionCleanHomeScreen: return settings_cleanhomescreen_install_allowed() ? self.cleanhomescreenRows : @[];
         case SectionRealCC: return settings_realcc_install_allowed() ? self.realccRows : @[];
-        case SectionHideLabels: return settings_hidelabels_install_allowed() ? self.hidellabelsRows : @[];
+        case SectionHideLabels: return settings_hidellabels_install_allowed() ? self.hidellabelsRows : @[];
         case SectionFakeClockUp: return settings_fakeclockup_install_allowed() ? self.fakeclockupRows : @[];
         case SectionPancake: return settings_pancake_install_allowed() ? self.pancakeRows : @[];
         case SectionCylinderLite: return settings_cylinderlite_install_allowed() ? self.cylinderliteRows : @[];

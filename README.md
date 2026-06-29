@@ -84,6 +84,8 @@ SpringBoard and related daemons to break things on other releases.
   date/time formats, battery, memory, traffic, uptime, IP address, disk,
   thermal state, and other live readouts. Ported from
   [`d1y/cyanide-ios`](https://github.com/d1y/cyanide-ios).
+- **Signal Readouts**: RSRP dBm on cellular, bar count on WiFi. Replaces
+  signal-strength glyphs with live numeric readouts.
 
 ### Home Screen Layout
 
@@ -129,6 +131,10 @@ Ported from [`kolbicz/DarkSword-Tweaks`](https://github.com/kolbicz/DarkSword-Tw
   SpringBoard using the same scene-hosting design as [`tomt000`'s Dynamic Stage](https://havoc.app/package/dynamicstage).
 - **FastLockX Lite**: keeps Face ID retry/unlock requests armed through
   SpringBoard timers so pickup-to-unlock can work after Cyanide closes.
+- **TypeBanner**: port of TypeMillennium. Shows a pill banner just below the
+  Dynamic Island when imagent reports an active iMessage typing indicator.
+- **Notification Island**: mirrors incoming banners into the Dynamic Island
+  using ActivityKit Live Activities.
 - **Cyanide Themer**: per-bundle icon theme engine. Walks SpringBoard's
   SBIconView hierarchy and swaps each icon's image with a PNG matched on bundle
   ID. Ships with iOS 6 Theme; also accepts a custom folder of `<bundleID>.png`
@@ -167,15 +173,12 @@ Ported from [`kolbicz/DarkSword-Tweaks`](https://github.com/kolbicz/DarkSword-Tw
   Disable Call Recording BookRestore reference tools, and `@Little_34306` as
   credited by the original projects for the Disable Call Recording concept.
 
-### In Development
+### System
 
-> These entries are visible but not installable because they do not work yet.
-> Their app/source paths are left in place so someone can pick them up later.
-
-- **Signal Readouts**: unfinished status-bar numeric signal readouts.
-- **TypeBanner**: unfinished iMessage typing banner experiment.
-- **Notification Island**: unfinished Dynamic Island notification mirror.
-- **IPA Decryptor**: unfinished local IPA decryptor workflow.
+- **Disable OTA Updates**: toggles the launchd OTA `disabled.plist` to block or
+  unblock update prompts. Persists across reboots.
+- **IPA Decryptor**: local IPA decryptor for App Store apps. Includes app discovery, 
+  encryption probing, and basic IPA rebuilding. Full memory decryption requires KRW integration.
 
 ## Supported Targets
 

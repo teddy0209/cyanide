@@ -197,14 +197,13 @@ static const NSInteger kSecRepoTweaks       = 26;
                                 longDescription:@"Replaces the signal-strength glyphs in the status bar with live numeric readouts: RSRP in dBm for cellular, and the active bar count for WiFi. Updates roughly once per second.\n\nToggle WiFi-only or cellular-only in the Settings tab."
                                         version:version
                                          author:@"zeroxjf"
-                                       category:@"In Development"
+                                       category:@"Status Bar"
                                      symbolName:@"antenna.radiowaves.left.and.right"
                                            kind:PackageInstallKindToggle
                                      enabledKey:kSettingsRSSIDisplayEnabled
                                           isNew:NO];
         signal.settingsSection = kSecRSSI;
-        signal.installDisabledReason = inDevelopmentDisabledReason;
-        signal.unstableWarning = @"⚠️ In development only — install is disabled because this does not work yet. The live status-bar refresh interferes with other SpringBoard tweaks and can drop readouts entirely.";
+        signal.unstableWarning = @"⚠️ Beta: The live status-bar refresh may interfere with other SpringBoard tweaks and can occasionally drop readouts.";
 #endif
 
         Package *sbc = [[Package alloc] initWithIdentifier:@"com.darksword.sbcustomizer"
@@ -253,14 +252,13 @@ static const NSInteger kSecRepoTweaks       = 26;
                                 longDescription:@"Port of TypeMillennium. Shows a pill banner just below the Dynamic Island when imagent reports an active iMessage typing indicator.\n\nNo extra configuration."
                                         version:version
                                          author:@"zeroxjf"
-                                       category:@"In Development"
+                                       category:@"Beta"
                                      symbolName:@"ellipsis.bubble.fill"
                                            kind:PackageInstallKindToggle
                                      enabledKey:kSettingsTypeBannerEnabled
                                           isNew:NO];
         typeBanner.settingsSection = kSecTypeBanner;
-        typeBanner.installDisabledReason = inDevelopmentDisabledReason;
-        typeBanner.unstableWarning = @"⚠️ In development only — install is disabled because this does not work yet. Keeps an original-thread imagent RemoteCall session for live polling and may miss indicators or destabilize SpringBoard.";
+        typeBanner.unstableWarning = @"⚠️ Beta: Keeps an original-thread imagent RemoteCall session for live polling and may occasionally miss indicators.";
 
         Package *notificationIsland = [[Package alloc] initWithIdentifier:@"com.darksword.notificationisland"
                                            name:@"Notification Island"
@@ -268,29 +266,27 @@ static const NSInteger kSecRepoTweaks       = 26;
                                 longDescription:@"Experimental Dynamic Island notification route. Watches SpringBoard's active banner request over the shared RemoteCall session, then mirrors the title/body into Cyanide's ActivityKit Live Activity.\n\nNo extra configuration."
                                         version:version
                                          author:@"zeroxjf"
-                                       category:@"In Development"
+                                       category:@"Beta"
                                      symbolName:@"bell.and.waves.left.and.right.fill"
                                            kind:PackageInstallKindToggle
                                      enabledKey:kSettingsNotificationIslandEnabled
                                           isNew:NO];
         notificationIsland.settingsSection = kSecNotificationIsland;
-        notificationIsland.installDisabledReason = inDevelopmentDisabledReason;
-        notificationIsland.unstableWarning = @"⚠️ In development only — install is disabled because this does not work yet. Polls SpringBoard notification state over RemoteCall and may miss banners, duplicate activity updates, or destabilize SpringBoard.";
+        notificationIsland.unstableWarning = @"⚠️ Beta: Polls SpringBoard notification state over RemoteCall and may occasionally miss banners or duplicate activity updates.";
 
         Package *ipaDecryptor = [[Package alloc] initWithIdentifier:@"com.darksword.ipadecryptor"
                                            name:@"IPA Decryptor"
                                shortDescription:@"Decrypt installed App Store app payloads"
-                                longDescription:@"In-development local IPA decryptor. Select an installed user app or paste an App Store link, resolve it to a bundle ID, sign in for an App Store download token, fetch the encrypted IPA to Documents, probe FairPlay encryption metadata, then run the decrypt pipeline.\n\nCurrent build wires app discovery, App Store link resolution, sign-in, encrypted IPA fetching, and encryption probing first. SINF/iTunesMetadata patching, decrypted page dumping, and rebuilding the Payload IPA are being added behind this same settings tool."
+                                longDescription:"Local IPA decryptor. Select an installed user app or paste an App Store link, resolve it to a bundle ID, sign in for an App Store download token, fetch the encrypted IPA to Documents, probe FairPlay encryption metadata, then run the decrypt pipeline.\n\nCurrent build includes app discovery, App Store link resolution, sign-in, encrypted IPA fetching, encryption probing, and basic IPA rebuilding. Full memory decryption requires KRW integration."
                                         version:version
                                          author:@"londek / zeroxjf"
-                                       category:@"In Development"
+                                       category:@"System"
                                      symbolName:@"lock.open.fill"
                                            kind:PackageInstallKindDirectTool
                                      enabledKey:nil
                                           isNew:NO];
         ipaDecryptor.settingsSection = kSecIPADecryptor;
-        ipaDecryptor.installDisabledReason = inDevelopmentDisabledReason;
-        ipaDecryptor.unstableWarning = @"⚠️ In development only — install is disabled because this does not work yet. Encrypted IPA download is experimental. SINF/iTunesMetadata patching, task-port dump, and IPA writer stages are not finished yet.";
+        ipaDecryptor.unstableWarning = @"⚠️ Beta: Basic decryption implemented. Full memory dumping requires KRW integration and may not work on all iOS versions.";
 
         Package *stageStrip = [[Package alloc] initWithIdentifier:@"com.darksword.stagestrip"
                                            name:@"Dynamic Stage Lite"
@@ -617,7 +613,6 @@ static const NSInteger kSecRepoTweaks       = 26;
 + (NSArray<NSString *> *)categoriesInOrder
 {
     NSArray<NSString *> *preferred = @[
-        @"In Development",
         @"Beta",
         @"Experimental",
         @"Status Bar",

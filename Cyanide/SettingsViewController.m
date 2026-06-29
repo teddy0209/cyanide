@@ -7706,7 +7706,6 @@ typedef NS_ENUM(NSInteger, RootSection) {
     RootSectionChangelog = 0,
     RootSectionActions,
     RootSectionTweakBundles,
-    RootSectionInDev,
     RootSectionSystemBundles,
     RootSectionAbout,
     RootSectionWarning,
@@ -9120,6 +9119,7 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
 {
     return @[
         @{ @"title": @"OTA Updates",       @"icon": @"icloud.slash.fill",    @"color": [UIColor systemGrayColor],   @"section": @(SectionOTA) },
+        @{ @"title": @"IPA Decryptor",     @"icon": @"lock.open.fill",       @"color": [UIColor systemGreenColor],  @"section": @(SectionIPADecryptor) },
         @{ @"title": @"Watch Pairing",     @"icon": @"applewatch.radiowaves.left.and.right", @"color": [UIColor systemPurpleColor], @"section": @(SectionNanoRegistry) },
     ];
 }
@@ -9165,7 +9165,6 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
 - (NSArray<NSDictionary *> *)bundleRowsForRootSection:(RootSection)section
 {
     if (section == RootSectionTweakBundles)  return self.tweakBundleRows;
-    if (section == RootSectionInDev)        return self.inDevBundleRows;
     if (section == RootSectionSystemBundles) return self.systemBundleRows;
     return @[];
 }
@@ -9190,7 +9189,6 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
         }
         case RootSectionActions:        return 4;
         case RootSectionTweakBundles:   return (NSInteger)self.tweakBundleRows.count;
-        case RootSectionInDev:         return (NSInteger)self.inDevBundleRows.count;
         case RootSectionSystemBundles:  return (NSInteger)self.systemBundleRows.count;
         case RootSectionAbout:          return 6;
         case RootSectionWarning:        return 0;
@@ -9206,7 +9204,6 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
         case RootSectionChangelog:      return self.changelogExpanded ? @"What's New" : nil;
         case RootSectionActions:        return @"Quick Actions";
         case RootSectionTweakBundles:   return self.tweakBundleRows.count   > 0 ? @"Tweaks" : nil;
-        case RootSectionInDev:         return self.inDevBundleRows.count   > 0 ? @"In Development" : nil;
         case RootSectionSystemBundles:  return self.systemBundleRows.count  > 0 ? @"System" : nil;
         case RootSectionAbout:          return @"About";
         default:                        return nil;
@@ -9223,9 +9220,6 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section
 {
     if (!self.detailMode) {
-        if ((RootSection)section == RootSectionInDev && self.inDevBundleRows.count > 0) {
-            return @"These entries are not installable because they do not work yet. They remain visible so the unfinished settings/source paths are discoverable for anyone who wants to continue them.";
-        }
         return nil;
     }
     NSInteger s = self.underlyingSection;
@@ -9321,7 +9315,6 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
         if ((RootSection)section == RootSectionWarning) return CGFLOAT_MIN;
         if ((RootSection)section == RootSectionChangelog     && settings_changelog_entries().count == 0) return CGFLOAT_MIN;
         if ((RootSection)section == RootSectionTweakBundles  && self.tweakBundleRows.count  == 0) return CGFLOAT_MIN;
-        if ((RootSection)section == RootSectionInDev        && self.inDevBundleRows.count  == 0) return CGFLOAT_MIN;
         if ((RootSection)section == RootSectionSystemBundles && self.systemBundleRows.count == 0) return CGFLOAT_MIN;
     }
     return 46.0;
@@ -11061,8 +11054,6 @@ void cyanide_present_contact(UIViewController *host)
                 break;
             case RootSectionTweakBundles:
                 return [self buildBundleCellWithRow:self.tweakBundleRows[indexPath.row] tableView:tableView];
-            case RootSectionInDev:
-                return [self buildInDevCellWithRow:self.inDevBundleRows[indexPath.row] tableView:tableView];
             case RootSectionSystemBundles:
                 return [self buildBundleCellWithRow:self.systemBundleRows[indexPath.row] tableView:tableView];
             case RootSectionAbout:
@@ -12629,14 +12620,11 @@ void cyanide_present_contact(UIViewController *host)
             case RootSectionActions:
                 indexPath = [NSIndexPath indexPathForRow:indexPath.row inSection:SectionActions];
                 break;
-            case RootSectionInDev:
             case RootSectionTweakBundles:
             case RootSectionSystemBundles: {
-                NSArray<NSDictionary *> *bundles = (RootSection)indexPath.section == RootSectionInDev
-                    ? self.inDevBundleRows
-                    : ((RootSection)indexPath.section == RootSectionTweakBundles
-                        ? self.tweakBundleRows
-                        : self.systemBundleRows);
+                NSArray<NSDictionary *> *bundles = (RootSection)indexPath.section == RootSectionTweakBundles
+                    ? self.tweakBundleRows
+                    : self.systemBundleRows;
                 NSDictionary *bundle = bundles[indexPath.row];
                 NSInteger underlying = [bundle[@"section"] integerValue];
                 NSString *pushTitle = bundle[@"title"];

@@ -6850,6 +6850,315 @@ static void settings_schedule_live_apply_for_key(NSString *key)
         return;
     }
 
+    if (settings_key_is_cleannc(key)) {
+        if (!settings_cleannc_install_allowed()) {
+            if ([d boolForKey:kSettingsCleanNCEnabled]) {
+                [d setBool:NO forKey:kSettingsCleanNCEnabled];
+                [d synchronize];
+            }
+            settings_mark_tweak_applied(kSettingsCleanNCEnabled, NO);
+            settings_notify_package_queue_changed_async();
+            return;
+        }
+        if ([d boolForKey:kSettingsCleanNCEnabled] && g_springboard_rc_ready) {
+            dispatch_async(dispatch_get_global_queue(0, 0), ^{
+                @synchronized (settings_rc_lock()) {
+                    if (settings_cleanup_in_progress() || ![d boolForKey:kSettingsCleanNCEnabled] || !g_springboard_rc_ready) return;
+                    bool ok = cleannc_apply_in_session();
+                    settings_mark_tweak_applied(kSettingsCleanNCEnabled, ok && [d boolForKey:kSettingsCleanNCEnabled]);
+                    printf("[SETTINGS] live CleanNC apply result=%d\n", ok);
+                }
+                settings_notify_package_queue_changed_async();
+            });
+        } else if (![d boolForKey:kSettingsCleanNCEnabled]) {
+            settings_mark_tweak_applied(kSettingsCleanNCEnabled, NO);
+            settings_notify_package_queue_changed_async();
+            if (g_springboard_rc_ready) {
+                dispatch_async(dispatch_get_global_queue(0, 0), ^{
+                    @synchronized (settings_rc_lock()) {
+                        if (g_springboard_rc_ready) cleannc_stop_in_session();
+                    }
+                });
+            }
+        }
+        return;
+    }
+
+    if (settings_key_is_undertime(key)) {
+        if (!settings_undertime_install_allowed()) {
+            if ([d boolForKey:kSettingsUnderTimeEnabled]) {
+                [d setBool:NO forKey:kSettingsUnderTimeEnabled];
+                [d synchronize];
+            }
+            settings_mark_tweak_applied(kSettingsUnderTimeEnabled, NO);
+            settings_notify_package_queue_changed_async();
+            return;
+        }
+        if ([d boolForKey:kSettingsUnderTimeEnabled] && g_springboard_rc_ready) {
+            dispatch_async(dispatch_get_global_queue(0, 0), ^{
+                @synchronized (settings_rc_lock()) {
+                    if (settings_cleanup_in_progress() || ![d boolForKey:kSettingsUnderTimeEnabled] || !g_springboard_rc_ready) return;
+                    bool ok = undertime_apply_in_session();
+                    settings_mark_tweak_applied(kSettingsUnderTimeEnabled, ok && [d boolForKey:kSettingsUnderTimeEnabled]);
+                    printf("[SETTINGS] live UnderTime apply result=%d\n", ok);
+                }
+                settings_notify_package_queue_changed_async();
+            });
+        } else if (![d boolForKey:kSettingsUnderTimeEnabled]) {
+            settings_mark_tweak_applied(kSettingsUnderTimeEnabled, NO);
+            settings_notify_package_queue_changed_async();
+            if (g_springboard_rc_ready) {
+                dispatch_async(dispatch_get_global_queue(0, 0), ^{
+                    @synchronized (settings_rc_lock()) {
+                        if (g_springboard_rc_ready) undertime_stop_in_session();
+                    }
+                });
+            }
+        }
+        return;
+    }
+
+    if (settings_key_is_zeppelinlite(key)) {
+        if (!settings_zeppelinlite_install_allowed()) {
+            if ([d boolForKey:kSettingsZeppelinLiteEnabled]) {
+                [d setBool:NO forKey:kSettingsZeppelinLiteEnabled];
+                [d synchronize];
+            }
+            settings_mark_tweak_applied(kSettingsZeppelinLiteEnabled, NO);
+            settings_notify_package_queue_changed_async();
+            return;
+        }
+        if ([d boolForKey:kSettingsZeppelinLiteEnabled] && g_springboard_rc_ready) {
+            dispatch_async(dispatch_get_global_queue(0, 0), ^{
+                @synchronized (settings_rc_lock()) {
+                    if (settings_cleanup_in_progress() || ![d boolForKey:kSettingsZeppelinLiteEnabled] || !g_springboard_rc_ready) return;
+                    bool ok = zeppelinlite_apply_in_session([d stringForKey:kSettingsZeppelinLiteText]);
+                    settings_mark_tweak_applied(kSettingsZeppelinLiteEnabled, ok && [d boolForKey:kSettingsZeppelinLiteEnabled]);
+                    printf("[SETTINGS] live Zeppelin Lite apply result=%d\n", ok);
+                }
+                settings_notify_package_queue_changed_async();
+            });
+        } else if (![d boolForKey:kSettingsZeppelinLiteEnabled]) {
+            settings_mark_tweak_applied(kSettingsZeppelinLiteEnabled, NO);
+            settings_notify_package_queue_changed_async();
+            if (g_springboard_rc_ready) {
+                dispatch_async(dispatch_get_global_queue(0, 0), ^{
+                    @synchronized (settings_rc_lock()) {
+                        if (g_springboard_rc_ready) zeppelinlite_stop_in_session();
+                    }
+                });
+            }
+        }
+        return;
+    }
+
+    if (settings_key_is_cleanhomescreen(key)) {
+        if (!settings_cleanhomescreen_install_allowed()) {
+            if ([d boolForKey:kSettingsCleanHomeScreenEnabled]) {
+                [d setBool:NO forKey:kSettingsCleanHomeScreenEnabled];
+                [d synchronize];
+            }
+            settings_mark_tweak_applied(kSettingsCleanHomeScreenEnabled, NO);
+            settings_notify_package_queue_changed_async();
+            return;
+        }
+        if ([d boolForKey:kSettingsCleanHomeScreenEnabled] && g_springboard_rc_ready) {
+            dispatch_async(dispatch_get_global_queue(0, 0), ^{
+                @synchronized (settings_rc_lock()) {
+                    if (settings_cleanup_in_progress() || ![d boolForKey:kSettingsCleanHomeScreenEnabled] || !g_springboard_rc_ready) return;
+                    bool ok = cleanhomescreen_apply_in_session([d boolForKey:kSettingsCleanHomeScreenHideBadges],
+                                                               [d boolForKey:kSettingsCleanHomeScreenHidePageDots],
+                                                               [d boolForKey:kSettingsCleanHomeScreenHideLabels]);
+                    settings_mark_tweak_applied(kSettingsCleanHomeScreenEnabled, ok && [d boolForKey:kSettingsCleanHomeScreenEnabled]);
+                    printf("[SETTINGS] live CleanHomeScreen apply result=%d\n", ok);
+                }
+                settings_notify_package_queue_changed_async();
+            });
+        } else if (![d boolForKey:kSettingsCleanHomeScreenEnabled]) {
+            settings_mark_tweak_applied(kSettingsCleanHomeScreenEnabled, NO);
+            settings_notify_package_queue_changed_async();
+            if (g_springboard_rc_ready) {
+                dispatch_async(dispatch_get_global_queue(0, 0), ^{
+                    @synchronized (settings_rc_lock()) {
+                        if (g_springboard_rc_ready) cleanhomescreen_stop_in_session();
+                    }
+                });
+            }
+        }
+        return;
+    }
+
+    if (settings_key_is_realcc(key)) {
+        if (!settings_realcc_install_allowed()) {
+            if ([d boolForKey:kSettingsRealCCEnabled]) {
+                [d setBool:NO forKey:kSettingsRealCCEnabled];
+                [d synchronize];
+            }
+            settings_mark_tweak_applied(kSettingsRealCCEnabled, NO);
+            settings_notify_package_queue_changed_async();
+            return;
+        }
+        if ([d boolForKey:kSettingsRealCCEnabled] && g_springboard_rc_ready) {
+            dispatch_async(dispatch_get_global_queue(0, 0), ^{
+                @synchronized (settings_rc_lock()) {
+                    if (settings_cleanup_in_progress() || ![d boolForKey:kSettingsRealCCEnabled] || !g_springboard_rc_ready) return;
+                    bool ok = realcc_apply_in_session([d boolForKey:kSettingsRealCCDisableWiFi],
+                                                      [d boolForKey:kSettingsRealCCDisableBT]);
+                    settings_mark_tweak_applied(kSettingsRealCCEnabled, ok && [d boolForKey:kSettingsRealCCEnabled]);
+                    printf("[SETTINGS] live RealCC apply result=%d\n", ok);
+                }
+                settings_notify_package_queue_changed_async();
+            });
+        } else if (![d boolForKey:kSettingsRealCCEnabled]) {
+            settings_mark_tweak_applied(kSettingsRealCCEnabled, NO);
+            settings_notify_package_queue_changed_async();
+            if (g_springboard_rc_ready) {
+                dispatch_async(dispatch_get_global_queue(0, 0), ^{
+                    @synchronized (settings_rc_lock()) {
+                        if (g_springboard_rc_ready) realcc_stop_in_session();
+                    }
+                });
+            }
+        }
+        return;
+    }
+
+    if (settings_key_is_hidelabels(key)) {
+        if (!settings_hidelabels_install_allowed()) {
+            if ([d boolForKey:kSettingsHideLabelsEnabled]) {
+                [d setBool:NO forKey:kSettingsHideLabelsEnabled];
+                [d synchronize];
+            }
+            settings_mark_tweak_applied(kSettingsHideLabelsEnabled, NO);
+            settings_notify_package_queue_changed_async();
+            return;
+        }
+        if ([d boolForKey:kSettingsHideLabelsEnabled] && g_springboard_rc_ready) {
+            dispatch_async(dispatch_get_global_queue(0, 0), ^{
+                @synchronized (settings_rc_lock()) {
+                    if (settings_cleanup_in_progress() || ![d boolForKey:kSettingsHideLabelsEnabled] || !g_springboard_rc_ready) return;
+                    bool ok = hidelabels_apply_in_session();
+                    settings_mark_tweak_applied(kSettingsHideLabelsEnabled, ok && [d boolForKey:kSettingsHideLabelsEnabled]);
+                    printf("[SETTINGS] live HideLabels apply result=%d\n", ok);
+                }
+                settings_notify_package_queue_changed_async();
+            });
+        } else if (![d boolForKey:kSettingsHideLabelsEnabled]) {
+            settings_mark_tweak_applied(kSettingsHideLabelsEnabled, NO);
+            settings_notify_package_queue_changed_async();
+            if (g_springboard_rc_ready) {
+                dispatch_async(dispatch_get_global_queue(0, 0), ^{
+                    @synchronized (settings_rc_lock()) {
+                        if (g_springboard_rc_ready) hidelabels_stop_in_session();
+                    }
+                });
+            }
+        }
+        return;
+    }
+
+    if (settings_key_is_fakeclockup(key)) {
+        if (!settings_fakeclockup_install_allowed()) {
+            if ([d boolForKey:kSettingsFakeClockUpEnabled]) {
+                [d setBool:NO forKey:kSettingsFakeClockUpEnabled];
+                [d synchronize];
+            }
+            settings_mark_tweak_applied(kSettingsFakeClockUpEnabled, NO);
+            settings_notify_package_queue_changed_async();
+            return;
+        }
+        if ([d boolForKey:kSettingsFakeClockUpEnabled] && g_springboard_rc_ready) {
+            dispatch_async(dispatch_get_global_queue(0, 0), ^{
+                @synchronized (settings_rc_lock()) {
+                    if (settings_cleanup_in_progress() || ![d boolForKey:kSettingsFakeClockUpEnabled] || !g_springboard_rc_ready) return;
+                    bool ok = fakeclockup_apply_in_session([d floatForKey:kSettingsFakeClockUpSpeed]);
+                    settings_mark_tweak_applied(kSettingsFakeClockUpEnabled, ok && [d boolForKey:kSettingsFakeClockUpEnabled]);
+                    printf("[SETTINGS] live FakeClockUp apply result=%d\n", ok);
+                }
+                settings_notify_package_queue_changed_async();
+            });
+        } else if (![d boolForKey:kSettingsFakeClockUpEnabled]) {
+            settings_mark_tweak_applied(kSettingsFakeClockUpEnabled, NO);
+            settings_notify_package_queue_changed_async();
+            if (g_springboard_rc_ready) {
+                dispatch_async(dispatch_get_global_queue(0, 0), ^{
+                    @synchronized (settings_rc_lock()) {
+                        if (g_springboard_rc_ready) fakeclockup_stop_in_session();
+                    }
+                });
+            }
+        }
+        return;
+    }
+
+    if (settings_key_is_pancake(key)) {
+        if (!settings_pancake_install_allowed()) {
+            if ([d boolForKey:kSettingsPancakeEnabled]) {
+                [d setBool:NO forKey:kSettingsPancakeEnabled];
+                [d synchronize];
+            }
+            settings_mark_tweak_applied(kSettingsPancakeEnabled, NO);
+            settings_notify_package_queue_changed_async();
+            return;
+        }
+        if ([d boolForKey:kSettingsPancakeEnabled] && g_springboard_rc_ready) {
+            dispatch_async(dispatch_get_global_queue(0, 0), ^{
+                @synchronized (settings_rc_lock()) {
+                    if (settings_cleanup_in_progress() || ![d boolForKey:kSettingsPancakeEnabled] || !g_springboard_rc_ready) return;
+                    bool ok = pancake_apply_in_session();
+                    settings_mark_tweak_applied(kSettingsPancakeEnabled, ok && [d boolForKey:kSettingsPancakeEnabled]);
+                    printf("[SETTINGS] live Pancake apply result=%d\n", ok);
+                }
+                settings_notify_package_queue_changed_async();
+            });
+        } else if (![d boolForKey:kSettingsPancakeEnabled]) {
+            settings_mark_tweak_applied(kSettingsPancakeEnabled, NO);
+            settings_notify_package_queue_changed_async();
+            if (g_springboard_rc_ready) {
+                dispatch_async(dispatch_get_global_queue(0, 0), ^{
+                    @synchronized (settings_rc_lock()) {
+                        if (g_springboard_rc_ready) pancake_stop_in_session();
+                    }
+                });
+            }
+        }
+        return;
+    }
+
+    if (settings_key_is_cylinderlite(key)) {
+        if (!settings_cylinderlite_install_allowed()) {
+            if ([d boolForKey:kSettingsCylinderLiteEnabled]) {
+                [d setBool:NO forKey:kSettingsCylinderLiteEnabled];
+                [d synchronize];
+            }
+            settings_mark_tweak_applied(kSettingsCylinderLiteEnabled, NO);
+            settings_notify_package_queue_changed_async();
+            return;
+        }
+        if ([d boolForKey:kSettingsCylinderLiteEnabled] && g_springboard_rc_ready) {
+            dispatch_async(dispatch_get_global_queue(0, 0), ^{
+                @synchronized (settings_rc_lock()) {
+                    if (settings_cleanup_in_progress() || ![d boolForKey:kSettingsCylinderLiteEnabled] || !g_springboard_rc_ready) return;
+                    bool ok = cylinderlite_apply_in_session();
+                    settings_mark_tweak_applied(kSettingsCylinderLiteEnabled, ok && [d boolForKey:kSettingsCylinderLiteEnabled]);
+                    printf("[SETTINGS] live Cylinder Lite apply result=%d\n", ok);
+                }
+                settings_notify_package_queue_changed_async();
+            });
+        } else if (![d boolForKey:kSettingsCylinderLiteEnabled]) {
+            settings_mark_tweak_applied(kSettingsCylinderLiteEnabled, NO);
+            settings_notify_package_queue_changed_async();
+            if (g_springboard_rc_ready) {
+                dispatch_async(dispatch_get_global_queue(0, 0), ^{
+                    @synchronized (settings_rc_lock()) {
+                        if (g_springboard_rc_ready) cylinderlite_stop_in_session();
+                    }
+                });
+            }
+        }
+        return;
+    }
+
     if (settings_key_is_appswitchergrid(key)) {
         if ([d boolForKey:kSettingsAppSwitcherGridEnabled] && g_springboard_rc_ready) {
             dispatch_async(dispatch_get_global_queue(0, 0), ^{
@@ -7350,6 +7659,23 @@ void settings_register_defaults(void)
         kSettingsVelvetDateColor: @"#888888",
         kSettingsVelvetCornerRadius: @13.0,
 
+        kSettingsCleanNCEnabled: @NO,
+        kSettingsUnderTimeEnabled: @NO,
+        kSettingsZeppelinLiteEnabled: @NO,
+        kSettingsZeppelinLiteText: @"",
+        kSettingsCleanHomeScreenEnabled: @NO,
+        kSettingsCleanHomeScreenHideBadges: @YES,
+        kSettingsCleanHomeScreenHidePageDots: @YES,
+        kSettingsCleanHomeScreenHideLabels: @YES,
+        kSettingsRealCCEnabled: @NO,
+        kSettingsRealCCDisableWiFi: @YES,
+        kSettingsRealCCDisableBT: @YES,
+        kSettingsHideLabelsEnabled: @NO,
+        kSettingsFakeClockUpEnabled: @NO,
+        kSettingsFakeClockUpSpeed: @2.0,
+        kSettingsPancakeEnabled: @NO,
+        kSettingsCylinderLiteEnabled: @NO,
+
         kSettingsGravityLiteEnabled: @NO,
         kSettingsGravityLiteDockEnabled: @YES,
         kSettingsGravityLiteMagnitudePct: @100,
@@ -7410,6 +7736,15 @@ void settings_register_defaults(void)
             kSettingsStageStripEnabled,
             kSettingsFastLockXLiteEnabled,
             kSettingsVelvetEnabled,
+            kSettingsCleanNCEnabled,
+            kSettingsUnderTimeEnabled,
+            kSettingsZeppelinLiteEnabled,
+            kSettingsCleanHomeScreenEnabled,
+            kSettingsRealCCEnabled,
+            kSettingsHideLabelsEnabled,
+            kSettingsFakeClockUpEnabled,
+            kSettingsPancakeEnabled,
+            kSettingsCylinderLiteEnabled,
         ];
         for (NSString *key in privateKeys) {
             if ([defaults boolForKey:key]) {
@@ -7426,6 +7761,15 @@ void settings_register_defaults(void)
             kSettingsTypeBannerEnabled,
             kSettingsNotificationIslandEnabled,
             kSettingsVelvetEnabled,
+            kSettingsCleanNCEnabled,
+            kSettingsUnderTimeEnabled,
+            kSettingsZeppelinLiteEnabled,
+            kSettingsCleanHomeScreenEnabled,
+            kSettingsRealCCEnabled,
+            kSettingsHideLabelsEnabled,
+            kSettingsFakeClockUpEnabled,
+            kSettingsPancakeEnabled,
+            kSettingsCylinderLiteEnabled,
         ];
         if ([defaults boolForKey:kSettingsExperimentalTweaksEnabled]) {
             [defaults setBool:NO forKey:kSettingsExperimentalTweaksEnabled];
@@ -7496,6 +7840,15 @@ static void settings_run_actions_internal(BOOL pendingOnly)
             BOOL typeBannerEnabled = settings_typebanner_install_allowed() && [d boolForKey:kSettingsTypeBannerEnabled];
             BOOL notificationIslandEnabled = settings_notificationisland_install_allowed() && [d boolForKey:kSettingsNotificationIslandEnabled];
             BOOL velvetEnabled = settings_velvet_install_allowed() && [d boolForKey:kSettingsVelvetEnabled];
+            BOOL cleanncEnabled = settings_cleannc_install_allowed() && [d boolForKey:kSettingsCleanNCEnabled];
+            BOOL undertimeEnabled = settings_undertime_install_allowed() && [d boolForKey:kSettingsUnderTimeEnabled];
+            BOOL zeppelinLiteEnabled = settings_zeppelinlite_install_allowed() && [d boolForKey:kSettingsZeppelinLiteEnabled];
+            BOOL cleanHomeScreenEnabled = settings_cleanhomescreen_install_allowed() && [d boolForKey:kSettingsCleanHomeScreenEnabled];
+            BOOL realccEnabled = settings_realcc_install_allowed() && [d boolForKey:kSettingsRealCCEnabled];
+            BOOL hideLabelsEnabled = [d boolForKey:kSettingsHideLabelsEnabled];
+            BOOL fakeClockUpEnabled = [d boolForKey:kSettingsFakeClockUpEnabled];
+            BOOL pancakeEnabled = [d boolForKey:kSettingsPancakeEnabled];
+            BOOL cylinderLiteEnabled = [d boolForKey:kSettingsCylinderLiteEnabled];
             BOOL appSwitcherGridEnabled = [d boolForKey:kSettingsAppSwitcherGridEnabled];
             BOOL themerEnabled = [d boolForKey:kSettingsThemerEnabled];
             BOOL snowboardLiteEnabled = [d boolForKey:kSettingsSnowBoardLiteEnabled];
@@ -7513,6 +7866,15 @@ static void settings_run_actions_internal(BOOL pendingOnly)
             BOOL runTypeBanner = settings_typebanner_install_allowed() && settings_enabled_tweak_should_run(d, kSettingsTypeBannerEnabled, springBoardPendingOnly);
             BOOL runNotificationIsland = settings_notificationisland_install_allowed() && settings_enabled_tweak_should_run(d, kSettingsNotificationIslandEnabled, springBoardPendingOnly);
             BOOL runVelvet = settings_velvet_install_allowed() && settings_enabled_tweak_should_run(d, kSettingsVelvetEnabled, springBoardPendingOnly);
+            BOOL runCleanNC = settings_cleannc_install_allowed() && settings_enabled_tweak_should_run(d, kSettingsCleanNCEnabled, springBoardPendingOnly);
+            BOOL runUnderTime = settings_undertime_install_allowed() && settings_enabled_tweak_should_run(d, kSettingsUnderTimeEnabled, springBoardPendingOnly);
+            BOOL runZeppelinLite = settings_zeppelinlite_install_allowed() && settings_enabled_tweak_should_run(d, kSettingsZeppelinLiteEnabled, springBoardPendingOnly);
+            BOOL runCleanHomeScreen = settings_cleanhomescreen_install_allowed() && settings_enabled_tweak_should_run(d, kSettingsCleanHomeScreenEnabled, springBoardPendingOnly);
+            BOOL runRealCC = settings_realcc_install_allowed() && settings_enabled_tweak_should_run(d, kSettingsRealCCEnabled, springBoardPendingOnly);
+            BOOL runHideLabels = settings_hidelabels_install_allowed() && settings_enabled_tweak_should_run(d, kSettingsHideLabelsEnabled, springBoardPendingOnly);
+            BOOL runFakeClockUp = settings_fakeclockup_install_allowed() && settings_enabled_tweak_should_run(d, kSettingsFakeClockUpEnabled, springBoardPendingOnly);
+            BOOL runPancake = settings_pancake_install_allowed() && settings_enabled_tweak_should_run(d, kSettingsPancakeEnabled, springBoardPendingOnly);
+            BOOL runCylinderLite = settings_cylinderlite_install_allowed() && settings_enabled_tweak_should_run(d, kSettingsCylinderLiteEnabled, springBoardPendingOnly);
             BOOL runAppSwitcherGrid = settings_enabled_tweak_should_run(d, kSettingsAppSwitcherGridEnabled, springBoardPendingOnly);
             BOOL runThemer = settings_enabled_tweak_should_run(d, kSettingsThemerEnabled, springBoardPendingOnly);
             BOOL runSnowBoardLite = settings_enabled_tweak_should_run(d, kSettingsSnowBoardLiteEnabled, springBoardPendingOnly);
@@ -7528,7 +7890,7 @@ static void settings_run_actions_internal(BOOL pendingOnly)
                 settings_note_themer_stage_conflict(YES);
             }
             BOOL cleanupDisabledSpringBoardTweaks = settings_disabled_applied_springboard_cleanup_needed(d);
-            BOOL needsSpringBoardWork = runSBC || runDarkTweaks || runStatBar || runNSBar || runNiceBarLite || runRSSI || runAxonLite || runGravityLite || runLayoutExtras || runTypeBanner || runNotificationIsland || runVelvet || runAppSwitcherGrid || runThemer || runSnowBoardLite || runLiveWP || runStageStrip || runFastLockXLite || runQuickLoader || runRepoTweaks || cleanupDisabledSpringBoardTweaks;
+            BOOL needsSpringBoardWork = runSBC || runDarkTweaks || runStatBar || runNSBar || runNiceBarLite || runRSSI || runAxonLite || runGravityLite || runLayoutExtras || runTypeBanner || runNotificationIsland || runVelvet || runCleanNC || runUnderTime || runZeppelinLite || runCleanHomeScreen || runRealCC || runHideLabels || runFakeClockUp || runPancake || runCylinderLite || runAppSwitcherGrid || runThemer || runSnowBoardLite || runLiveWP || runStageStrip || runFastLockXLite || runQuickLoader || runRepoTweaks || cleanupDisabledSpringBoardTweaks;
             BOOL runSandboxEscape = [d boolForKey:kSettingsRunSandboxEscape] && (!pendingOnly || needsSpringBoardWork);
             // TypeBanner prewarms its hidden SpringBoard window during Apply
             // and reuses the open SpringBoard session for text-only updates.
@@ -7561,6 +7923,15 @@ static void settings_run_actions_internal(BOOL pendingOnly)
             if (runTypeBanner) total++;
             if (runNotificationIsland) total++;
             if (runVelvet) total++;
+            if (runCleanNC) total++;
+            if (runUnderTime) total++;
+            if (runZeppelinLite) total++;
+            if (runCleanHomeScreen) total++;
+            if (runRealCC) total++;
+            if (runHideLabels) total++;
+            if (runFakeClockUp) total++;
+            if (runPancake) total++;
+            if (runCylinderLite) total++;
             if (runAppSwitcherGrid) total++;
             if (runStageStrip) total++;
             if (runFastLockXLite) total++;
@@ -8179,6 +8550,15 @@ typedef NS_ENUM(NSInteger, SettingsSection) {
     SectionIPADecryptor,
     SectionFastLockXLite,
     SectionVelvet,
+    SectionCleanNC,
+    SectionUnderTime,
+    SectionZeppelinLite,
+    SectionCleanHomeScreen,
+    SectionRealCC,
+    SectionHideLabels,
+    SectionFakeClockUp,
+    SectionPancake,
+    SectionCylinderLite,
     SectionQuickLoader,
     SectionRepoTweaks,
     SectionCount,
@@ -9145,6 +9525,76 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
     ];
 }
 
+- (NSArray<NSDictionary *> *)cleanncRows
+{
+    return @[
+        @{ @"kind": @"toggle", @"key": kSettingsCleanNCEnabled, @"title": @"Enable CleanNC" },
+    ];
+}
+
+- (NSArray<NSDictionary *> *)undertimeRows
+{
+    return @[
+        @{ @"kind": @"toggle", @"key": kSettingsUnderTimeEnabled, @"title": @"Enable UnderTime" },
+    ];
+}
+
+- (NSArray<NSDictionary *> *)zeppelinliteRows
+{
+    return @[
+        @{ @"kind": @"toggle", @"key": kSettingsZeppelinLiteEnabled, @"title": @"Enable Zeppelin Lite" },
+        @{ @"kind": @"info",   @"key": kSettingsZeppelinLiteText, @"title": @"Carrier Text", @"subtitle": [[NSUserDefaults standardUserDefaults] stringForKey:kSettingsZeppelinLiteText] ?: @"" },
+    ];
+}
+
+- (NSArray<NSDictionary *> *)cleanhomescreenRows
+{
+    return @[
+        @{ @"kind": @"toggle", @"key": kSettingsCleanHomeScreenEnabled, @"title": @"Enable Clean HomeScreen" },
+        @{ @"kind": @"toggle", @"key": kSettingsCleanHomeScreenHideBadges, @"title": @"Hide Badges" },
+        @{ @"kind": @"toggle", @"key": kSettingsCleanHomeScreenHidePageDots, @"title": @"Hide Page Dots" },
+        @{ @"kind": @"toggle", @"key": kSettingsCleanHomeScreenHideLabels, @"title": @"Hide Labels" },
+    ];
+}
+
+- (NSArray<NSDictionary *> *)realccRows
+{
+    return @[
+        @{ @"kind": @"toggle", @"key": kSettingsRealCCEnabled, @"title": @"Enable RealCC" },
+        @{ @"kind": @"toggle", @"key": kSettingsRealCCDisableWiFi, @"title": @"Disable WiFi toggle" },
+        @{ @"kind": @"toggle", @"key": kSettingsRealCCDisableBT, @"title": @"Disable Bluetooth toggle" },
+    ];
+}
+
+- (NSArray<NSDictionary *> *)hidellabelsRows
+{
+    return @[
+        @{ @"kind": @"toggle", @"key": kSettingsHideLabelsEnabled, @"title": @"Enable Hide Labels" },
+    ];
+}
+
+- (NSArray<NSDictionary *> *)fakeclockupRows
+{
+    return @[
+        @{ @"kind": @"toggle", @"key": kSettingsFakeClockUpEnabled, @"title": @"Enable FakeClockUp" },
+        @{ @"kind": @"slider", @"key": kSettingsFakeClockUpSpeed, @"title": @"Speed", @"min": @1, @"max": @10, @"step": @0.5, @"default": @2.0, @"unit": @"x" },
+    ];
+}
+
+- (NSArray<NSDictionary *> *)pancakeRows
+{
+    return @[
+        @{ @"kind": @"toggle", @"key": kSettingsPancakeEnabled, @"title": @"Enable Pancake" },
+    ];
+}
+
+- (NSArray<NSDictionary *> *)cylinderliteRows
+{
+    return @[
+        @{ @"kind": @"toggle", @"key": kSettingsCylinderLiteEnabled, @"title": @"Enable Cylinder Lite" },
+    ];
+}
+
 - (NSArray<NSDictionary *> *)notificationIslandRows
 {
     return @[
@@ -9513,6 +9963,51 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
         BOOL applied = settings_tweak_is_applied(kSettingsVelvetEnabled);
         [out addObject:@{@"title": @"Velvet",
                          @"value": applied ? @"Active" : (intent ? @"Queued" : @"Off")}];
+    } else if (section == SectionCleanNC) {
+        BOOL intent = [d boolForKey:kSettingsCleanNCEnabled];
+        BOOL applied = settings_tweak_is_applied(kSettingsCleanNCEnabled);
+        [out addObject:@{@"title": @"CleanNC",
+                         @"value": applied ? @"Active" : (intent ? @"Queued" : @"Off")}];
+    } else if (section == SectionUnderTime) {
+        BOOL intent = [d boolForKey:kSettingsUnderTimeEnabled];
+        BOOL applied = settings_tweak_is_applied(kSettingsUnderTimeEnabled);
+        [out addObject:@{@"title": @"UnderTime",
+                         @"value": applied ? @"Active" : (intent ? @"Queued" : @"Off")}];
+    } else if (section == SectionZeppelinLite) {
+        BOOL intent = [d boolForKey:kSettingsZeppelinLiteEnabled];
+        BOOL applied = settings_tweak_is_applied(kSettingsZeppelinLiteEnabled);
+        [out addObject:@{@"title": @"Zeppelin Lite",
+                         @"value": applied ? @"Active" : (intent ? @"Queued" : @"Off")}];
+    } else if (section == SectionCleanHomeScreen) {
+        BOOL intent = [d boolForKey:kSettingsCleanHomeScreenEnabled];
+        BOOL applied = settings_tweak_is_applied(kSettingsCleanHomeScreenEnabled);
+        [out addObject:@{@"title": @"Clean HomeScreen",
+                         @"value": applied ? @"Active" : (intent ? @"Queued" : @"Off")}];
+    } else if (section == SectionRealCC) {
+        BOOL intent = [d boolForKey:kSettingsRealCCEnabled];
+        BOOL applied = settings_tweak_is_applied(kSettingsRealCCEnabled);
+        [out addObject:@{@"title": @"RealCC",
+                         @"value": applied ? @"Active" : (intent ? @"Queued" : @"Off")}];
+    } else if (section == SectionHideLabels) {
+        BOOL intent = [d boolForKey:kSettingsHideLabelsEnabled];
+        BOOL applied = settings_tweak_is_applied(kSettingsHideLabelsEnabled);
+        [out addObject:@{@"title": @"HideLabels",
+                         @"value": applied ? @"Active" : (intent ? @"Queued" : @"Off")}];
+    } else if (section == SectionFakeClockUp) {
+        BOOL intent = [d boolForKey:kSettingsFakeClockUpEnabled];
+        BOOL applied = settings_tweak_is_applied(kSettingsFakeClockUpEnabled);
+        [out addObject:@{@"title": @"FakeClockUp",
+                         @"value": applied ? @"Active" : (intent ? @"Queued" : @"Off")}];
+    } else if (section == SectionPancake) {
+        BOOL intent = [d boolForKey:kSettingsPancakeEnabled];
+        BOOL applied = settings_tweak_is_applied(kSettingsPancakeEnabled);
+        [out addObject:@{@"title": @"Pancake",
+                         @"value": applied ? @"Active" : (intent ? @"Queued" : @"Off")}];
+    } else if (section == SectionCylinderLite) {
+        BOOL intent = [d boolForKey:kSettingsCylinderLiteEnabled];
+        BOOL applied = settings_tweak_is_applied(kSettingsCylinderLiteEnabled);
+        [out addObject:@{@"title": @"Cylinder Lite",
+                         @"value": applied ? @"Active" : (intent ? @"Queued" : @"Off")}];
     } else if (section == SectionPowercuff) {
         NSString *lvl = [d stringForKey:kSettingsPowercuffLevel] ?: @"nominal";
         [out addObject:@{@"title": @"Level", @"value": lvl}];
@@ -9566,6 +10061,15 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
         case SectionTypeBanner: return self.typebannerRows;
         case SectionNotificationIsland: return self.notificationIslandRows;
         case SectionVelvet: return settings_velvet_install_allowed() ? self.velvetRows : @[];
+        case SectionCleanNC: return settings_cleannc_install_allowed() ? self.cleanncRows : @[];
+        case SectionUnderTime: return settings_undertime_install_allowed() ? self.undertimeRows : @[];
+        case SectionZeppelinLite: return settings_zeppelinlite_install_allowed() ? self.zeppelinliteRows : @[];
+        case SectionCleanHomeScreen: return settings_cleanhomescreen_install_allowed() ? self.cleanhomescreenRows : @[];
+        case SectionRealCC: return settings_realcc_install_allowed() ? self.realccRows : @[];
+        case SectionHideLabels: return settings_hidelabels_install_allowed() ? self.hidellabelsRows : @[];
+        case SectionFakeClockUp: return settings_fakeclockup_install_allowed() ? self.fakeclockupRows : @[];
+        case SectionPancake: return settings_pancake_install_allowed() ? self.pancakeRows : @[];
+        case SectionCylinderLite: return settings_cylinderlite_install_allowed() ? self.cylinderliteRows : @[];
         case SectionAppSwitcherGrid: return self.appSwitcherGridRows;
         case SectionFastLockXLite: return settings_fastlockx_lite_install_allowed() ? self.fastLockXLiteRows : @[];
         case SectionGravityLite: return self.gravityLiteRows;
@@ -9602,6 +10106,15 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
         @{ @"title": @"Notification Island", @"icon": @"bell.and.waves.left.and.right.fill",  @"color": [UIColor systemOrangeColor], @"section": @(SectionNotificationIsland), @"indev": @YES },
         @{ @"title": @"IPA Decryptor",      @"icon": @"lock.open.fill",                      @"color": [UIColor systemPurpleColor], @"section": @(SectionIPADecryptor), @"indev": @YES },
         @{ @"title": @"FastLockX Lite",     @"icon": @"lock.open.fill",                      @"color": [UIColor systemGreenColor],  @"section": @(SectionFastLockXLite) },
+        @{ @"title": @"CleanNC",            @"icon": @"rectangle.3.group.fill",              @"color": [UIColor systemPurpleColor], @"section": @(SectionCleanNC), @"indev": @YES },
+        @{ @"title": @"UnderTime",          @"icon": @"clock.fill",                          @"color": [UIColor systemBlueColor],   @"section": @(SectionUnderTime), @"indev": @YES },
+        @{ @"title": @"Zeppelin Lite",      @"icon": @"textformat.alt",                      @"color": [UIColor systemOrangeColor], @"section": @(SectionZeppelinLite), @"indev": @YES },
+        @{ @"title": @"CleanHomeScreen",    @"icon": @"square.dashed",                       @"color": [UIColor systemGreenColor],  @"section": @(SectionCleanHomeScreen), @"indev": @YES },
+        @{ @"title": @"RealCC",             @"icon": @"wifi.slash",                          @"color": [UIColor systemRedColor],    @"section": @(SectionRealCC), @"indev": @YES },
+        @{ @"title": @"HideLabels",         @"icon": @"eye.slash",                           @"color": [UIColor systemGrayColor],   @"section": @(SectionHideLabels), @"indev": @YES },
+        @{ @"title": @"FakeClockUp",        @"icon": @"forward.fill",                        @"color": [UIColor systemYellowColor], @"section": @(SectionFakeClockUp), @"indev": @YES },
+        @{ @"title": @"Pancake",            @"icon": @"hand.point.left.fill",                @"color": [UIColor systemIndigoColor], @"section": @(SectionPancake), @"indev": @YES },
+        @{ @"title": @"Cylinder Lite",      @"icon": @"perspective",                         @"color": [UIColor systemTealColor],   @"section": @(SectionCylinderLite), @"indev": @YES },
         @{ @"title": @"Velvet",             @"icon": @"rectangle.3.group.fill",              @"color": [UIColor systemPurpleColor], @"section": @(SectionVelvet), @"indev": @YES },
 #endif
         @{ @"title": @"Gravity Lite",       @"icon": @"arrow.down.circle.fill",              @"color": [UIColor systemGreenColor],  @"section": @(SectionGravityLite) },
@@ -9787,6 +10300,33 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
     }
     if (s == SectionVelvet) {
         return @"Custom notification background styles. Velvet applies background color, border, corner radius, and text colors to notification banners and Notification Center cells through SpringBoard's RemoteCall session. Experimental — may need reapply after respring.";
+    }
+    if (s == SectionCleanNC) {
+        return @"Cleans up the Notification Center interface by removing visual clutter.";
+    }
+    if (s == SectionUnderTime) {
+        return @"Adds a live time overlay under the status bar time display.";
+    }
+    if (s == SectionZeppelinLite) {
+        return @"Custom carrier text replacement on the Lock Screen and Status Bar.";
+    }
+    if (s == SectionCleanHomeScreen) {
+        return @"Hides home screen elements such as badges, page dots, and icon labels for a cleaner look.";
+    }
+    if (s == SectionRealCC) {
+        return @"Disables the WiFi and Bluetooth toggles in Control Center to prevent accidental disconnections.";
+    }
+    if (s == SectionHideLabels) {
+        return @"Hides all icon labels on the home screen.";
+    }
+    if (s == SectionFakeClockUp) {
+        return @"Speeds up the clock hand animation speed. Adjust the speed multiplier to control how fast the clock hands move.";
+    }
+    if (s == SectionPancake) {
+        return @"Adds a left-hand gesture hint to the home screen for one-handed navigation.";
+    }
+    if (s == SectionCylinderLite) {
+        return @"Adds perspective-based icon animations to the home screen when tilting the device.";
     }
     if (s == SectionAppSwitcherGrid) {
         return @"Runtime patch. It changes SpringBoard's app switcher style in memory, writes no system files, and a respring restores stock. Unsupported builds may glitch the app switcher or crash SpringBoard.";

@@ -1384,6 +1384,60 @@ static bool settings_stop_repotweaks_registered(BOOL springboardWillDie)
     return repotweaks_stop_in_session();
 }
 
+static bool settings_stop_cleannc_registered(BOOL springboardWillDie)
+{
+    (void)springboardWillDie;
+    return cleannc_stop_in_session();
+}
+
+static bool settings_stop_undertime_registered(BOOL springboardWillDie)
+{
+    (void)springboardWillDie;
+    return undertime_stop_in_session();
+}
+
+static bool settings_stop_zeppelinlite_registered(BOOL springboardWillDie)
+{
+    (void)springboardWillDie;
+    return zeppelinlite_stop_in_session();
+}
+
+static bool settings_stop_cleanhomescreen_registered(BOOL springboardWillDie)
+{
+    (void)springboardWillDie;
+    return cleanhomescreen_stop_in_session();
+}
+
+static bool settings_stop_realcc_registered(BOOL springboardWillDie)
+{
+    (void)springboardWillDie;
+    return realcc_restore();
+}
+
+static bool settings_stop_hidellabels_registered(BOOL springboardWillDie)
+{
+    (void)springboardWillDie;
+    return hidellabels_stop_in_session();
+}
+
+static bool settings_stop_fakeclockup_registered(BOOL springboardWillDie)
+{
+    (void)springboardWillDie;
+    return fakeclockup_stop_in_session();
+}
+
+static bool settings_stop_pancake_registered(BOOL springboardWillDie)
+{
+    (void)springboardWillDie;
+    return pancake_stop_in_session();
+}
+
+static bool settings_stop_cylinderlite_registered(BOOL springboardWillDie)
+{
+    (void)springboardWillDie;
+    return cylinderlite_stop_in_session();
+}
+
 static void settings_each_springboard_cleanup_entry(void (^block)(const SettingsSpringBoardTweakCleanupEntry *entry))
 {
     if (!block) return;

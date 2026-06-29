@@ -3622,16 +3622,40 @@ static FastLockXLiteConfig settings_fastlockx_lite_config_from_defaults(NSUserDe
     return config;
 }
 
+static VelvetRGBA settings_velvet_color_from_hex(NSString *hex)
+{
+    VelvetRGBA c = { .hasValue = false, .r = 0, .g = 0, .b = 0, .a = 1 };
+    if (!hex || hex.length < 2) return c;
+    if ([hex characterAtIndex:0] != '#') return c;
+    NSScanner *scanner = [NSScanner scannerWithString:hex];
+    scanner.scanLocation = 1;
+    unsigned int rgb = 0;
+    if (![scanner scanHexInt:&rgb]) return c;
+    if (hex.length >= 9) {
+        c.r = ((rgb >> 24) & 0xFF) / 255.0;
+        c.g = ((rgb >> 16) & 0xFF) / 255.0;
+        c.b = ((rgb >> 8) & 0xFF) / 255.0;
+        c.a = (rgb & 0xFF) / 255.0;
+    } else {
+        c.r = ((rgb >> 16) & 0xFF) / 255.0;
+        c.g = ((rgb >> 8) & 0xFF) / 255.0;
+        c.b = (rgb & 0xFF) / 255.0;
+    }
+    c.hasValue = true;
+    return c;
+}
+
 static VelvetStyle settings_velvet_style_from_defaults(NSUserDefaults *d)
 {
     VelvetStyle style;
-    style.background = velvet_color_from_hex([d stringForKey:kSettingsVelvetBgColor] ?: @"#1E1E1E");
-    style.borderColor = velvet_color_from_hex([d stringForKey:kSettingsVelvetBorderColor] ?: @"#3A3A3A");
+    style.bgColor = settings_velvet_color_from_hex([d stringForKey:kSettingsVelvetBgColor] ?: @"#1E1E1E");
+    style.borderColor = settings_velvet_color_from_hex([d stringForKey:kSettingsVelvetBorderColor] ?: @"#3A3A3A");
     style.borderWidth = (CGFloat)[d doubleForKey:kSettingsVelvetBorderWidth];
-    style.titleColor = velvet_color_from_hex([d stringForKey:kSettingsVelvetTitleColor] ?: @"#FFFFFF");
-    style.messageColor = velvet_color_from_hex([d stringForKey:kSettingsVelvetMessageColor] ?: @"#CCCCCC");
-    style.dateColor = velvet_color_from_hex([d stringForKey:kSettingsVelvetDateColor] ?: @"#888888");
+    style.titleColor = settings_velvet_color_from_hex([d stringForKey:kSettingsVelvetTitleColor] ?: @"#FFFFFF");
+    style.messageColor = settings_velvet_color_from_hex([d stringForKey:kSettingsVelvetMessageColor] ?: @"#CCCCCC");
+    style.dateColor = settings_velvet_color_from_hex([d stringForKey:kSettingsVelvetDateColor] ?: @"#888888");
     style.cornerRadius = (CGFloat)[d doubleForKey:kSettingsVelvetCornerRadius];
+    style.hasCornerRadius = true;
     return style;
 }
 
@@ -6477,7 +6501,7 @@ static void settings_schedule_live_apply_for_key(NSString *key)
                         ![d boolForKey:kSettingsVelvetEnabled] ||
                         !g_springboard_rc_ready) return;
                     VelvetStyle style = settings_velvet_style_from_defaults(d);
-                    velvet_set_global_style(style);
+                    velvet_set_global_style(&style);
                     ok = velvet_apply_in_session();
                     settings_mark_tweak_applied(kSettingsVelvetEnabled,
                                                 ok && [d boolForKey:kSettingsVelvetEnabled]);
@@ -7591,7 +7615,7 @@ static void settings_run_actions_internal(BOOL pendingOnly)
                     if (runVelvet) {
                         settings_progress(&step, total, "Applying Velvet notification backgrounds");
                         VelvetStyle style = settings_velvet_style_from_defaults(d);
-                        velvet_set_global_style(style);
+                        velvet_set_global_style(&style);
                         bool ok = velvet_apply_in_session();
                         settings_mark_tweak_applied(kSettingsVelvetEnabled,
                                                     ok && [d boolForKey:kSettingsVelvetEnabled]);

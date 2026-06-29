@@ -7952,6 +7952,15 @@ static void settings_run_actions_internal(BOOL pendingOnly)
             if (runAxonLite) [enabledTweaks addObject:@"axon"];
             if (runNotificationIsland) [enabledTweaks addObject:@"notification-island"];
             if (runVelvet) [enabledTweaks addObject:@"velvet"];
+            if (runCleanNC) [enabledTweaks addObject:@"cleannc"];
+            if (runUnderTime) [enabledTweaks addObject:@"undertime"];
+            if (runZeppelinLite) [enabledTweaks addObject:@"zeppelinlite"];
+            if (runCleanHomeScreen) [enabledTweaks addObject:@"cleanhomescreen"];
+            if (runRealCC) [enabledTweaks addObject:@"realcc"];
+            if (runHideLabels) [enabledTweaks addObject:@"hidelabels"];
+            if (runFakeClockUp) [enabledTweaks addObject:@"fakeclockup"];
+            if (runPancake) [enabledTweaks addObject:@"pancake"];
+            if (runCylinderLite) [enabledTweaks addObject:@"cylinderlite"];
             if (runAppSwitcherGrid) [enabledTweaks addObject:@"app-switcher-grid"];
             if (runGravityLite) [enabledTweaks addObject:[NSString stringWithFormat:@"gravity(%ld%%)", (long)[d integerForKey:kSettingsGravityLiteMagnitudePct]]];
             if (runPowercuff) [enabledTweaks addObject:[NSString stringWithFormat:@"power(%@)", [d stringForKey:kSettingsPowercuffLevel] ?: @"nominal"]];

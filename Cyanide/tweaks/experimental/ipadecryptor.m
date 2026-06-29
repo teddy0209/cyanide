@@ -19,6 +19,8 @@
 #import <sys/stat.h>
 #import <stdlib.h>
 #import <unistd.h>
+#include <spawn.h>
+#include <sys/wait.h>
 
 static NSString * const kIPADecryptorKeyBundleID = @"bundleID";
 static NSString * const kIPADecryptorKeyName = @"name";
@@ -1671,25 +1673,34 @@ static bool ipadec_rebuild_ipa(NSString *bundlePath,
     NSString *ipaPath = [outputDir stringByAppendingPathComponent:[NSString stringWithFormat:@"%@_decrypted.ipa", appName]];
     
     // Create a simple zip (IPA is just a zip file)
-    NSTask *zipTask = [[NSTask alloc] init];
-    [zipTask setLaunchPath:@"/usr/bin/zip"];
-    [zipTask setArguments:@[@"-r", ipaPath, @"Payload"]];
-    [zipTask setCurrentDirectoryPath:outputDir];
-    
-    @try {
-        [zipTask launch];
-        [zipTask waitUntilExit];
-        
-        if (zipTask.terminationStatus == 0) {
-            log_user("[IPADEC] Created IPA at %s\n", ipaPath.UTF8String);
-            if (messageOut) *messageOut = [NSString stringWithFormat:@"Created decrypted IPA at %@", ipaPath];
-            return true;
-        } else {
-            if (messageOut) *messageOut = @"Failed to create IPA file";
-            return false;
-        }
-    } @catch (NSException *e) {
-        if (messageOut) *messageOut = [NSString stringWithFormat:@"Zip task failed: %@", e.reason];
+    // NSTask is not available on iOS; use posix_spawn instead.
+    const char *ipaPathCStr    = ipaPath.UTF8String;
+    const char *outputDirCStr  = outputDir.UTF8String;
+
+    posix_spawn_file_actions_t fileActions;
+    posix_spawn_file_actions_init(&fileActions);
+    // Change into outputDir so that "Payload" is resolved relative to it.
+    posix_spawn_file_actions_addchdir_np(&fileActions, outputDirCStr);
+
+    pid_t pid;
+    const char *zipArgs[] = { "/usr/bin/zip", "-r", ipaPathCStr, "Payload", NULL };
+    int spawnErr = posix_spawn(&pid, "/usr/bin/zip", &fileActions, NULL,
+                               (char * const *)zipArgs, NULL);
+    posix_spawn_file_actions_destroy(&fileActions);
+
+    if (spawnErr != 0) {
+        if (messageOut) *messageOut = [NSString stringWithFormat:@"Failed to launch zip: %s", strerror(spawnErr)];
+        return false;
+    }
+
+    int status = 0;
+    waitpid(pid, &status, 0);
+    if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+        log_user("[IPADEC] Created IPA at %s\n", ipaPathCStr);
+        if (messageOut) *messageOut = [NSString stringWithFormat:@"Created decrypted IPA at %@", ipaPath];
+        return true;
+    } else {
+        if (messageOut) *messageOut = @"Failed to create IPA file";
         return false;
     }
 }

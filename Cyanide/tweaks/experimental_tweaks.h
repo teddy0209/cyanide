@@ -31,6 +31,7 @@
 #import "experimental/pancake.h"
 #import "experimental/cylinderlite.h"
 #import "experimental/tweakloader.h"
+#import "amfi_bypass.h"
 
 #define CYANIDE_EXPERIMENTAL_TWEAKS_AVAILABLE 1
 

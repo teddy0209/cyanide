@@ -568,8 +568,8 @@ static const NSInteger kSecRepoTweaks       = 37;
 
         Package *tweakLoader = [[Package alloc] initWithIdentifier:@"com.darksword.tweakloader"
                                            name:@"TweakLoader"
-                               shortDescription:@"Load custom dylib tweaks at runtime"
-                                longDescription:@"Loads custom .dylib tweaks from the app's Documents/TweakLoader/ directory at runtime using dlopen. Place .dylib files with tweak_initialize/tweak_finalize entry points for auto-detection."
+                               shortDescription:@"Registration-based precompiled .m/.h tweaks"
+                                longDescription:@"Hosts built-in RemoteCall-based tweaks compiled into the binary. Add new tweaks by registering them in tweakloader_register_builtins(). Supports dynamic dylib loading when AMFI+kPAC bypass is available."
                                         version:version
                                          author:@"zeroxjf"
                                        category:@"System"

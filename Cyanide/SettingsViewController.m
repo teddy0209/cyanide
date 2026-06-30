@@ -10460,7 +10460,7 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
         return @"Adds perspective-based icon animations to the home screen when tilting the device.";
     }
     if (s == SectionTweakLoader) {
-        return @"Loads custom .dylib tweaks from the app's Documents/TweakLoader/ directory at runtime using dlopen. Place .dylib files with tweak_initialize/tweak_finalize entry points for auto-detection.";
+        return @"Hosts precompiled .m/.h tweaks that use RemoteCall. Add new tweaks by registering in tweakloader_register_builtins(). Supports dynamic dylib loading when the AMFI+kPAC bypass is active.";
     }
     if (s == SectionAppSwitcherGrid) {
         return @"Runtime patch. It changes SpringBoard's app switcher style in memory, writes no system files, and a respring restores stock. Unsupported builds may glitch the app switcher or crash SpringBoard.";

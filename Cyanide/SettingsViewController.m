@@ -7713,7 +7713,7 @@ void settings_register_defaults(void)
         kSettingsQuickLoaderEnabled: @NO,
         kSettingsRepoTweaksEnabled: @NO,
 
-        kSettingsExperimentalTweaksEnabled: @NO,
+        kSettingsExperimentalTweaksEnabled: @YES,
 
         kSettingsNanoMaxPairing:       @(kNanoDefaultMaxPairing),
         kSettingsNanoMinPairing:       @(kNanoDefaultMinPairing),
@@ -7750,36 +7750,10 @@ void settings_register_defaults(void)
         }
         if (changed) [defaults synchronize];
     }
-    {
-        BOOL changed = NO;
-        NSArray<NSString *> *inDevKeys = @[
-            kSettingsRSSIDisplayEnabled,
-            kSettingsTypeBannerEnabled,
-            kSettingsNotificationIslandEnabled,
-            kSettingsVelvetEnabled,
-            kSettingsCleanNCEnabled,
-            kSettingsUnderTimeEnabled,
-            kSettingsZeppelinLiteEnabled,
-            kSettingsCleanHomeScreenEnabled,
-            kSettingsRealCCEnabled,
-            kSettingsHideLabelsEnabled,
-            kSettingsFakeClockUpEnabled,
-            kSettingsPancakeEnabled,
-            kSettingsCylinderLiteEnabled,
-            kSettingsTweakLoaderEnabled,
-        ];
-        if ([defaults boolForKey:kSettingsExperimentalTweaksEnabled]) {
-            [defaults setBool:NO forKey:kSettingsExperimentalTweaksEnabled];
-            changed = YES;
-        }
-        for (NSString *key in inDevKeys) {
-            if ([defaults boolForKey:key]) {
-                [defaults setBool:NO forKey:key];
-                changed = YES;
-            }
-        }
-        if (changed) [defaults synchronize];
-    }
+    /* Experimental tweaks master switch and individual keys are now
+     * user-persistent.  The default registration above starts at @YES
+     * so new users see indev bundles by default; they can toggle each
+     * tweak on/off in Settings and the choice survives relaunch. */
     if ([defaults boolForKey:kSettingsThemerEnabled]) {
         [defaults setBool:NO forKey:kSettingsThemerEnabled];
         [defaults synchronize];
@@ -10276,7 +10250,7 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
     BOOL experimentalOn = settings_experimental_tweaks_enabled();
     NSMutableArray<NSDictionary *> *out = [NSMutableArray array];
     for (NSDictionary *bundle in bundles) {
-        if ([bundle[@"indev"] boolValue]) continue;
+        if ([bundle[@"indev"] boolValue] && !experimentalOn) continue;
         if ([bundle[@"experimental"] boolValue] && !experimentalOn) continue;
         NSInteger sec = [bundle[@"section"] integerValue];
         if ([self rowsForSection:sec].count > 0) {

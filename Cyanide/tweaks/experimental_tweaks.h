@@ -32,6 +32,8 @@
 #import "experimental/cylinderlite.h"
 #import "experimental/tweakloader.h"
 #import "amfi_bypass.h"
+#import "kpac_bypass.h"
+#import "msm_trustcache.h"
 
 #define CYANIDE_EXPERIMENTAL_TWEAKS_AVAILABLE 1
 

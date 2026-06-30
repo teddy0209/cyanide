@@ -27,10 +27,6 @@ bool coretrust_amfi_enforcement_flags_zero(void);
 
 bool coretrust_kill_amfid_race(const char *testBinPath);
 
-// ── Test binary (pre-created at load time, before exploit) ──────────────
-// Returns path to the pre-created test binary, or NULL if creation failed.
-const char *coretrust_get_test_binary(void);
-
 // ── Unified entry point ─────────────────────────────────────────────────
 // Run all strategies in sequence; returns true if unsigned execution is
 // verified.

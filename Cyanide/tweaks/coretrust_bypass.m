@@ -101,16 +101,16 @@ static char *write_test_binary(void)
 
     uint8_t threadState[0x110];
     memset(threadState, 0, sizeof(threadState));
-    *(uint32_t *)&threadState[0] = 6;    // ARM_THREAD_STATE64
+    *(uint32_t *)&threadState[0] = 6;
     *(uint32_t *)&threadState[4] = 68;
 
     uint64_t *pc = (uint64_t *)&threadState[0x110 - 8 * 2];
     *pc = 0x100000180;
 
     uint32_t code[] = {
-        0xD2800000, // mov x0, #0
-        0xD2800030, // mov x16, #1 (SYS_exit)
-        0xD4001001, // svc #0x80
+        0xD2800000,
+        0xD2800030,
+        0xD4001001,
     };
 
     fchmod(fd, 0755);
@@ -118,14 +118,10 @@ static char *write_test_binary(void)
     write(fd, &textSeg, sizeof(textSeg));
     write(fd, &thread, sizeof(thread));
     write(fd, threadState, sizeof(threadState));
-
-    long pos = lseek(fd, 0, SEEK_CUR);
-    while (pos < 0x180) { write(fd, "", 1); pos++; }
-
     write(fd, code, sizeof(code));
 
-    pos = lseek(fd, 0, SEEK_CUR);
-    while (pos < 0x4000) { write(fd, "", 1); pos++; }
+    // Size file to 0x4000 with a single syscall instead of 16000+ writes
+    ftruncate(fd, 0x4000);
 
     close(fd);
     return path;

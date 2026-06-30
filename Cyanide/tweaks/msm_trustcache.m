@@ -118,24 +118,18 @@ bool msm_write_test_binary(const char *path)
         0xD4001001,
     };
 
-    FILE *fp = fopen(path, "wb");
-    if (!fp) return false;
+    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0);
+    if (fd < 0) return false;
 
-    fwrite(&hdr, sizeof(hdr), 1, fp);
-    fwrite(&textSeg, sizeof(textSeg), 1, fp);
-    fwrite(&thread, sizeof(thread), 1, fp);
-    fwrite(threadState, sizeof(threadState), 1, fp);
+    write(fd, &hdr, sizeof(hdr));
+    write(fd, &textSeg, sizeof(textSeg));
+    write(fd, &thread, sizeof(thread));
+    write(fd, threadState, sizeof(threadState));
+    write(fd, code, sizeof(code));
 
-    long pos = ftell(fp);
-    while (pos < 0x180) { fwrite("", 1, 1, fp); pos++; }
-
-    fwrite(code, sizeof(code), 1, fp);
-
-    pos = ftell(fp);
-    while (pos < 0x4000) { fwrite("", 1, 1, fp); pos++; }
-
-    fclose(fp);
-    chmod(path, 0755);
+    ftruncate(fd, 0x4000);
+    fchmod(fd, 0755);
+    close(fd);
     return true;
 }
 

@@ -1,6 +1,5 @@
 #import "msm_trustcache.h"
 #import "../TaskRop/RemoteCall.h"
-#import "../TaskRop/RemoteCallSession.h"
 #import "../kexploit/kexploit_opa334.h"
 
 #import <CommonCrypto/CommonDigest.h>
@@ -9,6 +8,9 @@
 #import <sys/stat.h>
 #import <XPC/XPC.h>
 #import <IOKit/IOKitLib.h>
+#import <unistd.h>
+#import <string.h>
+#import <stdlib.h>
 
 // ---------------------------------------------------------------------------
 // XPC service name for MobileStorageMounter

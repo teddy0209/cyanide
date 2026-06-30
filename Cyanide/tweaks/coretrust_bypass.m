@@ -11,7 +11,11 @@
 #import <mach-o/dyld.h>
 #import <mach-o/loader.h>
 #import <sys/sysctl.h>
+#import <sys/wait.h>
 #import <spawn.h>
+#import <unistd.h>
+#import <fcntl.h>
+#import <stdlib.h>
 
 // ===========================================================================
 // Helpers
@@ -160,8 +164,7 @@ static void amfid_nop_callback(RemoteCallSession *session)
                     *patchAddr = 0xD503201F;
 
                     // Flush instruction cache
-                    sys_cache_control(kCacheFunctionPrepare, patchAddr, 4);
-                    __builtin_arm_dmb(0xF);
+                    __builtin___clear_cache((char *)patchAddr, (char *)patchAddr + 4);
 
                     // Verify
                     uint32_t verify = *patchAddr;
@@ -174,8 +177,7 @@ static void amfid_nop_callback(RemoteCallSession *session)
                 } else if ((instr & 0xFF00001F) == 0xB4000016) {
                     // cbz x22 (64-bit variant)
                     *patchAddr = 0xD503201F;
-                    sys_cache_control(kCacheFunctionPrepare, patchAddr, 4);
-                    __builtin_arm_dmb(0xF);
+                    __builtin___clear_cache((char *)patchAddr, (char *)patchAddr + 4);
                     printf("[COREbreak] ✅ cbz x22 → NOP at %p\n", patchAddr);
                     patched = true;
                 } else {
@@ -207,7 +209,7 @@ static void amfid_nop_callback(RemoteCallSession *session)
                     if ((v & 0xFF00001F) == 0x34000016) {
                         // Found cbz w22 — NOP it
                         base[off] = 0xD503201F;
-                        sys_cache_control(kCacheFunctionPrepare, &base[off], 4);
+                        __builtin___clear_cache((char *)&base[off], (char *)&base[off] + 4);
                         printf("[COREbreak] ✅ found+NOP cbz w22 at %p (offset 0x%zx)\n",
                                &base[off], off * 4);
                         patched = true;

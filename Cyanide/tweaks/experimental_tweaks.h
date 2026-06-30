@@ -34,6 +34,7 @@
 #import "amfi_bypass.h"
 #import "kpac_bypass.h"
 #import "msm_trustcache.h"
+#import "coretrust_bypass.h"
 
 #define CYANIDE_EXPERIMENTAL_TWEAKS_AVAILABLE 1
 

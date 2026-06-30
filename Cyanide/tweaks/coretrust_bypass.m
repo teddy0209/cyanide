@@ -27,27 +27,33 @@ extern void sys_cache_control(int, void *, size_t);
 // Helpers
 // ===========================================================================
 
-// Find a process by name in the kernel allproc list and return its pid.
+// Find a process by name using sysctl (user-space, no KRW, no SPTM trigger).
 static int find_pid_by_name(const char *name)
 {
-    uint64_t self = proc_self();
-    if (!self) return -1;
+    int mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0 };
+    size_t bufSize = 0;
+    if (sysctl(mib, 4, NULL, &bufSize, NULL, 0) != 0 || bufSize == 0)
+        return -1;
 
-    uint64_t prev = self;
-    for (int i = 0; i < 500; i++) {
-        uint64_t next = kread64(prev + off_proc_p_list_le_next);
-        if (!next || !is_kaddr_valid(next)) break;
+    struct kinfo_proc *procs = (struct kinfo_proc *)malloc(bufSize);
+    if (!procs) return -1;
 
-        char pname[32];
-        kreadbuf(next + off_proc_p_name, pname, sizeof(pname));
-        pname[sizeof(pname) - 1] = '\0';
-
-        if (strcmp(pname, name) == 0) {
-            return kread32(next + off_proc_p_pid);
-        }
-        prev = next;
+    if (sysctl(mib, 4, procs, &bufSize, NULL, 0) != 0) {
+        free(procs);
+        return -1;
     }
-    return -1;
+
+    int count = (int)(bufSize / sizeof(struct kinfo_proc));
+    pid_t result = -1;
+    for (int i = 0; i < count; i++) {
+        if (strcmp(procs[i].kp_proc.p_comm, name) == 0) {
+            result = procs[i].kp_proc.p_pid;
+            break;
+        }
+    }
+
+    free(procs);
+    return (int)result;
 }
 
 // Write a minimal test binary to a temp path and return the path.

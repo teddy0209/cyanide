@@ -222,10 +222,11 @@ bool coretrust_amfid_nop_patch(void)
 {
     printf("[COREbreak] === Strategy 1: amfid NOP patch ===\n");
 
-    // On A18+ (SPTM), RemoteCall's exception-thread hijack panics the kernel.
+    // iOS 17+: RemoteCall's exception-thread hijack panics the kernel
+    // (amfid platform process + execption delivery changes).
     // Use the direct vm_map approach instead.
-    if (gIsA18Above) {
-        printf("[COREbreak] A18+ (SPTM): using direct vm_map patch\n");
+    if (SYSTEM_VERSION_GREATER_THAN_OR_EQUAL_TO(@"17.0")) {
+        printf("[COREbreak] iOS 17+: using direct vm_map patch\n");
         return coretrust_amfid_nop_patch_direct();
     }
 

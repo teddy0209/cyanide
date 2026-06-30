@@ -8,6 +8,7 @@
 #import "../kexploit/kexploit_opa334.h"
 
 #import <dlfcn.h>
+#import <libkern/OSCacheControl.h>
 #import <mach-o/dyld.h>
 #import <mach-o/loader.h>
 #import <sys/sysctl.h>
@@ -177,7 +178,7 @@ bool coretrust_amfid_nop_patch(void)
 
                         if ((instr & 0xFF00001F) == 0x34000016) {
                             *patchAddr = 0xD503201F;
-                            __builtin___clear_cache((char *)patchAddr, (char *)patchAddr + 4);
+                            sys_cache_control(kCacheFunctionPrepare, patchAddr, 4);
                             uint32_t verify = *patchAddr;
                             if (verify == 0xD503201F) {
                                 printf("[COREbreak] cbz w22 NOP at %p\n", patchAddr);
@@ -187,7 +188,7 @@ bool coretrust_amfid_nop_patch(void)
                             }
                         } else if ((instr & 0xFF00001F) == 0xB4000016) {
                             *patchAddr = 0xD503201F;
-                            __builtin___clear_cache((char *)patchAddr, (char *)patchAddr + 4);
+                            sys_cache_control(kCacheFunctionPrepare, patchAddr, 4);
                             printf("[COREbreak] cbz x22 NOP at %p\n", patchAddr);
                             patched = true;
                         } else {
@@ -213,7 +214,7 @@ bool coretrust_amfid_nop_patch(void)
                             uint32_t v = base[off];
                             if ((v & 0xFF00001F) == 0x34000016) {
                                 base[off] = 0xD503201F;
-                                __builtin___clear_cache((char *)&base[off], (char *)&base[off] + 4);
+                                sys_cache_control(kCacheFunctionPrepare, &base[off], 4);
                                 printf("[COREbreak] found+NOP cbz w22 at offset 0x%zx\n", off * 4);
                                 patched = true;
                                 break;

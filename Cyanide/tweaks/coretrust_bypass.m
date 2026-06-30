@@ -8,7 +8,10 @@
 #import "../kexploit/kexploit_opa334.h"
 
 #import <dlfcn.h>
-#import <libkern/OSCacheControl.h>
+#ifndef kCacheFunctionPrepare
+#define kCacheFunctionPrepare 1
+#endif
+extern void sys_cache_control(int, void *, size_t);
 #import <mach-o/dyld.h>
 #import <mach-o/loader.h>
 #import <sys/sysctl.h>

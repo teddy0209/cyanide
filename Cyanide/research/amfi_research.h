@@ -10,12 +10,13 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include "../kexploit/krw.h"
 
 /*
  * Valid kernel pointer check for arm64 iOS.
  */
 static inline int is_valid_kptr(uint64_t ptr) {
-    return (ptr >= 0xFFFFFE0000000000ULL && ptr != 0xFFFFFFFFFFFFFFFFULL);
+    return is_kaddr_valid(ptr);
 }
 
 

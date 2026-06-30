@@ -59,21 +59,29 @@ bool kpac_platformize_self(void)
     if (proc) {
         uint64_t proc_ro = kread64(proc + off_proc_p_proc_ro);
         if (proc_ro && is_kaddr_valid(proc_ro)) {
-            uint32_t cs = kread32(proc_ro + off_proc_ro_csflags);
-            printf("[KeyStone] csflags = 0x%08x\n", cs);
-            uint32_t desired = cs | CS_VALID | CS_PLATFORM_BINARY;
-            if (cs != desired) {
-                kwrite32(proc_ro + off_proc_ro_csflags, desired);
-                uint32_t v = kread32(proc_ro + off_proc_ro_csflags);
-                if (v == desired) {
-                    printf("[KeyStone] csflags patched via kwrite32!\n");
+            uint64_t csflags_addr = proc_ro + off_proc_ro_csflags;
+            if (!is_kaddr_valid(csflags_addr)) {
+                printf("[KeyStone] invalid csflags address 0x%llx (proc_ro=0x%llx off=0x%x)\n",
+                       csflags_addr, proc_ro, off_proc_ro_csflags);
+            } else {
+                uint32_t cs = kread32(csflags_addr);
+                printf("[KeyStone] csflags = 0x%08x\n", cs);
+                uint32_t desired = cs | CS_VALID | CS_PLATFORM_BINARY;
+                if (cs != desired) {
+                    kwrite32(csflags_addr, desired);
+                    uint32_t v = kread32(csflags_addr);
+                    if (v == desired) {
+                        printf("[KeyStone] csflags patched via kwrite32!\n");
+                        return true;
+                    }
+                    printf("[KeyStone] kwrite32 csflags failed (PPL)\n");
+                } else {
+                    printf("[KeyStone] csflags already correct\n");
                     return true;
                 }
-                printf("[KeyStone] kwrite32 csflags failed (PPL)\n");
-            } else {
-                printf("[KeyStone] csflags already correct\n");
-                return true;
             }
+        } else {
+            printf("[KeyStone] invalid proc_ro 0x%llx\n", proc_ro);
         }
     }
 

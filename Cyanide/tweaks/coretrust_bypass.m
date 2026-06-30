@@ -426,15 +426,15 @@ bool coretrust_bypass_all(void)
 
     // Helper: spawn test binary, return true if exit(0)
     bool (^verify)(void) = ^{
-        if (!testPath) return false;
+        if (!testPath) return (bool)false;
         pid_t child = 0;
         const char *argv[] = { testPath, NULL };
         int ret = posix_spawn(&child, testPath, NULL, NULL,
                               (char *const *)argv, NULL);
-        if (ret != 0 || child <= 0) return false;
+        if (ret != 0 || child <= 0) return (bool)false;
         int status;
         waitpid(child, &status, 0);
-        return (WIFEXITED(status) && WEXITSTATUS(status) == 0);
+        return (bool)(WIFEXITED(status) && WEXITSTATUS(status) == 0);
     };
 
     // [Step 1/4]: Strategy 1 — amfid NOP patch

@@ -30,7 +30,7 @@ bool coretrust_kill_amfid_race(const char *testBinPath);
 // ── Test binary ─────────────────────────────────────────────────────────
 // Must be called BEFORE the kernel exploit corrupts socket structures.
 // Returns path (caller must free) or NULL on failure.
-char *coretrust_write_test_binary(void);
+const char *coretrust_write_test_binary(void);
 
 // ── Unified entry point ─────────────────────────────────────────────────
 // Run all strategies in sequence; returns true if unsigned execution is

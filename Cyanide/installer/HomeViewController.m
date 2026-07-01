@@ -7,6 +7,7 @@
 #import "SourcesViewController.h"
 #import "../SettingsViewController.h"
 #import <unistd.h>
+#import <fcntl.h>
 #import "../tweaks/RepoTweaks.h"
 #import "../kexploit/kexploit_opa334.h"
 #import "../tweaks/kpac_bypass.h"
@@ -413,11 +414,26 @@ static BOOL g_running_flag = NO;
 
 #pragma mark - Live Log
 
+- (NSString *)crashLogPath
+{
+    NSArray *dirs = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
+    return [dirs.firstObject stringByAppendingPathComponent:@"cyanide_crash.log"];
+}
+
 - (void)setupLogCapture
 {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
+        // Preserve previous crash log before starting fresh
+        NSString *logPath = [self crashLogPath];
+        NSString *prevPath = [logPath stringByDeletingLastPathComponent];
+        prevPath = [prevPath stringByAppendingPathComponent:@"cyanide_crash_prev.log"];
+        [[NSFileManager defaultManager] removeItemAtPath:prevPath error:nil];
+        [[NSFileManager defaultManager] moveItemAtPath:logPath toPath:prevPath error:nil];
+
         int origStdout = dup(STDOUT_FILENO);
+        const char *filePath = [logPath UTF8String];
+        int logFileFD = open(filePath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
 
         self.logPipe = [NSPipe pipe];
         int writeFD = [[self.logPipe fileHandleForWriting] fileDescriptor];
@@ -439,6 +455,8 @@ static BOOL g_running_flag = NO;
 
                 if (origStdout >= 0)
                     write(origStdout, buf, (size_t)n);
+                if (logFileFD >= 0)
+                    write(logFileFD, buf, (size_t)n);
 
                 NSString *text = [NSString stringWithUTF8String:buf];
                 if (!text) continue;
@@ -456,6 +474,7 @@ static BOOL g_running_flag = NO;
                     });
                 }
             }
+            if (logFileFD >= 0) close(logFileFD);
         }];
     });
 }

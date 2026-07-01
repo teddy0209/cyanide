@@ -153,6 +153,15 @@ bool coretrust_amfid_nop_patch(void)
 {
     printf("[COREbreak] === [Step 2/6] Strategy 1: amfid NOP patch ===\n");
 
+    // iOS 17+/A18+ SPTM: both RemoteCall (writes to task/thread struct via
+    // kwrite) and direct vm_map (writes to code page via shared mapping)
+    // trigger SPTM physical aperture faults.  Neither approach can work.
+    if (SYSTEM_VERSION_GREATER_THAN_OR_EQUAL_TO(@"17.0")) {
+        printf("[COREbreak] iOS 17+: skipping amfid NOP (SPTM blocks all writes to amfid)\n");
+        crash_write("[COREbreak] iOS 17+: skipping amfid NOP (SPTM)\n");
+        return false;
+    }
+
     int amfidPid = find_pid_by_name("amfid");
     if (amfidPid <= 0) {
         printf("[COREbreak] amfid not found in allproc\n");

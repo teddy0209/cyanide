@@ -542,6 +542,10 @@ static BOOL g_running_flag = NO;
         return;
     }
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        if (g_crash_log_path[0]) {
+            int fd = open(g_crash_log_path, O_WRONLY | O_APPEND, 0644);
+            if (fd >= 0) { write(fd, "[COREbreak] block started\n", 26); close(fd); }
+        }
         printf("[COREbreak] === CoreTrust bypass (amfid NOP + MSM) ===\n");
         if (coretrust_bypass_all()) {
             printf("[COREbreak] OK: CoreTrust bypassed\n");

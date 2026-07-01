@@ -319,6 +319,15 @@ bool coretrust_amfi_enforcement_flags_zero(void)
 {
     printf("[COREbreak] === [Step 3/6] Strategy 2: AMFI enforcement flags ===\n");
 
+    // iOS 17+/A18+ SPTM: kwrite to AMFI's kernel data section triggers SPTM
+    // physical aperture faults.  AMFI's __DATA sits in a stage-2 block that
+    // SPTM locks read-only.
+    if (SYSTEM_VERSION_GREATER_THAN_OR_EQUAL_TO(@"17.0")) {
+        printf("[COREbreak] iOS 17+: skipping AMFI flags (SPTM protects AMFI data)\n");
+        crash_write("[COREbreak] iOS 17+: skipping AMFI flags (SPTM)\n");
+        return false;
+    }
+
     uint64_t addr = search_cs_enforcement_disable();
     if (!addr) {
         printf("[COREbreak] cs_enforcement_disable not found via known offsets\n");

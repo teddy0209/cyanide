@@ -38,8 +38,8 @@ const char *coretrust_write_test_binary(void);
 
 // ── Strategy 6: TXM bypass (enhanced) ───────────────────────────────────
 // Comprehensive IOKit brute-force: tries user client types 0-7, selectors
-// 0-63 with IOConnectCallStructMethod, IOConnectCallMethod, and
-// IOConnectTrap to find the TXM trust cache load selector.
+// 0-255 with IOConnectCallStructMethod and IOConnectCallMethod to find the
+// TXM trust cache load selector.
 
 bool coretrust_txm_bypass(void);
 

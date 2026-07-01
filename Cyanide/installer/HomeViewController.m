@@ -426,34 +426,37 @@ static BOOL g_running_flag = NO;
         dup2(writeFD, STDOUT_FILENO);
         setvbuf(stdout, NULL, _IONBF, 0);
 
-        dispatch_source_t source = dispatch_source_create(
-            DISPATCH_SOURCE_TYPE_READ, readFD, 0,
-            dispatch_get_main_queue());
-
         __weak typeof(self) weakSelf = self;
-        dispatch_source_set_event_handler(source, ^{
-            typeof(self) strongSelf = weakSelf;
-            if (!strongSelf) return;
-
+        [NSThread detachNewThreadWithBlock:^{
             char buf[4096];
-            ssize_t n = read(readFD, buf, sizeof(buf) - 1);
-            if (n > 0) {
+            while (1) {
+                ssize_t n = read(readFD, buf, sizeof(buf) - 1);
+                if (n <= 0) {
+                    if (n < 0 && errno == EINTR) continue;
+                    break;
+                }
+                buf[n] = '\0';
+
                 if (origStdout >= 0)
                     write(origStdout, buf, (size_t)n);
 
-                buf[n] = '\0';
                 NSString *text = [NSString stringWithUTF8String:buf];
-                if (text && strongSelf.logView && !strongSelf.logView.isHidden) {
-                    strongSelf.logView.text = [strongSelf.logView.text stringByAppendingString:text];
-                    if (strongSelf.logView.text.length > 0) {
-                        NSRange range = NSMakeRange(strongSelf.logView.text.length - 1, 1);
-                        [strongSelf.logView scrollRangeToVisible:range];
-                    }
+                if (!text) continue;
+
+                __strong typeof(self) strongSelf = weakSelf;
+                if (strongSelf && strongSelf.logView && !strongSelf.logView.isHidden) {
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        typeof(self) s = weakSelf;
+                        if (!s || !s.logView) return;
+                        s.logView.text = [s.logView.text stringByAppendingString:text];
+                        if (s.logView.text.length > 0) {
+                            NSRange r = NSMakeRange(s.logView.text.length - 1, 1);
+                            [s.logView scrollRangeToVisible:r];
+                        }
+                    });
                 }
             }
-        });
-
-        dispatch_resume(source);
+        }];
     });
 }
 

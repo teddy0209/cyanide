@@ -8,6 +8,8 @@
 
 extern char g_crash_log_path[4096];
 
+const char *coretrust_write_test_binary(void);
+
 #define CORETRUST_BYPASS_EXPLOIT_NAME    "COREbreak"
 #define CORETRUST_BYPASS_EXPLOIT_VERSION "1.0"
 // ── Strategy 1: amfid NOP patch ──────────────────────────────────────────

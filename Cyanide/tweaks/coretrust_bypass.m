@@ -817,6 +817,12 @@ bool coretrust_remotecall_sptm(const char *targetProc)
 
 // ===========================================================================
 // Unified: try all strategies
+// ── XPC to MSM (placeholder) ──────────────────────────────────────────────
+bool coretrust_xpc_to_msm(void) {
+    printf("[COREbreak] XPC to MSM not yet implemented\n");
+    return false;
+}
+
 // ===========================================================================
 
 bool coretrust_bypass_all(void)

@@ -16,10 +16,29 @@ static uint64_t betterccicons_key_window(void)
     return r_is_objc_ptr(app) ? r_msg2_main(app, "keyWindow", 0, 0, 0, 0) : 0;
 }
 
+static void betterccicons_class_name(uint64_t obj, char *out, size_t outLen)
+{
+    if (!out || outLen == 0) return;
+    out[0] = '\0';
+    if (!r_is_objc_ptr(obj)) return;
+    uint64_t cls = r_dlsym_call(R_TIMEOUT, "object_getClass", obj, 0, 0, 0, 0, 0, 0, 0);
+    uint64_t name = r_is_objc_ptr(cls) ? r_dlsym_call(R_TIMEOUT, "class_getName", cls, 0, 0, 0, 0, 0, 0, 0) : 0;
+    if (!name) return;
+    uint64_t buf = r_dlsym_call(R_TIMEOUT, "strdup", name, 0, 0, 0, 0, 0, 0, 0);
+    if (!buf) return;
+    remote_read(buf, out, outLen - 1);
+    out[outLen - 1] = '\0';
+    r_free(buf);
+}
+
 static void betterccicons_scan(uint64_t parent, double radius, int depth, int *hits)
 {
     if (!r_is_objc_ptr(parent) || depth > 12) return;
-    uint64_t layer = r_msg2_main(parent, "layer", 0, 0, 0, 0);
+    char cls[160] = {0};
+    betterccicons_class_name(parent, cls, sizeof(cls));
+    bool target = strstr(cls, "CCUIModule") || strstr(cls, "CCUIRound") ||
+                  strstr(cls, "ControlCenterButton") || strstr(cls, "GlyphPackage");
+    uint64_t layer = target ? r_msg2_main(parent, "layer", 0, 0, 0, 0) : 0;
     if (r_is_objc_ptr(layer)) {
         r_msg2_main_raw(layer, "setCornerRadius:", &radius, sizeof(radius), NULL, 0, NULL, 0, NULL, 0);
         r_msg2_main(layer, "setMasksToBounds:", 1, 0, 0, 0);

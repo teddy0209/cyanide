@@ -164,9 +164,9 @@ static UIColor *category_color(NSString *cat)
     dispatch_once(&once, ^{
         map = @{
             @"Status Bar":          UIColor.systemTealColor,
-            @"Home Screen":         UIColor.systemBlueColor,
+            @"Home Screen":         UIColor.systemRedColor,
             @"Theming":             UIColor.systemPinkColor,
-            @"SpringBoard":         UIColor.systemCyanColor,
+            @"SpringBoard":         UIColor.systemOrangeColor,
             @"System":              UIColor.systemGrayColor,
             @"Beta":                UIColor.systemPurpleColor,
             @"Experimental":        UIColor.systemRedColor,
@@ -293,8 +293,8 @@ static UIColor *category_color(NSString *cat)
         UILabel *pill = [[UILabel alloc] init];
         pill.text = @"UPDATE";
         pill.font = [UIFont systemFontOfSize:11.0 weight:UIFontWeightHeavy];
-        pill.textColor = UIColor.systemBlueColor;
-        pill.backgroundColor = [UIColor.systemBlueColor colorWithAlphaComponent:0.15];
+        pill.textColor = UIColor.systemRedColor;
+        pill.backgroundColor = [UIColor.systemRedColor colorWithAlphaComponent:0.15];
         pill.textAlignment = NSTextAlignmentCenter;
         [pill sizeToFit];
         CGRect f = pill.frame;
@@ -671,7 +671,7 @@ static UIColor *category_color(NSString *cat)
     if (updates > 0) [detail appendFormat:@" · %lu update%@", (unsigned long)updates, updates == 1 ? @"" : @"s"];
     config.secondaryText = detail;
     config.secondaryTextProperties.font = [UIFont systemFontOfSize:14.0 weight:UIFontWeightRegular];
-    config.secondaryTextProperties.color = updates > 0 ? UIColor.systemBlueColor : [UIColor.labelColor colorWithAlphaComponent:0.55];
+    config.secondaryTextProperties.color = updates > 0 ? UIColor.systemRedColor : [UIColor.labelColor colorWithAlphaComponent:0.55];
     config.textToSecondaryTextVerticalPadding = 2.0;
 
     NSDirectionalEdgeInsets m = config.directionalLayoutMargins;

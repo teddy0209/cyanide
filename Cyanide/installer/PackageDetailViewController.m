@@ -1,6 +1,6 @@
 //
 //  PackageDetailViewController.m
-//  Cyanide
+//  infern0
 //
 
 #import "PackageDetailViewController.h"
@@ -97,7 +97,7 @@ typedef NS_ENUM(NSInteger, PackageDetailSection) {
 
     UIAlertController *alert =
         [UIAlertController alertControllerWithTitle:@"Call Recording Disclosure"
-                                            message:@"Silencing call-recording disclosure sounds may violate consent, notice, or privacy laws where you live or where the call participants are located. Only use this where you have permission and understand the rules that apply to you.\n\nCyanide modifies CallServices system files and keeps a backup when possible. You can restore the original sounds from this package."
+                                            message:@"Silencing call-recording disclosure sounds may violate consent, notice, or privacy laws where you live or where the call participants are located. Only use this where you have permission and understand the rules that apply to you.\n\ninfern0 modifies CallServices system files and keeps a backup when possible. You can restore the original sounds from this package."
                                      preferredStyle:UIAlertControllerStyleAlert];
 
     [alert addAction:[UIAlertAction actionWithTitle:@"Cancel"
@@ -266,7 +266,7 @@ typedef NS_ENUM(NSInteger, PackageDetailSection) {
     PackageQueueIntent intent = [[PackageQueue sharedQueue] intentForPackage:self.package];
     if (intent == PackageQueueIntentInstall) return self.view.tintColor;
     if (intent == PackageQueueIntentUninstall) return UIColor.systemRedColor;
-    if ([self repoTweakHasUpdate]) return UIColor.systemBlueColor;
+    if ([self repoTweakHasUpdate]) return UIColor.systemRedColor;
     if (self.package.isInstalled) return UIColor.systemGreenColor;
     return UIColor.secondaryLabelColor;
 }
@@ -1023,7 +1023,7 @@ typedef NS_ENUM(NSInteger, PackageDetailSection) {
     if ([self sectionAtIndex:section] == PackageDetailSectionRepoOptions) {
         return self.package.repoTweakUsesQuickLoader
             ? @"Saved here before install; QuickLoader applies these values when the queued package runs."
-            : @"Saved here before install; Cyanide applies these values through the native package backend.";
+            : @"Saved here before install; infern0 applies these values through the native package backend.";
     }
     return nil;
 }

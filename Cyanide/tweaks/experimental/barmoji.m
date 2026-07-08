@@ -117,16 +117,21 @@ bool barmoji_apply_in_session(void)
     if (barWidth < 260.0) barWidth = 260.0;
     double barX = (bounds.width - barWidth) / 2.0;
     double barY = bounds.height - (double)gBarmojiYOffset;
-    uint64_t bar = barmoji_alloc_view(barX, barY, barWidth, 44);
+    uint64_t bar = barmoji_alloc_view(barX, barY, barWidth, 38);
     if (!r_is_objc_ptr(bar)) return false;
 
-    uint64_t bg = barmoji_color(0.10, 0.10, 0.12, (double)gBarmojiBackgroundAlphaPercent / 100.0);
+    uint64_t bg = barmoji_color(0.16, 0.16, 0.18, (double)gBarmojiBackgroundAlphaPercent / 100.0);
     if (r_is_objc_ptr(bg)) r_msg2_main(bar, "setBackgroundColor:", bg, 0, 0, 0);
     uint64_t layer = r_msg2_main(bar, "layer", 0, 0, 0, 0);
     if (r_is_objc_ptr(layer)) {
-        double radius = 18.0;
+        double radius = 10.0;
         r_msg2_main_raw(layer, "setCornerRadius:", &radius, sizeof(radius), NULL, 0, NULL, 0, NULL, 0);
         r_msg2_main(layer, "setMasksToBounds:", 1, 0, 0, 0);
+        double borderWidth = 0.5;
+        uint64_t border = barmoji_color(1, 1, 1, 0.18);
+        uint64_t cg = r_is_objc_ptr(border) ? r_msg2_main(border, "CGColor", 0, 0, 0, 0) : 0;
+        if (cg) r_msg2_main(layer, "setBorderColor:", cg, 0, 0, 0);
+        r_msg2_main_raw(layer, "setBorderWidth:", &borderWidth, sizeof(borderWidth), NULL, 0, NULL, 0, NULL, 0);
     }
 
     const char *emojiStrip =
@@ -138,7 +143,7 @@ bool barmoji_apply_in_session(void)
         "\xF0\x9F\x94\xA5  "
         "\xF0\x9F\x98\xAD  "
         "\xE2\x9C\xA8";
-    uint64_t label = barmoji_alloc_label(emojiStrip, 8, 4, barWidth - 16.0, 36, (double)gBarmojiFontSize);
+    uint64_t label = barmoji_alloc_label(emojiStrip, 8, 2, barWidth - 16.0, 34, (double)gBarmojiFontSize);
     if (r_is_objc_ptr(label)) {
         uint64_t white = barmoji_color(1, 1, 1, 1);
         if (r_is_objc_ptr(white)) r_msg2_main(label, "setTextColor:", white, 0, 0, 0);

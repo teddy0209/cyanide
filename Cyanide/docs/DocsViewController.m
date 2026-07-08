@@ -1,6 +1,6 @@
 //
 //  DocsViewController.m
-//  Cyanide
+//  infern0
 //
 
 #import "DocsViewController.h"
@@ -159,7 +159,7 @@
     _body.textContainerInset = UIEdgeInsetsZero;
     _body.textContainer.lineFragmentPadding = 0.0;
     _body.dataDetectorTypes = UIDataDetectorTypeLink;
-    _body.linkTextAttributes = @{ NSForegroundColorAttributeName: UIColor.systemBlueColor };
+    _body.linkTextAttributes = @{ NSForegroundColorAttributeName: UIColor.systemRedColor };
     _body.adjustsFontForContentSizeCategory = YES;
     _body.alwaysBounceVertical = NO;
     [self.contentView addSubview:_body];
@@ -460,7 +460,7 @@ static NSString * const kFooterID      = @"DocsFooter";
         @"                                     \"bounds\", &r, sizeof(r),\n"
         @"                                     NULL,0, NULL,0, NULL,0, NULL,0)\n"
         @"\n"
-        @"%new -[X cyanideOverlay]             associated object via\n"
+        @"%new -[X infern0Overlay]             associated object via\n"
         @"                                     objc_setAssociatedObject\n"
         @"                                     through r_dlsym_call\n"
         @"\n"
@@ -471,10 +471,10 @@ static NSString * const kFooterID      = @"DocsFooter";
            @"symbol": @"book.closed.fill",
            @"tint": UIColor.systemPurpleColor,
            @"footer": @"Read sbcustomizer.m, statbar.m, rssidisplay.m, and axonlite.m in "
-                      @"Cyanide/tweaks/ for shipped patterns at increasing complexity.",
+                      @"infern0/tweaks/ for shipped patterns at increasing complexity.",
            @"rows": @[
                @{ @"kind": @"prose",
-                  @"text": @"Cyanide tweaks are app-side drivers. No SpringBoard dylibs, no "
+                  @"text": @"infern0 tweaks are app-side drivers. No SpringBoard dylibs, no "
                            @"Substrate hooks, no swizzled methods. The app reaches into the "
                            @"target from outside." },
                @{ @"kind": @"prose",
@@ -490,7 +490,7 @@ static NSString * const kFooterID      = @"DocsFooter";
 
         @{ @"title": @"The remote_objc API",
            @"symbol": @"chevron.left.forwardslash.chevron.right",
-           @"tint": UIColor.systemBlueColor,
+           @"tint": UIColor.systemRedColor,
            @"footer": @"_main variants dispatch to the target main thread (use them for "
                       @"UIKit). _raw passes non-pointer arguments by value. "
                       @"r_msg2_main_struct_ret copies struct returns such as CGRect.",
@@ -505,7 +505,7 @@ static NSString * const kFooterID      = @"DocsFooter";
         @{ @"title": @"A minimal tweak",
            @"symbol": @"doc.text.fill",
            @"tint": UIColor.systemOrangeColor,
-           @"footer": @"Drop both files in Cyanide/tweaks/. The Xcode project uses "
+           @"footer": @"Drop both files in infern0/tweaks/. The Xcode project uses "
                       @"PBXFileSystemSynchronizedRootGroup, so new files are picked up "
                       @"automatically — no pbxproj edits needed.",
            @"rows": @[

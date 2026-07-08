@@ -1,6 +1,6 @@
 //
 //  HomeViewController.m
-//  Cyanide
+//  infern0
 //
 
 #import "HomeViewController.h"
@@ -37,7 +37,7 @@ static const CGFloat kMargin = 20.0;
     self.view.backgroundColor = UIColor.systemGroupedBackgroundColor;
     self.navigationItem.largeTitleDisplayMode = UINavigationItemLargeTitleDisplayModeAlways;
     self.navigationController.navigationBar.prefersLargeTitles = YES;
-    self.navigationItem.title = @"Cyanide";
+    self.navigationItem.title = @"infern0";
 
     self.scrollView = [[UIScrollView alloc] init];
     self.scrollView.translatesAutoresizingMaskIntoConstraints = NO;
@@ -167,7 +167,7 @@ static const CGFloat kMargin = 20.0;
 
     [row addArrangedSubview:[self actionCard:@"Packages"
                                        icon:@"shippingbox.fill"
-                                      color:UIColor.systemBlueColor
+                                      color:UIColor.systemRedColor
                                         sel:@selector(openPackagesTab)]];
     [row addArrangedSubview:[self actionCard:@"Sources"
                                        icon:@"tray.and.arrow.down.fill"
@@ -260,7 +260,7 @@ static const CGFloat kMargin = 20.0;
     [s addArrangedSubview:[self compactRow:@"Source repos with browsable tweak catalogs"
                                      icon:@"tray.and.arrow.down.fill" color:UIColor.systemGreenColor]];
     [s addArrangedSubview:[self compactRow:@"SnowBoard Lite and SpringBoard stability fixes"
-                                     icon:@"wrench.and.screwdriver.fill" color:UIColor.systemBlueColor]];
+                                     icon:@"wrench.and.screwdriver.fill" color:UIColor.systemRedColor]];
 
     return card;
 }
@@ -421,7 +421,7 @@ static BOOL g_running_flag = NO;
 - (NSString *)crashLogPath
 {
     NSArray *dirs = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
-    return [dirs.firstObject stringByAppendingPathComponent:@"cyanide_crash.log"];
+    return [dirs.firstObject stringByAppendingPathComponent:@"infern0_crash.log"];
 }
 
 - (void)setupLogCapture
@@ -431,7 +431,7 @@ static BOOL g_running_flag = NO;
         // Preserve previous crash log before starting fresh
         NSString *logPath = [self crashLogPath];
         NSString *prevPath = [logPath stringByDeletingLastPathComponent];
-        prevPath = [prevPath stringByAppendingPathComponent:@"cyanide_crash_prev.log"];
+        prevPath = [prevPath stringByAppendingPathComponent:@"infern0_crash_prev.log"];
         [[NSFileManager defaultManager] removeItemAtPath:prevPath error:nil];
         [[NSFileManager defaultManager] moveItemAtPath:logPath toPath:prevPath error:nil];
 
@@ -576,7 +576,7 @@ static BOOL g_running_flag = NO;
     [s addArrangedSubview:headerWrap];
 
     [s addArrangedSubview:[self linkCell:@"Signal Group" icon:@"bubble.left.and.bubble.right.fill"
-                                  color:UIColor.systemBlueColor url:kSignalGroupURL sep:YES]];
+                                  color:UIColor.systemRedColor url:kSignalGroupURL sep:YES]];
     [s addArrangedSubview:[self linkCell:@"Report a Bug" icon:@"exclamationmark.bubble.fill"
                                   color:UIColor.systemRedColor url:kGitHubIssuesURL sep:YES]];
     [s addArrangedSubview:[self linkCell:@"GitHub" icon:@"chevron.left.forwardslash.chevron.right"

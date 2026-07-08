@@ -79,7 +79,7 @@ typedef NS_ENUM(NSInteger, CyanideNiceBarTrafficRange) {
 
     CGFloat gap = count > 10 ? 3.0 : 6.0;
     CGFloat barWidth = MAX(4.0, (bounds.size.width - gap * (CGFloat)(count - 1)) / (CGFloat)count);
-    UIColor *fill = UIColor.systemCyanColor;
+    UIColor *fill = UIColor.systemOrangeColor;
     for (NSUInteger i = 0; i < count; i++) {
         CyanideNiceBarTrafficItem *item = self.items[i];
         CGFloat pct = maxBytes ? ((CGFloat)item.bytes / (CGFloat)maxBytes) : 0;

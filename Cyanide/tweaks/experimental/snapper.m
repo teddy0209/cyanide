@@ -64,7 +64,30 @@ static uint64_t snapper_alloc_label(const char *text)
         r_msg2_main(label, "setText:", str, 0, 0, 0);
         r_msg2_main(str, "release", 0, 0, 0, 0);
     }
+    uint64_t white = snapper_color(1, 1, 1, 0.98);
+    if (r_is_objc_ptr(white)) r_msg2_main(label, "setTextColor:", white, 0, 0, 0);
+    uint64_t UIFont = r_class("UIFont");
+    if (r_is_objc_ptr(UIFont)) {
+        double size = 12.0;
+        uint64_t font = r_msg2_main_raw(UIFont, "boldSystemFontOfSize:", &size, sizeof(size), NULL, 0, NULL, 0, NULL, 0);
+        if (r_is_objc_ptr(font)) r_msg2_main(label, "setFont:", font, 0, 0, 0);
+    }
     return label;
+}
+
+static void snapper_add_handle(uint64_t parent, double x, double y)
+{
+    uint64_t handle = snapper_alloc_view(x, y, 14.0, 14.0);
+    if (!r_is_objc_ptr(handle)) return;
+    uint64_t bg = snapper_color(1.0, 0.22, 0.08, 0.96);
+    if (r_is_objc_ptr(bg)) r_msg2_main(handle, "setBackgroundColor:", bg, 0, 0, 0);
+    uint64_t layer = r_msg2_main(handle, "layer", 0, 0, 0, 0);
+    if (r_is_objc_ptr(layer)) {
+        double radius = 7.0;
+        r_msg2_main_raw(layer, "setCornerRadius:", &radius, sizeof(radius), NULL, 0, NULL, 0, NULL, 0);
+        r_msg2_main(layer, "setMasksToBounds:", 1, 0, 0, 0);
+    }
+    r_msg2_main(parent, "addSubview:", handle, 0, 0, 0);
 }
 
 bool snapper_apply_in_session(void)
@@ -81,19 +104,23 @@ bool snapper_apply_in_session(void)
                                         (double)gSnapperWidth,
                                         (double)gSnapperHeight);
     if (!r_is_objc_ptr(frame)) return false;
-    uint64_t clear = snapper_color(0.05, 0.18, 0.32, 0.16);
+    uint64_t clear = snapper_color(0.02, 0.10, 0.18, 0.10);
     if (r_is_objc_ptr(clear)) r_msg2_main(frame, "setBackgroundColor:", clear, 0, 0, 0);
     uint64_t layer = r_msg2_main(frame, "layer", 0, 0, 0, 0);
     if (r_is_objc_ptr(layer)) {
         double borderWidth = (double)gSnapperBorderWidth;
         double radius = (double)gSnapperCornerRadius;
-        uint64_t border = snapper_color(0.15, 0.66, 1.0, 0.95);
+        uint64_t border = snapper_color(1.0, 0.22, 0.08, 0.95);
         uint64_t cg = r_is_objc_ptr(border) ? r_msg2_main(border, "CGColor", 0, 0, 0, 0) : 0;
         if (cg) r_msg2_main(layer, "setBorderColor:", cg, 0, 0, 0);
         r_msg2_main_raw(layer, "setBorderWidth:", &borderWidth, sizeof(borderWidth), NULL, 0, NULL, 0, NULL, 0);
         r_msg2_main_raw(layer, "setCornerRadius:", &radius, sizeof(radius), NULL, 0, NULL, 0, NULL, 0);
     }
-    uint64_t label = snapper_alloc_label("Snapper");
+    snapper_add_handle(frame, -7.0, -7.0);
+    snapper_add_handle(frame, (double)gSnapperWidth - 7.0, -7.0);
+    snapper_add_handle(frame, -7.0, (double)gSnapperHeight - 7.0);
+    snapper_add_handle(frame, (double)gSnapperWidth - 7.0, (double)gSnapperHeight - 7.0);
+    uint64_t label = snapper_alloc_label("Snap");
     if (r_is_objc_ptr(label)) r_msg2_main(frame, "addSubview:", label, 0, 0, 0);
     r_msg2_main(win, "addSubview:", frame, 0, 0, 0);
     gSnapperView = frame;

@@ -34,14 +34,14 @@ UIColor *CYSpectrumColor(NSUInteger index)
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         colors = @[
-            UIColor.systemBlueColor,
+            UIColor.systemRedColor,
             UIColor.systemTealColor,
             UIColor.systemGreenColor,
             UIColor.systemOrangeColor,
             UIColor.systemPinkColor,
             UIColor.systemPurpleColor,
             UIColor.systemIndigoColor,
-            UIColor.systemCyanColor,
+            UIColor.systemOrangeColor,
             UIColor.systemRedColor,
             UIColor.systemMintColor,
         ];

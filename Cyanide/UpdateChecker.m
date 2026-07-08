@@ -1,6 +1,6 @@
 //
 //  UpdateChecker.m
-//  Cyanide
+//  infern0
 //
 
 #import "UpdateChecker.h"
@@ -287,7 +287,7 @@ static int compare_versions(NSString *a, NSString *b)
     while (top.presentedViewController) top = top.presentedViewController;
 
     NSMutableString *message = [NSMutableString string];
-    [message appendFormat:@"A new release of Cyanide is available.\n\nLatest: %@\nInstalled: %@",
+    [message appendFormat:@"A new release of infern0 is available.\n\nLatest: %@\nInstalled: %@",
                           latest, current];
 
     NSString *trimmed = [notes stringByTrimmingCharactersInSet:

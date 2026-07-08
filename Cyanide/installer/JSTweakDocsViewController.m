@@ -1,6 +1,6 @@
 //
 //  JSTweakDocsViewController.m
-//  Cyanide
+//  infern0
 //
 
 #import "JSTweakDocsViewController.h"
@@ -60,7 +60,7 @@
 - (void)buildTweakDocsInStack:(UIStackView *)stack
 {
     [stack addArrangedSubview:[self introCard:@"Build JavaScript Tweaks"
-                                        body:@"Write .js scripts that run inside SpringBoard through Cyanide's RemoteCall bridge. Publish them as a source repo or load them locally with QuickLoader."
+                                        body:@"Write .js scripts that run inside SpringBoard through infern0's RemoteCall bridge. Publish them as a source repo or load them locally with QuickLoader."
                                       credit:@"JavaScript engine contributed by @MinePlayer16"]];
 
     [stack addArrangedSubview:[self docCard:@"Writing a Tweak"
@@ -73,10 +73,10 @@
               "  var win = r_msg2(app, \"keyWindow\");\n"
               "  // …\n"
               "})();\n\n"
-              "Use log() to print to Cyanide's Log tab. Use r_msg2_main() instead of r_msg2() for anything that touches UIKit views."]];
+              "Use log() to print to infern0's Log tab. Use r_msg2_main() instead of r_msg2() for anything that touches UIKit views."]];
 
     [stack addArrangedSubview:[self docCard:@"Parameter Declaration"
-        body:@"Add @param comments at the top of your script. Cyanide parses them and generates native UI controls in Settings.\n\n"
+        body:@"Add @param comments at the top of your script. infern0 parses them and generates native UI controls in Settings.\n\n"
               "Syntax:\n"
               "// @param: type | varName | Label | default | range\n\n"
               "Types:\n\n"
@@ -93,7 +93,7 @@
     [stack addArrangedSubview:[self docCard:@"RemoteCall API"
         body:@"These functions are injected into every JS context:\n\n"
               "log(message)\n"
-              "  Print to Cyanide's log console.\n\n"
+              "  Print to infern0's log console.\n\n"
               "r_class(name) → pointer\n"
               "  Get an Objective-C class pointer.\n"
               "  r_class(\"UIApplication\")\n\n"
@@ -123,7 +123,7 @@
               "clearInterval(id)\n"
               "setTimeout(fn, ms) → id\n"
               "clearTimeout(id)\n\n"
-              "All active timers are automatically cancelled when the tweak is disabled or Cyanide cleans up."]];
+              "All active timers are automatically cancelled when the tweak is disabled or infern0 cleans up."]];
 
     [stack addArrangedSubview:[self docCard:@"Color Allocation Example"
         body:@"64-bit IPC can't pass CGFloat arrays directly. Allocate colors through CIColor:\n\n"
@@ -154,7 +154,7 @@
 - (void)buildRepoDocsInStack:(UIStackView *)stack
 {
     [stack addArrangedSubview:[self introCard:@"Set Up a Tweak Repository"
-                                        body:@"Host your JavaScript tweaks as an HTTPS JSON feed that Cyanide users can add in the Sources tab. No server-side code needed — a GitHub Pages repo or any static file host works."
+                                        body:@"Host your JavaScript tweaks as an HTTPS JSON feed that infern0 users can add in the Sources tab. No server-side code needed — a GitHub Pages repo or any static file host works."
                                       credit:nil]];
 
     [stack addArrangedSubview:[self docCard:@"Repository JSON Format"
@@ -174,7 +174,7 @@
               "    }\n"
               "  ]\n"
               "}\n\n"
-              "Host it at any HTTPS URL. Users paste this URL into Cyanide's Sources tab."]];
+              "Host it at any HTTPS URL. Users paste this URL into infern0's Sources tab."]];
 
     [stack addArrangedSubview:[self docCard:@"Required Fields"
         body:@"repoName\n"
@@ -189,10 +189,10 @@
               "tweaks[].description\n"
               "  Short description shown under the name.\n\n"
               "tweaks[].version\n"
-              "  Semver string. Cyanide compares this to\n"
+              "  Semver string. infern0 compares this to\n"
               "  detect updates for installed tweaks.\n\n"
               "tweaks[].scriptURL\n"
-              "  HTTPS URL to the .js file. Cyanide\n"
+              "  HTTPS URL to the .js file. infern0\n"
               "  downloads and caches it on refresh."]];
 
     [stack addArrangedSubview:[self docCard:@"Optional Fields"
@@ -225,7 +225,7 @@
               "1. Update the .js file at the same URL\n"
               "2. Bump the version string in the JSON\n"
               "3. Commit and push\n\n"
-              "Cyanide checks for updates every few hours. When the repo version is newer than the installed version, the Sources tab shows an update badge. Users tap the tweak to reinstall the latest version."]];
+              "infern0 checks for updates every few hours. When the repo version is newer than the installed version, the Sources tab shows an update badge. Users tap the tweak to reinstall the latest version."]];
 
     [stack addArrangedSubview:[self docCard:@"Multiple Tweaks"
         body:@"Add more entries to the tweaks array:\n\n"
@@ -241,7 +241,7 @@
               "• Keep descriptions short — they show as one or two lines in the package list.\n"
               "• Bump the version on every change so users get the update badge.\n"
               "• Test scripts locally with QuickLoader before adding them to your repo.\n"
-              "• HTTPS is required — Cyanide rejects HTTP URLs."]];
+              "• HTTPS is required — infern0 rejects HTTP URLs."]];
 }
 
 #pragma mark - Actions
@@ -266,7 +266,7 @@
 - (void)shareMarkdown
 {
     NSString *md = [self markdownString];
-    NSString *name = (self.docsMode == JSTweakDocsModeSetupRepo) ? @"Cyanide-Repo-Setup.md" : @"Cyanide-JS-Tweak-Docs.md";
+    NSString *name = (self.docsMode == JSTweakDocsModeSetupRepo) ? @"infern0-Repo-Setup.md" : @"infern0-JS-Tweak-Docs.md";
     NSString *path = [NSTemporaryDirectory() stringByAppendingPathComponent:name];
     [md writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:nil];
     UIActivityViewController *activity = [[UIActivityViewController alloc] initWithActivityItems:@[[NSURL fileURLWithPath:path]] applicationActivities:nil];
@@ -285,7 +285,7 @@
 - (NSString *)tweakMarkdown
 {
     return
-    @"# Cyanide JavaScript Tweak Documentation\n\n"
+    @"# infern0 JavaScript Tweak Documentation\n\n"
     "JavaScript engine contributed by @MinePlayer16.\n\n"
     "---\n\n"
     "## Writing a Tweak\n\n"
@@ -322,7 +322,7 @@
 - (NSString *)repoMarkdown
 {
     return
-    @"# Cyanide Repo Setup Guide\n\n"
+    @"# infern0 Repo Setup Guide\n\n"
     "## JSON Format\n\n"
     "```json\n"
     "{\n"
@@ -360,7 +360,7 @@
     "## Updating\n\n"
     "1. Update the .js file\n"
     "2. Bump the version in JSON\n"
-    "3. Push — Cyanide detects updates automatically\n";
+    "3. Push — infern0 detects updates automatically\n";
 }
 
 #pragma mark - Card builders

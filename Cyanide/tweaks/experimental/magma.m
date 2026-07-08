@@ -28,10 +28,29 @@ static uint64_t magma_key_window(void)
     return r_is_objc_ptr(app) ? r_msg2_main(app, "keyWindow", 0, 0, 0, 0) : 0;
 }
 
+static void magma_class_name(uint64_t obj, char *out, size_t outLen)
+{
+    if (!out || outLen == 0) return;
+    out[0] = '\0';
+    if (!r_is_objc_ptr(obj)) return;
+    uint64_t cls = r_dlsym_call(R_TIMEOUT, "object_getClass", obj, 0, 0, 0, 0, 0, 0, 0);
+    uint64_t name = r_is_objc_ptr(cls) ? r_dlsym_call(R_TIMEOUT, "class_getName", cls, 0, 0, 0, 0, 0, 0, 0) : 0;
+    if (!name) return;
+    uint64_t buf = r_dlsym_call(R_TIMEOUT, "strdup", name, 0, 0, 0, 0, 0, 0, 0);
+    if (!buf) return;
+    remote_read(buf, out, outLen - 1);
+    out[outLen - 1] = '\0';
+    r_free(buf);
+}
+
 static void magma_scan(uint64_t parent, uint64_t color, int depth, int *hits)
 {
     if (!r_is_objc_ptr(parent) || depth > 12) return;
-    if (r_is_objc_ptr(color)) {
+    char cls[160] = {0};
+    magma_class_name(parent, cls, sizeof(cls));
+    bool target = strstr(cls, "CCUI") || strstr(cls, "ControlCenter") ||
+                  strstr(cls, "Glyph") || strstr(cls, "Button") || strstr(cls, "Toggle");
+    if (target && r_is_objc_ptr(color)) {
         r_msg2_main(parent, "setTintColor:", color, 0, 0, 0);
         if (r_responds_main(parent, "setTextColor:")) r_msg2_main(parent, "setTextColor:", color, 0, 0, 0);
         if (hits) (*hits)++;

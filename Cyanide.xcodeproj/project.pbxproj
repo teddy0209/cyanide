@@ -21,7 +21,7 @@
 /* Begin PBXFileReference section */
 		AA73F7982F7BC6CB00134C31 /* ChOma.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = ChOma.xcodeproj; sourceTree = "<group>"; };
 		AA794BC92F828668001F0544 /* ChOma.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = ChOma.xcodeproj; sourceTree = "<group>"; };
-		AAA297772F72D439000B5902 /* Cyanide.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Cyanide.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AAA297772F72D439000B5902 /* infern0.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = infern0.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AAA2982D2F741178000B5902 /* ChOma.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = ChOma.xcodeproj; sourceTree = "<group>"; };
 		FB0A9F7E2FBBBE5100C03573 /* ChOma.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = ChOma.xcodeproj; sourceTree = "<group>"; };
 		FB1C33802FD7B58E000677B5 /* ChOma.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = ChOma.xcodeproj; sourceTree = "<group>"; };
@@ -169,7 +169,7 @@
 		AAA297782F72D439000B5902 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				AAA297772F72D439000B5902 /* Cyanide.app */,
+				AAA297772F72D439000B5902 /* infern0.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -405,11 +405,11 @@
 			fileSystemSynchronizedGroups = (
 				AAA297792F72D439000B5902 /* Cyanide */,
 			);
-			name = Cyanide;
+			name = infern0;
 			packageProductDependencies = (
 			);
-			productName = Cyanide;
-			productReference = AAA297772F72D439000B5902 /* Cyanide.app */;
+			productName = infern0;
+			productReference = AAA297772F72D439000B5902 /* infern0.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -649,7 +649,7 @@
 					"$(SRCROOT)/Cyanide/XPF/external/ChOma/include",
 				);
 				INFOPLIST_FILE = Cyanide/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = Cyanide;
+				INFOPLIST_KEY_CFBundleDisplayName = infern0;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
 				INFOPLIST_KEY_UIMainStoryboardFile = Main;
@@ -694,8 +694,8 @@
 					"$(inherited)",
 					"$(PROJECT_DIR)/Cyanide/XPF/output/iphonesimulator/libxpf.dylib",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = "com.zeroxjf.ios-cyanide1";
-				PRODUCT_NAME = Cyanide;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.nnnnnnn274.infern0";
+				PRODUCT_NAME = infern0;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -726,7 +726,7 @@
 					"$(SRCROOT)/Cyanide/XPF/external/ChOma/include",
 				);
 				INFOPLIST_FILE = Cyanide/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = Cyanide;
+				INFOPLIST_KEY_CFBundleDisplayName = infern0;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
 				INFOPLIST_KEY_UIMainStoryboardFile = Main;
@@ -771,8 +771,8 @@
 					"$(inherited)",
 					"$(PROJECT_DIR)/Cyanide/XPF/output/iphonesimulator/libxpf.dylib",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = "com.zeroxjf.ios-cyanide1";
-				PRODUCT_NAME = Cyanide;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.nnnnnnn274.infern0";
+				PRODUCT_NAME = infern0;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -937,7 +937,7 @@
 					"$(SRCROOT)/Cyanide/XPF/external/ChOma/include",
 				);
 				INFOPLIST_FILE = Cyanide/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Cyanide VPhone";
+				INFOPLIST_KEY_CFBundleDisplayName = "infern0 VPhone";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
 				INFOPLIST_KEY_UIMainStoryboardFile = Main;
@@ -982,8 +982,8 @@
 					"$(inherited)",
 					"$(PROJECT_DIR)/Cyanide/XPF/output/iphonesimulator/libxpf.dylib",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = "com.zeroxjf.ios-cyanide1";
-				PRODUCT_NAME = Cyanide;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.nnnnnnn274.infern0";
+				PRODUCT_NAME = infern0;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";

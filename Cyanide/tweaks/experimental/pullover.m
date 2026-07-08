@@ -67,17 +67,54 @@ static uint64_t pullover_alloc_label(void)
     if (!r_is_objc_ptr(UILabel)) return 0;
     uint64_t label = r_msg2_main(UILabel, "alloc", 0, 0, 0, 0);
     if (!r_is_objc_ptr(label)) return 0;
-    PullOverRect frame = { 8, 120, 60, 90 };
+    PullOverRect frame = { 8, 230, 60, 24 };
     label = r_msg2_main_raw(label, "initWithFrame:", &frame, sizeof(frame), NULL, 0, NULL, 0, NULL, 0);
     if (!r_is_objc_ptr(label)) return 0;
-    uint64_t str = r_nsstr_retained("Pull\nOver");
+    uint64_t str = r_nsstr_retained("App");
     if (r_is_objc_ptr(str)) {
         r_msg2_main(label, "setText:", str, 0, 0, 0);
         r_msg2_main(str, "release", 0, 0, 0, 0);
     }
-    r_msg2_main(label, "setNumberOfLines:", 2, 0, 0, 0);
     r_msg2_main(label, "setTextAlignment:", 1, 0, 0, 0);
+    uint64_t white = pullover_color(1, 1, 1, 0.92);
+    if (r_is_objc_ptr(white)) r_msg2_main(label, "setTextColor:", white, 0, 0, 0);
+    uint64_t UIFont = r_class("UIFont");
+    if (r_is_objc_ptr(UIFont)) {
+        double size = 13.0;
+        uint64_t font = r_msg2_main_raw(UIFont, "boldSystemFontOfSize:", &size, sizeof(size), NULL, 0, NULL, 0, NULL, 0);
+        if (r_is_objc_ptr(font)) r_msg2_main(label, "setFont:", font, 0, 0, 0);
+    }
     return label;
+}
+
+static void pullover_add_grabber(uint64_t tray, double trayWidth)
+{
+    uint64_t grabber = pullover_alloc_view((trayWidth - 5.0) / 2.0, 18.0, 5.0, 44.0);
+    if (!r_is_objc_ptr(grabber)) return;
+    uint64_t bg = pullover_color(1, 1, 1, 0.52);
+    if (r_is_objc_ptr(bg)) r_msg2_main(grabber, "setBackgroundColor:", bg, 0, 0, 0);
+    uint64_t layer = r_msg2_main(grabber, "layer", 0, 0, 0, 0);
+    if (r_is_objc_ptr(layer)) {
+        double radius = 2.5;
+        r_msg2_main_raw(layer, "setCornerRadius:", &radius, sizeof(radius), NULL, 0, NULL, 0, NULL, 0);
+        r_msg2_main(layer, "setMasksToBounds:", 1, 0, 0, 0);
+    }
+    r_msg2_main(tray, "addSubview:", grabber, 0, 0, 0);
+}
+
+static void pullover_add_icon_slot(uint64_t tray, double x, double y, double side)
+{
+    uint64_t slot = pullover_alloc_view(x, y, side, side);
+    if (!r_is_objc_ptr(slot)) return;
+    uint64_t bg = pullover_color(1, 1, 1, 0.14);
+    if (r_is_objc_ptr(bg)) r_msg2_main(slot, "setBackgroundColor:", bg, 0, 0, 0);
+    uint64_t layer = r_msg2_main(slot, "layer", 0, 0, 0, 0);
+    if (r_is_objc_ptr(layer)) {
+        double radius = side * 0.24;
+        r_msg2_main_raw(layer, "setCornerRadius:", &radius, sizeof(radius), NULL, 0, NULL, 0, NULL, 0);
+        r_msg2_main(layer, "setMasksToBounds:", 1, 0, 0, 0);
+    }
+    r_msg2_main(tray, "addSubview:", slot, 0, 0, 0);
 }
 
 bool pullover_apply_in_session(void)
@@ -98,7 +135,7 @@ bool pullover_apply_in_session(void)
                                         (double)gPullOverWidth,
                                         trayHeight);
     if (!r_is_objc_ptr(tray)) return false;
-    uint64_t bg = pullover_color(0.08, 0.09, 0.11, (double)gPullOverBackgroundAlphaPercent / 100.0);
+    uint64_t bg = pullover_color(0.05, 0.06, 0.07, (double)gPullOverBackgroundAlphaPercent / 100.0);
     if (r_is_objc_ptr(bg)) r_msg2_main(tray, "setBackgroundColor:", bg, 0, 0, 0);
     uint64_t layer = r_msg2_main(tray, "layer", 0, 0, 0, 0);
     if (r_is_objc_ptr(layer)) {
@@ -106,6 +143,12 @@ bool pullover_apply_in_session(void)
         r_msg2_main_raw(layer, "setCornerRadius:", &radius, sizeof(radius), NULL, 0, NULL, 0, NULL, 0);
         r_msg2_main(layer, "setMasksToBounds:", 1, 0, 0, 0);
     }
+    pullover_add_grabber(tray, (double)gPullOverWidth);
+    double iconSide = (double)gPullOverWidth - 24.0;
+    if (iconSide < 32.0) iconSide = 32.0;
+    if (iconSide > 64.0) iconSide = 64.0;
+    pullover_add_icon_slot(tray, ((double)gPullOverWidth - iconSide) / 2.0, 88.0, iconSide);
+    pullover_add_icon_slot(tray, ((double)gPullOverWidth - iconSide) / 2.0, 156.0, iconSide);
     uint64_t label = pullover_alloc_label();
     if (r_is_objc_ptr(label)) r_msg2_main(tray, "addSubview:", label, 0, 0, 0);
     r_msg2_main(win, "addSubview:", tray, 0, 0, 0);

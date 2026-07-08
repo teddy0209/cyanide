@@ -1,6 +1,6 @@
 //
 //  PackageCatalog.m
-//  Cyanide
+//  infern0
 //
 
 #import "PackageCatalog.h"
@@ -92,7 +92,7 @@ static BOOL catalog_repo_script_requires_native_bridge(NSString *rawScript)
             } else if (rawScript.length == 0) {
                 pkg.installDisabledReason = @"Refresh this source from the Sources tab before installing.";
             } else if (pkg.repoTweakUsesQuickLoader && catalog_repo_script_requires_native_bridge(rawScript)) {
-                pkg.installDisabledReason = @"This repo tweak needs a dedicated Cyanide native backend before it can install.";
+                pkg.installDisabledReason = @"This repo tweak needs a dedicated infern0 native backend before it can install.";
             }
             [packages addObject:pkg];
         }
@@ -238,7 +238,7 @@ static const NSInteger kSecRepoTweaks       = 53;
                                shortDescription:@"Custom dock count and home screen grid"
                                 longDescription:@"Customizes the dock icon count and the home screen icon grid (columns and rows). Optionally hides icon labels.\n\nAdjust the per-axis counts and the label-hide switch in the Settings tab."
                                         version:version
-                                         author:@"zeroxjf"
+                                         author:@"Nnnnnnn274"
                                        category:@"Home Screen"
                                      symbolName:@"square.grid.3x3.fill"
                                            kind:PackageInstallKindToggle
@@ -262,7 +262,7 @@ static const NSInteger kSecRepoTweaks       = 53;
         Package *axon = [[Package alloc] initWithIdentifier:@"com.darksword.axonlite"
                                            name:@"Axon Lite"
                                shortDescription:@"Group Notification Center requests by app"
-                                longDescription:@"Groups visible Notification Center requests by app in a SpringBoard overlay and filters duplicates while Cyanide keeps the RemoteCall session alive.\n\nNo extra configuration."
+                                longDescription:@"Groups visible Notification Center requests by app in a SpringBoard overlay and filters duplicates while infern0 keeps the RemoteCall session alive.\n\nNo extra configuration."
                                         version:version
                                          author:@"zeroxjf"
                                        category:@"SpringBoard"
@@ -270,7 +270,7 @@ static const NSInteger kSecRepoTweaks       = 53;
                                            kind:PackageInstallKindToggle
                                      enabledKey:kSettingsAxonLiteEnabled
                                           isNew:NO];
-        axon.unstableWarning = @"⚠️ Experimental: work-in-progress. Expect SpringBoard crashes, dropped notifications, layout glitches, and breakage between Cyanide builds. Don't rely on it for anything important.";
+        axon.unstableWarning = @"⚠️ Experimental: work-in-progress. Expect SpringBoard crashes, dropped notifications, layout glitches, and breakage between infern0 builds. Don't rely on it for anything important.";
 
 #if CYANIDE_EXPERIMENTAL_TWEAKS_AVAILABLE
         Package *typeBanner = [[Package alloc] initWithIdentifier:@"com.darksword.typebanner"
@@ -290,7 +290,7 @@ static const NSInteger kSecRepoTweaks       = 53;
         Package *notificationIsland = [[Package alloc] initWithIdentifier:@"com.darksword.notificationisland"
                                            name:@"Notification Island"
                                shortDescription:@"Mirror incoming banners into the Dynamic Island"
-                                longDescription:@"Experimental Dynamic Island notification route. Watches SpringBoard's active banner request over the shared RemoteCall session, then mirrors the title/body into Cyanide's ActivityKit Live Activity.\n\nNo extra configuration."
+                                longDescription:@"Experimental Dynamic Island notification route. Watches SpringBoard's active banner request over the shared RemoteCall session, then mirrors the title/body into infern0's ActivityKit Live Activity.\n\nNo extra configuration."
                                         version:version
                                          author:@"zeroxjf"
                                        category:@"Beta"
@@ -326,7 +326,7 @@ static const NSInteger kSecRepoTweaks       = 53;
             @"• Tap two apps to launch them side-by-side.\n"
             @"• Drag the top bar to move; drag any corner to resize.\n"
             @"• X in the top-left of a window closes it.\n"
-            @"• Gear in the picker tray jumps back to Cyanide settings.\n\n"
+            @"• Gear in the picker tray jumps back to infern0 settings.\n\n"
             @"First Run is slow. The picker has to enumerate every installed app over RemoteCall and build a tile per app — expect 1-2 minutes on a fresh install. Re-Runs reuse the cache and are fast.\n\n"
             @"Rough edges:\n"
             @"• Touch routing into hosted apps isn't wired — windows are for viewing/switching, not scrolling or typing.\n"
@@ -360,7 +360,7 @@ static const NSInteger kSecRepoTweaks       = 53;
         Package *snowboardLite = [[Package alloc] initWithIdentifier:@"com.darksword.snowboardlite"
                                            name:@"SnowBoard Lite"
                                shortDescription:@"Local SnowBoard-style icon themes"
-                                longDescription:@"Imports SnowBoard/IconBundles themes into a local library and applies the selected theme through Cyanide's icon replacement pipeline. Supports the bundled iOS 6 theme and local folder imports.\n\nSnowBoard Lite is the main icon-theme entry point in Cyanide.\n\nPorted from d1y/cyanide-ios."
+                                longDescription:@"Imports SnowBoard/IconBundles themes into a local library and applies the selected theme through infern0's icon replacement pipeline. Supports the bundled iOS 6 theme and local folder imports.\n\nSnowBoard Lite is the main icon-theme entry point in infern0.\n\nPorted from d1y/cyanide-ios."
                                         version:version
                                          author:@"d1y"
                                        category:@"Theming"
@@ -374,7 +374,7 @@ static const NSInteger kSecRepoTweaks       = 53;
         Package *liveWP = [[Package alloc] initWithIdentifier:@"com.darksword.livewp"
                                            name:@"LiveWP"
                                shortDescription:@"Video wallpaper for Home and Lock Screen"
-                                longDescription:@"Plays a selected MP4/MOV/M4V video behind SpringBoard's home and lock screen windows while Cyanide keeps the RemoteCall session alive.\n\nPorted from d1y/cyanide-ios."
+                                longDescription:@"Plays a selected MP4/MOV/M4V video behind SpringBoard's home and lock screen windows while infern0 keeps the RemoteCall session alive.\n\nPorted from d1y/cyanide-ios."
                                         version:version
                                          author:@"d1y"
                                        category:@"Theming"
@@ -417,9 +417,9 @@ static const NSInteger kSecRepoTweaks       = 53;
         gravityLite.settingsSection = kSecGravityLite;
         gravityLite.unstableWarning = @"Beta: RemoteCall-only physics can be reset by SpringBoard relayouts such as page swipes, rotations, folder transitions, or resprings. Use Restore Icon Layout if icons stay displaced.";
         gravityLite.knownIssues = @[
-            @"To disable, use the App Switcher to return to Cyanide and deactivate Gravity Lite. There is no other way to stop it right now.",
+            @"To disable, use the App Switcher to return to infern0 and deactivate Gravity Lite. There is no other way to stop it right now.",
             @"Touch input does not register on displaced icons yet. Forwarding taps in this environment is a major WIP.",
-            @"Install is slow as hell. WIP. Cyanide has to capture every visible icon and widget before physics start.",
+            @"Install is slow as hell. WIP. infern0 has to capture every visible icon and widget before physics start.",
             @"Page swipes, folder opens, or SpringBoard relayouts may stop the effect. Run Gravity again.",
         ];
 
@@ -440,7 +440,7 @@ static const NSInteger kSecRepoTweaks       = 53;
         Package *quickLoader = [[Package alloc] initWithIdentifier:@"com.darksword.quickloader"
                                            name:@"QuickLoader"
                                shortDescription:@"Executes custom .js code"
-                                longDescription:@"Select a local JavaScript file from Files, configure any declared parameters, and run it through Cyanide's SpringBoard RemoteCall bridge.\n\nOnly run scripts you trust. JavaScript tweaks can send private SpringBoard messages and destabilize the device if the script is buggy."
+                                longDescription:@"Select a local JavaScript file from Files, configure any declared parameters, and run it through infern0's SpringBoard RemoteCall bridge.\n\nOnly run scripts you trust. JavaScript tweaks can send private SpringBoard messages and destabilize the device if the script is buggy."
                                         version:@"1.0"
                                          author:@"Iggy05"
                                        category:@"SpringBoard"
@@ -449,13 +449,13 @@ static const NSInteger kSecRepoTweaks       = 53;
                                      enabledKey:kSettingsQuickLoaderEnabled
                                           isNew:NO];
         quickLoader.settingsSection = kSecQuickLoader;
-        quickLoader.unstableWarning = @"Runs user-selected JavaScript with access to Cyanide's RemoteCall helpers. Only use scripts you trust; bad scripts can crash SpringBoard.";
+        quickLoader.unstableWarning = @"Runs user-selected JavaScript with access to infern0's RemoteCall helpers. Only use scripts you trust; bad scripts can crash SpringBoard.";
 
 #if CYANIDE_EXPERIMENTAL_TWEAKS_AVAILABLE
         Package *fastLockXLite = [[Package alloc] initWithIdentifier:@"com.darksword.fastlockx-lite"
                                            name:@"FastLockX Lite"
                                shortDescription:@"Face ID retry + unlock controls"
-                                longDescription:@"RemoteCall-only port of the usable FastLockX primitives recovered from the iOS 15 tweak by Artem Kasper.\n\nCredits: original FastLockX by Artem Kasper; Cyanide FastLockX Lite port by zeroxjf.\n\nIt can pulse SpringBoard's biometric retry path, ask the iOS 26 biometric coordinator to start a Mesa/Face ID unlock, and send the original Lock Screen unlock request as a fallback. Installing it through Apply Tweaks keeps those retry/unlock requests armed with SpringBoard timers so pickup-to-unlock can work after Cyanide closes. The pulse loop pauses again after unlock.\n\nUse Disable, Clean Up, or a respring to stop the timers."
+                                longDescription:@"RemoteCall-only port of the usable FastLockX primitives recovered from the iOS 15 tweak by Artem Kasper.\n\nCredits: original FastLockX by Artem Kasper; infern0 FastLockX Lite port by zeroxjf.\n\nIt can pulse SpringBoard's biometric retry path, ask the iOS 26 biometric coordinator to start a Mesa/Face ID unlock, and send the original Lock Screen unlock request as a fallback. Installing it through Apply Tweaks keeps those retry/unlock requests armed with SpringBoard timers so pickup-to-unlock can work after infern0 closes. The pulse loop pauses again after unlock.\n\nUse Disable, Clean Up, or a respring to stop the timers."
                                         version:version
                                          author:@"Artem Kasper / zeroxjf"
                                        category:@"Beta"
@@ -469,9 +469,9 @@ static const NSInteger kSecRepoTweaks       = 53;
         Package *velvet = [[Package alloc] initWithIdentifier:@"com.darksword.velvet"
                                            name:@"Velvet"
                                shortDescription:@"Custom compact notification banners"
-                                longDescription:@"Velvet/TinyBanners-style notification styling. Applies custom banner and Notification Center cell backgrounds, borders, corner radius, and text colors through SpringBoard's RemoteCall session.\n\nConfigure the colors and shape in Settings. The live scanner reapplies styles while Cyanide is active."
+                                longDescription:@"Velvet/TinyBanners-style notification styling. Applies custom banner and Notification Center cell backgrounds, borders, corner radius, and text colors through SpringBoard's RemoteCall session.\n\nConfigure the colors and shape in Settings. The live scanner reapplies styles while infern0 is active."
                                         version:version
-                                         author:@"zeroxjf"
+                                         author:@"Nnnnnnn274"
                                        category:@"SpringBoard"
                                      symbolName:@"rectangle.3.group.fill"
                                            kind:PackageInstallKindToggle
@@ -524,7 +524,7 @@ static const NSInteger kSecRepoTweaks       = 53;
                                shortDescription:@"Hide home screen badges, dots, and labels"
                                 longDescription:@"Hides notification badges, page dots, and icon labels on the home screen. Each element can be toggled individually in Settings."
                                         version:version
-                                         author:@"zeroxjf"
+                                         author:@"Nnnnnnn274"
                                        category:@"Home Screen"
                                      symbolName:@"square.dashed"
                                            kind:PackageInstallKindToggle
@@ -537,7 +537,7 @@ static const NSInteger kSecRepoTweaks       = 53;
                                shortDescription:@"Disable Control Center toggles for WiFi and Bluetooth"
                                 longDescription:@"Writes system preference plists to disable WiFi and Bluetooth toggles in Control Center, then kills the associated daemons. Configure which radios to disable in Settings."
                                         version:version
-                                         author:@"zeroxjf"
+                                         author:@"Nnnnnnn274"
                                        category:@"System"
                                      symbolName:@"wifi.slash"
                                            kind:PackageInstallKindToggle
@@ -548,9 +548,9 @@ static const NSInteger kSecRepoTweaks       = 53;
         Package *cleanCC = [[Package alloc] initWithIdentifier:@"com.darksword.cleancc"
                                            name:@"CleanCC"
                                shortDescription:@"Cleaner Control Center material"
-                                longDescription:@"First-pass CleanCC/Glacier-style port. Adjusts visible Control Center material alpha and background tint while Cyanide is active."
+                                longDescription:@"First-pass CleanCC/Glacier-style port. Adjusts visible Control Center material alpha and background tint while infern0 is active."
                                         version:version
-                                         author:@"zeroxjf"
+                                         author:@"Nnnnnnn274"
                                        category:@"Control Center"
                                      symbolName:@"square.stack.3d.down.right.fill"
                                            kind:PackageInstallKindToggle
@@ -563,7 +563,7 @@ static const NSInteger kSecRepoTweaks       = 53;
                                shortDescription:@"Reduce Control Center top gap"
                                 longDescription:@"First-pass FUGap-style port. Applies an upward transform to visible Control Center containers to reduce the top presentation gap."
                                         version:version
-                                         author:@"zeroxjf"
+                                         author:@"Nnnnnnn274"
                                        category:@"Control Center"
                                      symbolName:@"arrow.up.to.line.compact"
                                            kind:PackageInstallKindToggle
@@ -576,7 +576,7 @@ static const NSInteger kSecRepoTweaks       = 53;
                                shortDescription:@"Compact Control Center modules"
                                 longDescription:@"First-pass ModuleSpacing port. Applies a compact styling pass to visible Control Center module layers."
                                         version:version
-                                         author:@"zeroxjf"
+                                         author:@"Nnnnnnn274"
                                        category:@"Control Center"
                                      symbolName:@"rectangle.grid.2x2"
                                            kind:PackageInstallKindToggle
@@ -589,7 +589,7 @@ static const NSInteger kSecRepoTweaks       = 53;
                                shortDescription:@"Brightness and volume percentages"
                                 longDescription:@"First-pass SugarCane-style port. Adds a lightweight numeric percentage overlay for Control Center brightness and volume style modules."
                                         version:version
-                                         author:@"zeroxjf"
+                                         author:@"Nnnnnnn274"
                                        category:@"Control Center"
                                      symbolName:@"percent"
                                            kind:PackageInstallKindToggle
@@ -600,9 +600,9 @@ static const NSInteger kSecRepoTweaks       = 53;
         Package *betterCCXI = [[Package alloc] initWithIdentifier:@"com.darksword.betterccxi"
                                            name:@"BetterCCXI"
                                shortDescription:@"Larger Control Center module emphasis"
-                                longDescription:@"First-pass BetterCCXI/MissionControl-style port. Applies a visible layout emphasis pass for Control Center modules while Cyanide is active."
+                                longDescription:@"First-pass BetterCCXI/MissionControl-style port. Applies a visible layout emphasis pass for Control Center modules while infern0 is active."
                                         version:version
-                                         author:@"zeroxjf"
+                                         author:@"Nnnnnnn274"
                                        category:@"Control Center"
                                      symbolName:@"rectangle.grid.3x2.fill"
                                            kind:PackageInstallKindToggle
@@ -615,7 +615,7 @@ static const NSInteger kSecRepoTweaks       = 53;
                                shortDescription:@"Tint Control Center glyphs"
                                 longDescription:@"First-pass Magma/Rainbow-style port. Tints visible Control Center glyphs and labels with a warm active color."
                                         version:version
-                                         author:@"zeroxjf"
+                                         author:@"Nnnnnnn274"
                                        category:@"Control Center"
                                      symbolName:@"flame.fill"
                                            kind:PackageInstallKindToggle
@@ -628,7 +628,7 @@ static const NSInteger kSecRepoTweaks       = 53;
                                shortDescription:@"Round Control Center module icons"
                                 longDescription:@"First-pass BetterCCIcons/Polus-style port. Applies rounded corner styling to visible Control Center module and icon layers."
                                         version:version
-                                         author:@"zeroxjf"
+                                         author:@"Nnnnnnn274"
                                        category:@"Control Center"
                                      symbolName:@"circle.grid.2x2.fill"
                                            kind:PackageInstallKindToggle
@@ -641,7 +641,7 @@ static const NSInteger kSecRepoTweaks       = 53;
                                shortDescription:@"Keep expanded Control Center bright"
                                 longDescription:@"First-pass CCNoPlatterDim port. Reduces visible Control Center dimming so expanded modules keep the background clearer."
                                         version:version
-                                         author:@"zeroxjf"
+                                         author:@"Nnnnnnn274"
                                        category:@"Control Center"
                                      symbolName:@"sun.max.fill"
                                            kind:PackageInstallKindToggle
@@ -652,9 +652,9 @@ static const NSInteger kSecRepoTweaks       = 53;
         Package *ccStatus = [[Package alloc] initWithIdentifier:@"com.darksword.ccstatus"
                                            name:@"CCStatus"
                                shortDescription:@"Control Center status header"
-                                longDescription:@"First-pass CCStatus port. Adds a lightweight status text overlay near the Control Center header while Cyanide is active."
+                                longDescription:@"First-pass CCStatus port. Adds a lightweight status text overlay near the Control Center header while infern0 is active."
                                         version:version
-                                         author:@"zeroxjf"
+                                         author:@"Nnnnnnn274"
                                        category:@"Control Center"
                                      symbolName:@"info.circle.fill"
                                            kind:PackageInstallKindToggle
@@ -665,9 +665,9 @@ static const NSInteger kSecRepoTweaks       = 53;
         Package *hapticCC = [[Package alloc] initWithIdentifier:@"com.darksword.hapticcc"
                                            name:@"HapticCC"
                                shortDescription:@"Control Center haptic feedback"
-                                longDescription:@"First-pass HapticCC port. Primes native haptic feedback for Control Center interactions during the active Cyanide session."
+                                longDescription:@"First-pass HapticCC port. Primes native haptic feedback for Control Center interactions during the active infern0 session."
                                         version:version
-                                         author:@"zeroxjf"
+                                         author:@"Nnnnnnn274"
                                        category:@"Control Center"
                                      symbolName:@"waveform.path"
                                            kind:PackageInstallKindToggle
@@ -680,7 +680,7 @@ static const NSInteger kSecRepoTweaks       = 53;
                                shortDescription:@"Control Center lockscreen guard"
                                 longDescription:@"First-pass SecureCC/CCDelay port. Adds an active-session SecureCC indicator as groundwork for locked-screen Control Center protections."
                                         version:version
-                                         author:@"zeroxjf"
+                                         author:@"Nnnnnnn274"
                                        category:@"Control Center"
                                      symbolName:@"lock.shield.fill"
                                            kind:PackageInstallKindToggle
@@ -719,7 +719,7 @@ static const NSInteger kSecRepoTweaks       = 53;
                                shortDescription:@"Left-hand gesture hint for the home screen"
                                 longDescription:@"Adds a UIScreenEdgePanGestureRecognizer to the key window that triggers on all edges, providing a left-hand navigation hint."
                                         version:version
-                                         author:@"zeroxjf"
+                                         author:@"Nnnnnnn274"
                                        category:@"Home Screen"
                                      symbolName:@"hand.point.left.fill"
                                            kind:PackageInstallKindToggle
@@ -743,9 +743,9 @@ static const NSInteger kSecRepoTweaks       = 53;
         Package *barmoji = [[Package alloc] initWithIdentifier:@"com.darksword.barmoji"
                                            name:@"Barmoji"
                                shortDescription:@"Emoji strip overlay"
-                                longDescription:@"First-pass Barmoji port. Adds a lightweight most-used emoji strip overlay near the bottom of SpringBoard while Cyanide is active.\n\nThis version is a SpringBoard overlay shell; deeper keyboard-host integration will come later."
+                                longDescription:@"First-pass Barmoji port. Adds a lightweight most-used emoji strip overlay near the bottom of SpringBoard while infern0 is active.\n\nThis version is a SpringBoard overlay shell; deeper keyboard-host integration will come later."
                                         version:version
-                                         author:@"zeroxjf"
+                                         author:@"Nnnnnnn274"
                                        category:@"SpringBoard"
                                      symbolName:@"face.smiling.fill"
                                            kind:PackageInstallKindToggle
@@ -759,7 +759,7 @@ static const NSInteger kSecRepoTweaks       = 53;
                                shortDescription:@"Colorized notification badges"
                                 longDescription:@"First-pass BlurryBadges port. Tints visible SpringBoard badge views for a softer colorized look.\n\nDominant app-icon color extraction is planned; this version applies a stable badge tint pass."
                                         version:version
-                                         author:@"zeroxjf"
+                                         author:@"Nnnnnnn274"
                                        category:@"Home Screen"
                                      symbolName:@"app.badge.fill"
                                            kind:PackageInstallKindToggle
@@ -770,9 +770,9 @@ static const NSInteger kSecRepoTweaks       = 53;
         Package *snapper = [[Package alloc] initWithIdentifier:@"com.darksword.snapper"
                                            name:@"Snapper"
                                shortDescription:@"Crop frame overlay"
-                                longDescription:@"First-pass Snapper-style overlay. Shows a crop frame on SpringBoard while Cyanide is active.\n\nActual screenshot capture, pinning, and drag handles are planned next."
+                                longDescription:@"First-pass Snapper-style overlay. Shows a crop frame on SpringBoard while infern0 is active.\n\nActual screenshot capture, pinning, and drag handles are planned next."
                                         version:version
-                                         author:@"zeroxjf"
+                                         author:@"Nnnnnnn274"
                                        category:@"SpringBoard"
                                      symbolName:@"crop"
                                            kind:PackageInstallKindToggle
@@ -784,9 +784,9 @@ static const NSInteger kSecRepoTweaks       = 53;
         Package *pullOver = [[Package alloc] initWithIdentifier:@"com.darksword.pullover"
                                            name:@"PullOver"
                                shortDescription:@"Pinned slide-over tray"
-                                longDescription:@"First-pass PullOver Pro-style tray. Adds a pinned slide-over shell on SpringBoard while Cyanide is active.\n\nApp/widget hosting is planned; this version establishes the stable tray surface."
+                                longDescription:@"First-pass PullOver Pro-style tray. Adds a pinned slide-over shell on SpringBoard while infern0 is active.\n\nApp/widget hosting is planned; this version establishes the stable tray surface."
                                         version:version
-                                         author:@"zeroxjf"
+                                         author:@"Nnnnnnn274"
                                        category:@"SpringBoard"
                                      symbolName:@"sidebar.right"
                                            kind:PackageInstallKindToggle
@@ -798,9 +798,9 @@ static const NSInteger kSecRepoTweaks       = 53;
         Package *alkaline = [[Package alloc] initWithIdentifier:@"com.darksword.alkaline"
                                            name:@"Alkaline"
                                shortDescription:@"Battery tint theme"
-                                longDescription:@"First-pass Alkaline/Lithium Ion-style battery theming. Tints visible battery views in SpringBoard while Cyanide is active.\n\nCustom image themes are planned; this version starts with a stable color pass."
+                                longDescription:@"First-pass Alkaline/Lithium Ion-style battery theming. Tints visible battery views in SpringBoard while infern0 is active.\n\nCustom image themes are planned; this version starts with a stable color pass."
                                         version:version
-                                         author:@"zeroxjf"
+                                         author:@"Nnnnnnn274"
                                        category:@"Status Bar"
                                      symbolName:@"battery.100.bolt"
                                            kind:PackageInstallKindToggle
@@ -834,12 +834,12 @@ static const NSInteger kSecRepoTweaks       = 53;
                                      enabledKey:nil
                                           isNew:NO];
         nanoRegistry.settingsSection = kSecNanoRegistry;
-        nanoRegistry.unstableWarning = @"Warning: modifies a local NanoRegistry MobileAsset. Cyanide saves a .cyanide.bak backup beside the original, but system-file edits can fail or require a respring/reboot. Apply or remove this override at your own risk.";
+        nanoRegistry.unstableWarning = @"Warning: modifies a local NanoRegistry MobileAsset. infern0 saves a .cyanide.bak backup beside the original, but system-file edits can fail or require a respring/reboot. Apply or remove this override at your own risk.";
 
         Package *callRecordingSound = [[Package alloc] initWithIdentifier:@"com.darksword.callrecording-sound"
                                            name:@"Call Recording Sound"
                                shortDescription:@"Silence disclosure start/stop sounds"
-                                longDescription:@"Replaces the CallServices StartDisclosureWithTone and StopDisclosure audio files with Cyanide's bundled silent payloads.\n\nCredits: YangJiiii (@duongduong0908) for the EnsWilde and Disable Call Recording BookRestore reference tools. @Little_34306 is credited by the original projects for the Disable Call Recording concept. Cyanide port, KRW-backed implementation, and generated replacement silent audio assets by zeroxjf.\n\nSystem-file warning: this modifies files under /var/mobile/Library/CallServices/Greetings/default. Cyanide backs up the first originals into its app container, but system file replacement can fail, partially apply, or require a respring/reboot to settle.\n\nLegal note: call-recording disclosure sounds may exist to satisfy consent, notification, or privacy-law requirements in some places. You are responsible for understanding and following the laws that apply to you.\n\nThis port does not use the old Books/BookRestore/sparserestore path. Cyanide runs KRW, unlocks local /private/var write access, then writes directly to the CallServices files.\n\nUse Restore Original Sounds to write Cyanide's backups back when present. You apply or restore this tweak at your own risk."
+                                longDescription:@"Replaces the CallServices StartDisclosureWithTone and StopDisclosure audio files with infern0's bundled silent payloads.\n\nCredits: YangJiiii (@duongduong0908) for the EnsWilde and Disable Call Recording BookRestore reference tools. @Little_34306 is credited by the original projects for the Disable Call Recording concept. infern0 port, KRW-backed implementation, and generated replacement silent audio assets by zeroxjf.\n\nSystem-file warning: this modifies files under /var/mobile/Library/CallServices/Greetings/default. infern0 backs up the first originals into its app container, but system file replacement can fail, partially apply, or require a respring/reboot to settle.\n\nLegal note: call-recording disclosure sounds may exist to satisfy consent, notification, or privacy-law requirements in some places. You are responsible for understanding and following the laws that apply to you.\n\nThis port does not use the old Books/BookRestore/sparserestore path. infern0 runs KRW, unlocks local /private/var write access, then writes directly to the CallServices files.\n\nUse Restore Original Sounds to write infern0's backups back when present. You apply or restore this tweak at your own risk."
                                         version:version
                                          author:@"YangJiiii (@duongduong0908) / zeroxjf"
                                        category:@"System"
@@ -848,12 +848,12 @@ static const NSInteger kSecRepoTweaks       = 53;
                                      enabledKey:nil
                                           isNew:NO];
         callRecordingSound.experimental = NO;
-        callRecordingSound.unstableWarning = @"Beta: persistent CallServices system-file replacement. Disclosure sounds may be legally required where you live; you are responsible for your use and apply this at your own risk. Use Restore Original Sounds before removing Cyanide if you want Cyanide's backups written back.";
+        callRecordingSound.unstableWarning = @"Beta: persistent CallServices system-file replacement. Disclosure sounds may be legally required where you live; you are responsible for your use and apply this at your own risk. Use Restore Original Sounds before removing infern0 if you want infern0's backups written back.";
 
         Package *hideHomeBar = [[Package alloc] initWithIdentifier:@"com.darksword.hide-home-bar"
                                            name:@"Hide Home Bar"
                                shortDescription:@"Hide the bottom home indicator"
-                                longDescription:@"Zeros the first page of /System/Library/PrivateFrameworks/MaterialKit.framework/Assets.car using Cyanide's stable file-page zero path, which hides the bottom home indicator after SpringBoard reloads assets.\n\nRun Hide Home Bar by itself, then respring so SpringBoard refreshes the asset cache. To bring the home indicator back, choose Restore Home Bar and respring again. Other live SpringBoard tweaks, such as App Switcher Grid, should be applied in a separate run after the respring.\n\nCredits: C4ndyF1sh/ZeroCalories for the Home Bar target and jailbreakdotparty/dirtyZero for the original page-zeroing idea. Cyanide port by zeroxjf."
+                                longDescription:@"Zeros the first page of /System/Library/PrivateFrameworks/MaterialKit.framework/Assets.car using infern0's stable file-page zero path, which hides the bottom home indicator after SpringBoard reloads assets.\n\nRun Hide Home Bar by itself, then respring so SpringBoard refreshes the asset cache. To bring the home indicator back, choose Restore Home Bar and respring again. Other live SpringBoard tweaks, such as App Switcher Grid, should be applied in a separate run after the respring.\n\nCredits: C4ndyF1sh/ZeroCalories for the Home Bar target and jailbreakdotparty/dirtyZero for the original page-zeroing idea. infern0 port by zeroxjf."
                                         version:version
                                          author:@"C4ndyF1sh / jailbreakdotparty / zeroxjf"
                                        category:@"Home Screen"

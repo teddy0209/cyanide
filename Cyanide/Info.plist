@@ -31,15 +31,15 @@
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Cyanide uses your location to show local weather in NiceBar Lite.</string>
+	<string>infern0 uses your location to show local weather in NiceBar Lite.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
 			<key>CFBundleURLName</key>
-			<string>com.zeroxjf.ios-cyanide1</string>
+			<string>com.nnnnnnn274.infern0</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>com.zeroxjf.ios-cyanide1</string>
+				<string>com.nnnnnnn274.infern0</string>
 			</array>
 		</dict>
 	</array>
@@ -51,7 +51,7 @@
 			<dict>
 				<key>CFBundleIconFiles</key>
 				<array>
-					<string>Cyanide-Classic</string>
+					<string>infern0-Classic</string>
 				</array>
 				<key>UIPrerenderedIcon</key>
 				<false/>
@@ -66,7 +66,7 @@
 			<dict>
 				<key>CFBundleIconFiles</key>
 				<array>
-					<string>Cyanide-Classic</string>
+					<string>infern0-Classic</string>
 				</array>
 				<key>UIPrerenderedIcon</key>
 				<false/>

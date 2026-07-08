@@ -406,7 +406,7 @@ static bool stagestrip_bid_is_user_app(const char *bid)
     if (!bid || !*bid) return false;
 
     static const char *deny_exact[] = {
-        "com.zeroxjf.ios-cyanide1",
+        "com.nnnnnnn274.infern0",
         "com.apple.springboard",
         "com.apple.PineBoard",
         "com.apple.InCallService",
@@ -1005,7 +1005,7 @@ static uint64_t stagestrip_make_slot(uint64_t sbApp, uint64_t fallbackIcon, cons
 // black-tile run).
 static bool stagestrip_bid_is_self(const char *bid)
 {
-    return bid && strcmp(bid, "com.zeroxjf.ios-cyanide1") == 0;
+    return bid && strcmp(bid, "com.nnnnnnn274.infern0") == 0;
 }
 
 // Get the main display SBSceneManager via SBSceneManagerCoordinator. Used to
@@ -6288,7 +6288,7 @@ static int stagestrip_poll_picker_command(void)
             // hit that one after we foreground the app.)
             printf("[STAGE] picker: cog tapped — launching Cyanide app\n");
             stagestrip_hide_picker_overlay_animated();
-            stagestrip_launch_foreground("com.zeroxjf.ios-cyanide1");
+            stagestrip_launch_foreground("com.nnnnnnn274.infern0");
             return cmd;
         }
 

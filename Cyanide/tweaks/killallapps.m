@@ -108,7 +108,7 @@ static bool bid_is_skippable(const char *bid)
     if (!bid || !*bid) return true;
 
     static const char *deny_exact[] = {
-        "com.zeroxjf.ios-cyanide1",
+        "com.nnnnnnn274.infern0",
         "com.apple.springboard",
         "com.apple.PineBoard",
         "com.apple.InCallService",

@@ -263,7 +263,7 @@ typedef NS_ENUM(NSInteger, PackagesSection) {
     config.secondaryTextProperties.font = [UIFont systemFontOfSize:14.0 weight:UIFontWeightRegular];
     config.secondaryTextProperties.color = unsupported
         ? UIColor.systemOrangeColor
-        : (hasUpdate ? UIColor.systemBlueColor : [UIColor.labelColor colorWithAlphaComponent:0.55]);
+        : (hasUpdate ? UIColor.systemRedColor : [UIColor.labelColor colorWithAlphaComponent:0.55]);
     config.secondaryTextProperties.numberOfLines = 3;
     config.textToSecondaryTextVerticalPadding = 2.0;
     NSDirectionalEdgeInsets m = config.directionalLayoutMargins;
@@ -307,8 +307,8 @@ typedef NS_ENUM(NSInteger, PackagesSection) {
         UILabel *pill = [[UILabel alloc] init];
         pill.text = @"UPDATE";
         pill.font = [UIFont systemFontOfSize:11.0 weight:UIFontWeightHeavy];
-        pill.textColor = UIColor.systemBlueColor;
-        pill.backgroundColor = [UIColor.systemBlueColor colorWithAlphaComponent:0.15];
+        pill.textColor = UIColor.systemRedColor;
+        pill.backgroundColor = [UIColor.systemRedColor colorWithAlphaComponent:0.15];
         pill.textAlignment = NSTextAlignmentCenter;
         [pill sizeToFit];
         CGRect f = pill.frame;

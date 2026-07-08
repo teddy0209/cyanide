@@ -313,11 +313,11 @@ static NSString *log_snapshot_from(int fromLine, int *outTotal, int *outTrimGen)
 // Color map
 
 static UIColor *colorForLogLine(NSString *line) {
-    // ASCII banner (cyan bottle art)
+    // ASCII banner (infern0 flame art)
     if ([line containsString:@"╭"] || [line containsString:@"╰"] ||
         [line containsString:@"│"] || [line containsString:@"├"] ||
         [line containsString:@"C Y A N I D E"])
-        return [UIColor colorWithRed:0.00 green:0.90 blue:0.95 alpha:1.0]; // bright cyan
+        return [UIColor colorWithRed:1.00 green:0.22 blue:0.08 alpha:1.0]; // hot infern0 red
 
     // Strip timestamp prefix if present: "[HH:MM:SS.mmm] " -> check what follows
     NSString *content = line;
@@ -332,7 +332,7 @@ static UIColor *colorForLogLine(NSString *line) {
     if ([content hasPrefix:@"[OK]"])          return [UIColor colorWithRed:0.38 green:0.90 blue:0.55 alpha:1.0]; // bright green
     if ([content hasPrefix:@"[WARN]"])        return [UIColor colorWithRed:0.96 green:0.38 blue:0.32 alpha:1.0]; // red
     if ([content hasPrefix:@"[FAIL]"])        return [UIColor colorWithRed:0.98 green:0.25 blue:0.50 alpha:1.0]; // pink-red
-    if ([content hasPrefix:@"[DONE]"])        return [UIColor colorWithRed:0.30 green:0.85 blue:0.95 alpha:1.0]; // cyan
+    if ([content hasPrefix:@"[DONE]"])        return [UIColor colorWithRed:1.00 green:0.34 blue:0.12 alpha:1.0]; // ember
     if ([content hasPrefix:@"[RUN"])          return [UIColor colorWithRed:0.98 green:0.82 blue:0.30 alpha:1.0]; // gold ([RUN] and [RUN N/N])
     if ([content hasPrefix:@"[PLAN]"])        return [UIColor colorWithRed:0.65 green:0.60 blue:0.95 alpha:1.0]; // indigo
     if ([content hasPrefix:@"[BOOT]"])        return [UIColor colorWithRed:0.55 green:0.72 blue:0.92 alpha:1.0]; // cornflower

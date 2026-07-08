@@ -228,7 +228,7 @@ static NSString * const kSourcesLastRefreshKey = @"RepoTweaksLastRefreshTimestam
 
     UIView *banner = [[UIView alloc] init];
     banner.translatesAutoresizingMaskIntoConstraints = NO;
-    banner.backgroundColor = [UIColor.systemBlueColor colorWithAlphaComponent:0.9];
+    banner.backgroundColor = [UIColor.systemRedColor colorWithAlphaComponent:0.9];
     banner.layer.cornerRadius = 10.0;
     banner.layer.cornerCurve = kCACornerCurveContinuous;
     banner.alpha = 0.0;

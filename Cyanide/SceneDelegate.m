@@ -1,6 +1,6 @@
 //
 //  SceneDelegate.m
-//  Cyanide
+//  infern0
 //
 //  Created by seo on 3/24/26.
 //
@@ -64,13 +64,13 @@
 
 - (void)showSignalGroupNoticeIfNeeded {
     NSUserDefaults *ud = [NSUserDefaults standardUserDefaults];
-    NSString *noticeKey = @"cyanide.community.signalGroupNoticeShown";
+    NSString *noticeKey = @"infern0.community.signalGroupNoticeShown";
     if ([ud boolForKey:noticeKey]) return;
 
     UIViewController *root = self.window.rootViewController;
     if (!root) return;
-    NSString *msg = @"Created a Signal group as the main place for Cyanide feedback and support.\n\nUse it to report bugs, request features, share test results, ask setup questions, and get notes about new builds.";
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Join the Cyanide Signal Group"
+    NSString *msg = @"Created a Signal group as the main place for infern0 feedback and support.\n\nUse it to report bugs, request features, share test results, ask setup questions, and get notes about new builds.";
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Join the infern0 Signal Group"
                                                                    message:msg
                                                             preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"Join Signal" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {

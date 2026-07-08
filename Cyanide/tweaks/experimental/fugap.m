@@ -38,10 +38,11 @@ static void fugap_scan(uint64_t parent, double offset, int depth, int *hits)
     if (!r_is_objc_ptr(parent) || depth > 10) return;
     char cls[160] = {0};
     fugap_class_name(parent, cls, sizeof(cls));
-    if (strstr(cls, "ControlCenter") || strstr(cls, "CCUI")) {
+    if (strstr(cls, "ControlCenter") && !strstr(cls, "Glyph") && !strstr(cls, "Button")) {
         FUGapAffineTransform t = { 1, 0, 0, 1, 0, offset };
         r_msg2_main_raw(parent, "setTransform:", &t, sizeof(t), NULL, 0, NULL, 0, NULL, 0);
         if (hits) (*hits)++;
+        if (depth > 1) return;
     }
     uint64_t subviews = r_msg2_main(parent, "subviews", 0, 0, 0, 0);
     if (!r_is_objc_ptr(subviews)) return;

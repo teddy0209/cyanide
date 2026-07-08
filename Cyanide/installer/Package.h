@@ -1,6 +1,6 @@
 //
 //  Package.h
-//  Cyanide
+//  infern0
 //
 //  Model object representing one tweak in the Installer-style packages tab.
 //
@@ -28,7 +28,7 @@ typedef NS_ENUM(NSInteger, PackageInstallKind) {
 
     // One-shot CallServices audio replacement gated by kexploit + sandbox
     // patch. Installing writes bundled silent disclosure sounds and stores
-    // the first originals in Cyanide's app container; uninstalling restores
+    // the first originals in infern0's app container; uninstalling restores
     // those backups when present.
     PackageInstallKindCallRecordingSound = 3,
 
@@ -41,7 +41,7 @@ typedef NS_ENUM(NSInteger, PackageInstallKind) {
     PackageInstallKindDirectTool = 5,
 
     // Dynamic package fetched from a RepoTweaks source. Known repo IDs can map
-    // to Cyanide's native tweak backends; other compatible JS snippets are
+    // to infern0's native tweak backends; other compatible JS snippets are
     // imported into QuickLoader and applied through the normal run-actions path.
     PackageInstallKindRepoTweak = 6,
 };

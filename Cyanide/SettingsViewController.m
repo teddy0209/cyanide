@@ -2964,7 +2964,7 @@ static NSString *settings_unsupported_message(void)
 {
     NSString *version = UIDevice.currentDevice.systemVersion ?: @"unknown";
 #if CYANIDE_VPHONE_DEBUG
-    return [NSString stringWithFormat:@"VPhone debug build is bypassing Cyanide's iOS version gate on iOS %@.", version];
+    return [NSString stringWithFormat:@"VPhone debug build is bypassing infern0's iOS version gate on iOS %@.", version];
 #endif
     return [NSString stringWithFormat:@"Not supported on iOS %@. Supported: iOS/iPadOS 17.0-18.7.1 or 26.0-26.0.1.", version];
 }
@@ -6315,6 +6315,24 @@ static void settings_configure_cylinderlite(NSUserDefaults *d)
                            (int)[d integerForKey:kSettingsCylinderLiteMaxIcons]);
 }
 
+static void settings_log_pancake_config(NSUserDefaults *d, const char *prefix)
+{
+    log_user("[%s] Pancake config: touches=%ld-%ld cancelTouches=%d.\n",
+             prefix ?: "CFG",
+             (long)[d integerForKey:kSettingsPancakeMinTouches],
+             (long)[d integerForKey:kSettingsPancakeMaxTouches],
+             [d boolForKey:kSettingsPancakeCancelsTouches]);
+}
+
+static void settings_log_cylinderlite_config(NSUserDefaults *d, const char *prefix)
+{
+    log_user("[%s] Cylinder Lite config: depth=%ld perspective=%ld maxIcons=%ld.\n",
+             prefix ?: "CFG",
+             (long)[d integerForKey:kSettingsCylinderLiteDepth],
+             (long)[d integerForKey:kSettingsCylinderLitePerspective],
+             (long)[d integerForKey:kSettingsCylinderLiteMaxIcons]);
+}
+
 static void settings_configure_control_center_tweaks(NSUserDefaults *d)
 {
     cleancc_configure((int)[d integerForKey:kSettingsCleanCCMaterialAlphaPct],
@@ -6361,6 +6379,88 @@ static void settings_configure_control_center_tweaks(NSUserDefaults *d)
                        (int)[d integerForKey:kSettingsAlkalineGreen],
                        (int)[d integerForKey:kSettingsAlkalineBlue],
                        (int)[d integerForKey:kSettingsAlkalineAlphaPct]);
+}
+
+static void settings_log_split_tweak_config(NSString *masterKey, NSUserDefaults *d, const char *prefix)
+{
+    const char *tag = prefix ?: "CFG";
+    if ([masterKey isEqualToString:kSettingsCleanCCEnabled]) {
+        log_user("[%s] CleanCC config: materialAlpha=%ld%% glassTint=%ld%%.\n", tag,
+                 (long)[d integerForKey:kSettingsCleanCCMaterialAlphaPct],
+                 (long)[d integerForKey:kSettingsCleanCCGlassTintPct]);
+    } else if ([masterKey isEqualToString:kSettingsFUGapEnabled]) {
+        log_user("[%s] FUGap config: yOffset=%ldpt.\n", tag,
+                 (long)[d integerForKey:kSettingsFUGapYOffset]);
+    } else if ([masterKey isEqualToString:kSettingsModuleSpacingEnabled]) {
+        log_user("[%s] ModuleSpacing config: radius=%ldpt.\n", tag,
+                 (long)[d integerForKey:kSettingsModuleSpacingCornerRadius]);
+    } else if ([masterKey isEqualToString:kSettingsSugarCaneEnabled]) {
+        log_user("[%s] SugarCane config: brightness=%d volume=%d font=%ldpt.\n", tag,
+                 [d boolForKey:kSettingsSugarCaneShowBrightness],
+                 [d boolForKey:kSettingsSugarCaneShowVolume],
+                 (long)[d integerForKey:kSettingsSugarCaneFontSize]);
+    } else if ([masterKey isEqualToString:kSettingsBetterCCXIEnabled]) {
+        log_user("[%s] BetterCCXI config: zLift=%ld depthLimit=%ld.\n", tag,
+                 (long)[d integerForKey:kSettingsBetterCCXIZLift],
+                 (long)[d integerForKey:kSettingsBetterCCXIDepthLimit]);
+    } else if ([masterKey isEqualToString:kSettingsMagmaEnabled]) {
+        log_user("[%s] Magma config: rgba=%ld/%ld/%ld/%ld%%.\n", tag,
+                 (long)[d integerForKey:kSettingsMagmaRed],
+                 (long)[d integerForKey:kSettingsMagmaGreen],
+                 (long)[d integerForKey:kSettingsMagmaBlue],
+                 (long)[d integerForKey:kSettingsMagmaAlphaPct]);
+    } else if ([masterKey isEqualToString:kSettingsBetterCCIconsEnabled]) {
+        log_user("[%s] BetterCCIcons config: radius=%ldpt.\n", tag,
+                 (long)[d integerForKey:kSettingsBetterCCIconsCornerRadius]);
+    } else if ([masterKey isEqualToString:kSettingsCCNoPlatterDimEnabled]) {
+        log_user("[%s] CCNoPlatterDim config: visibleAlpha=%ld%%.\n", tag,
+                 (long)[d integerForKey:kSettingsCCNoPlatterDimVisibleAlphaPct]);
+    } else if ([masterKey isEqualToString:kSettingsCCStatusEnabled]) {
+        log_user("[%s] CCStatus config: wifi=%d ip=%d y=%ldpt.\n", tag,
+                 [d boolForKey:kSettingsCCStatusShowWifi],
+                 [d boolForKey:kSettingsCCStatusShowIP],
+                 (long)[d integerForKey:kSettingsCCStatusYOffset]);
+    } else if ([masterKey isEqualToString:kSettingsHapticCCEnabled]) {
+        log_user("[%s] HapticCC config: style=%ld.\n", tag,
+                 (long)[d integerForKey:kSettingsHapticCCFeedbackStyle]);
+    } else if ([masterKey isEqualToString:kSettingsSecureCCEnabled]) {
+        log_user("[%s] SecureCC config: indicator=%d delay=%ldms.\n", tag,
+                 [d boolForKey:kSettingsSecureCCShowIndicator],
+                 (long)[d integerForKey:kSettingsSecureCCDelayMs]);
+    } else if ([masterKey isEqualToString:kSettingsBarmojiEnabled]) {
+        log_user("[%s] Barmoji config: bottom=%ldpt width=%ld%% font=%ldpt alpha=%ld%%.\n", tag,
+                 (long)[d integerForKey:kSettingsBarmojiYOffset],
+                 (long)[d integerForKey:kSettingsBarmojiWidthPct],
+                 (long)[d integerForKey:kSettingsBarmojiFontSize],
+                 (long)[d integerForKey:kSettingsBarmojiBackgroundAlphaPct]);
+    } else if ([masterKey isEqualToString:kSettingsBlurryBadgesEnabled]) {
+        log_user("[%s] BlurryBadges config: rgba=%ld/%ld/%ld/%ld%%.\n", tag,
+                 (long)[d integerForKey:kSettingsBlurryBadgesRed],
+                 (long)[d integerForKey:kSettingsBlurryBadgesGreen],
+                 (long)[d integerForKey:kSettingsBlurryBadgesBlue],
+                 (long)[d integerForKey:kSettingsBlurryBadgesAlphaPct]);
+    } else if ([masterKey isEqualToString:kSettingsSnapperEnabled]) {
+        log_user("[%s] Snapper config: frame=%ld,%ld %ldx%ld border=%ld radius=%ld.\n", tag,
+                 (long)[d integerForKey:kSettingsSnapperX],
+                 (long)[d integerForKey:kSettingsSnapperY],
+                 (long)[d integerForKey:kSettingsSnapperWidth],
+                 (long)[d integerForKey:kSettingsSnapperHeight],
+                 (long)[d integerForKey:kSettingsSnapperBorderWidth],
+                 (long)[d integerForKey:kSettingsSnapperCornerRadius]);
+    } else if ([masterKey isEqualToString:kSettingsPullOverEnabled]) {
+        log_user("[%s] PullOver config: width=%ld y=%ld maxH=%ld radius=%ld alpha=%ld%%.\n", tag,
+                 (long)[d integerForKey:kSettingsPullOverWidth],
+                 (long)[d integerForKey:kSettingsPullOverYOffset],
+                 (long)[d integerForKey:kSettingsPullOverMaxHeight],
+                 (long)[d integerForKey:kSettingsPullOverCornerRadius],
+                 (long)[d integerForKey:kSettingsPullOverBackgroundAlphaPct]);
+    } else if ([masterKey isEqualToString:kSettingsAlkalineEnabled]) {
+        log_user("[%s] Alkaline config: rgba=%ld/%ld/%ld/%ld%%.\n", tag,
+                 (long)[d integerForKey:kSettingsAlkalineRed],
+                 (long)[d integerForKey:kSettingsAlkalineGreen],
+                 (long)[d integerForKey:kSettingsAlkalineBlue],
+                 (long)[d integerForKey:kSettingsAlkalineAlphaPct]);
+    }
 }
 
 static NSString *settings_split_tweak_master_key_for_key(NSString *key)
@@ -7398,6 +7498,7 @@ static void settings_schedule_live_apply_for_key(NSString *key)
                 @synchronized (settings_rc_lock()) {
                     if (settings_cleanup_in_progress() || ![d boolForKey:kSettingsPancakeEnabled] || !g_springboard_rc_ready) return;
                     settings_configure_pancake(d);
+                    settings_log_pancake_config(d, "LIVE");
                     bool ok = pancake_apply_in_session();
                     settings_mark_tweak_applied(kSettingsPancakeEnabled, ok && [d boolForKey:kSettingsPancakeEnabled]);
                     printf("[SETTINGS] live Pancake apply result=%d\n", ok);
@@ -7433,6 +7534,7 @@ static void settings_schedule_live_apply_for_key(NSString *key)
                     @synchronized (settings_rc_lock()) {
                         if (settings_cleanup_in_progress() || ![d boolForKey:kSettingsCylinderLiteEnabled] || !g_springboard_rc_ready) return;
                         settings_configure_cylinderlite(d);
+                        settings_log_cylinderlite_config(d, "LIVE");
                         bool ok = cylinderlite_apply_in_session();
                         settings_mark_tweak_applied(kSettingsCylinderLiteEnabled, ok && [d boolForKey:kSettingsCylinderLiteEnabled]);
                         printf("[SETTINGS] live Cylinder Lite apply result=%d\n", ok);
@@ -7460,6 +7562,7 @@ static void settings_schedule_live_apply_for_key(NSString *key)
                 @synchronized (settings_rc_lock()) {
                     if (settings_cleanup_in_progress() || !g_springboard_rc_ready) return;
                     settings_configure_control_center_tweaks(d);
+                    settings_log_split_tweak_config(masterKey, d, "LIVE");
                     bool ok = true;
                     if ([masterKey isEqualToString:kSettingsCleanCCEnabled]) {
                         ok = [d boolForKey:kSettingsCleanCCEnabled] ? cleancc_apply_in_session() : cleancc_stop_in_session();
@@ -8673,7 +8776,7 @@ static void settings_run_actions_internal(BOOL pendingOnly)
                                  ok ? "theme applied" : "did not apply cleanly");
                         cyanide_upload_log_milestone(ok ? @"snowboard-lite-applied" : @"snowboard-lite-warning");
                         if (ok && !settings_themer_live_repair_enabled(d)) {
-                            log_user("[SBL] Live repair is enabled; Cyanide will keep the SpringBoard channel open so repair ticks reuse it.\n");
+                            log_user("[SBL] Live repair is enabled; infern0 will keep the SpringBoard channel open so repair ticks reuse it.\n");
                             settings_start_themer_live_loop();
                         }
                     }
@@ -8889,6 +8992,7 @@ static void settings_run_actions_internal(BOOL pendingOnly)
 
                     if (runCleanCC) {
                         settings_progress(&step, total, "Applying CleanCC");
+                        settings_log_split_tweak_config(kSettingsCleanCCEnabled, d, "RUN");
                         bool ok = cleancc_apply_in_session();
                         settings_mark_tweak_applied(kSettingsCleanCCEnabled, ok && [d boolForKey:kSettingsCleanCCEnabled]);
                         printf("[SETTINGS] CleanCC result=%d\n", ok);
@@ -8898,6 +9002,7 @@ static void settings_run_actions_internal(BOOL pendingOnly)
 
                     if (runFUGap) {
                         settings_progress(&step, total, "Applying FUGap");
+                        settings_log_split_tweak_config(kSettingsFUGapEnabled, d, "RUN");
                         bool ok = fugap_apply_in_session();
                         settings_mark_tweak_applied(kSettingsFUGapEnabled, ok && [d boolForKey:kSettingsFUGapEnabled]);
                         printf("[SETTINGS] FUGap result=%d\n", ok);
@@ -8907,6 +9012,7 @@ static void settings_run_actions_internal(BOOL pendingOnly)
 
                     if (runModuleSpacing) {
                         settings_progress(&step, total, "Applying ModuleSpacing");
+                        settings_log_split_tweak_config(kSettingsModuleSpacingEnabled, d, "RUN");
                         bool ok = modulespacing_apply_in_session();
                         settings_mark_tweak_applied(kSettingsModuleSpacingEnabled, ok && [d boolForKey:kSettingsModuleSpacingEnabled]);
                         printf("[SETTINGS] ModuleSpacing result=%d\n", ok);
@@ -8916,6 +9022,7 @@ static void settings_run_actions_internal(BOOL pendingOnly)
 
                     if (runSugarCane) {
                         settings_progress(&step, total, "Applying SugarCane");
+                        settings_log_split_tweak_config(kSettingsSugarCaneEnabled, d, "RUN");
                         bool ok = sugarcane_apply_in_session();
                         settings_mark_tweak_applied(kSettingsSugarCaneEnabled, ok && [d boolForKey:kSettingsSugarCaneEnabled]);
                         printf("[SETTINGS] SugarCane result=%d\n", ok);
@@ -8925,6 +9032,7 @@ static void settings_run_actions_internal(BOOL pendingOnly)
 
                     if (runBetterCCXI) {
                         settings_progress(&step, total, "Applying BetterCCXI");
+                        settings_log_split_tweak_config(kSettingsBetterCCXIEnabled, d, "RUN");
                         bool ok = betterccxi_apply_in_session();
                         settings_mark_tweak_applied(kSettingsBetterCCXIEnabled, ok && [d boolForKey:kSettingsBetterCCXIEnabled]);
                         printf("[SETTINGS] BetterCCXI result=%d\n", ok);
@@ -8934,6 +9042,7 @@ static void settings_run_actions_internal(BOOL pendingOnly)
 
                     if (runMagma) {
                         settings_progress(&step, total, "Applying Magma");
+                        settings_log_split_tweak_config(kSettingsMagmaEnabled, d, "RUN");
                         bool ok = magma_apply_in_session();
                         settings_mark_tweak_applied(kSettingsMagmaEnabled, ok && [d boolForKey:kSettingsMagmaEnabled]);
                         printf("[SETTINGS] Magma result=%d\n", ok);
@@ -8943,6 +9052,7 @@ static void settings_run_actions_internal(BOOL pendingOnly)
 
                     if (runBetterCCIcons) {
                         settings_progress(&step, total, "Applying BetterCCIcons");
+                        settings_log_split_tweak_config(kSettingsBetterCCIconsEnabled, d, "RUN");
                         bool ok = betterccicons_apply_in_session();
                         settings_mark_tweak_applied(kSettingsBetterCCIconsEnabled, ok && [d boolForKey:kSettingsBetterCCIconsEnabled]);
                         printf("[SETTINGS] BetterCCIcons result=%d\n", ok);
@@ -8952,6 +9062,7 @@ static void settings_run_actions_internal(BOOL pendingOnly)
 
                     if (runCCNoPlatterDim) {
                         settings_progress(&step, total, "Applying CCNoPlatterDim");
+                        settings_log_split_tweak_config(kSettingsCCNoPlatterDimEnabled, d, "RUN");
                         bool ok = ccnoplatterdim_apply_in_session();
                         settings_mark_tweak_applied(kSettingsCCNoPlatterDimEnabled, ok && [d boolForKey:kSettingsCCNoPlatterDimEnabled]);
                         printf("[SETTINGS] CCNoPlatterDim result=%d\n", ok);
@@ -8961,6 +9072,7 @@ static void settings_run_actions_internal(BOOL pendingOnly)
 
                     if (runCCStatus) {
                         settings_progress(&step, total, "Applying CCStatus");
+                        settings_log_split_tweak_config(kSettingsCCStatusEnabled, d, "RUN");
                         bool ok = ccstatus_apply_in_session();
                         settings_mark_tweak_applied(kSettingsCCStatusEnabled, ok && [d boolForKey:kSettingsCCStatusEnabled]);
                         printf("[SETTINGS] CCStatus result=%d\n", ok);
@@ -8970,6 +9082,7 @@ static void settings_run_actions_internal(BOOL pendingOnly)
 
                     if (runHapticCC) {
                         settings_progress(&step, total, "Applying HapticCC");
+                        settings_log_split_tweak_config(kSettingsHapticCCEnabled, d, "RUN");
                         bool ok = hapticcc_apply_in_session();
                         settings_mark_tweak_applied(kSettingsHapticCCEnabled, ok && [d boolForKey:kSettingsHapticCCEnabled]);
                         printf("[SETTINGS] HapticCC result=%d\n", ok);
@@ -8979,6 +9092,7 @@ static void settings_run_actions_internal(BOOL pendingOnly)
 
                     if (runSecureCC) {
                         settings_progress(&step, total, "Applying SecureCC");
+                        settings_log_split_tweak_config(kSettingsSecureCCEnabled, d, "RUN");
                         bool ok = securecc_apply_in_session();
                         settings_mark_tweak_applied(kSettingsSecureCCEnabled, ok && [d boolForKey:kSettingsSecureCCEnabled]);
                         printf("[SETTINGS] SecureCC result=%d\n", ok);
@@ -9007,6 +9121,7 @@ static void settings_run_actions_internal(BOOL pendingOnly)
                     if (runPancake) {
                         settings_progress(&step, total, "Applying Pancake");
                         settings_configure_pancake(d);
+                        settings_log_pancake_config(d, "RUN");
                         bool ok = pancake_apply_in_session();
                         settings_mark_tweak_applied(kSettingsPancakeEnabled, ok && [d boolForKey:kSettingsPancakeEnabled]);
                         printf("[SETTINGS] Pancake result=%d\n", ok);
@@ -9017,6 +9132,7 @@ static void settings_run_actions_internal(BOOL pendingOnly)
                     if (runCylinderLite) {
                         settings_progress(&step, total, "Applying Cylinder Lite");
                         settings_configure_cylinderlite(d);
+                        settings_log_cylinderlite_config(d, "RUN");
                         bool ok = cylinderlite_apply_in_session();
                         settings_mark_tweak_applied(kSettingsCylinderLiteEnabled, ok && [d boolForKey:kSettingsCylinderLiteEnabled]);
                         printf("[SETTINGS] Cylinder Lite result=%d\n", ok);
@@ -9026,6 +9142,7 @@ static void settings_run_actions_internal(BOOL pendingOnly)
 
                     if (runBarmoji) {
                         settings_progress(&step, total, "Applying Barmoji");
+                        settings_log_split_tweak_config(kSettingsBarmojiEnabled, d, "RUN");
                         bool ok = barmoji_apply_in_session();
                         settings_mark_tweak_applied(kSettingsBarmojiEnabled, ok && [d boolForKey:kSettingsBarmojiEnabled]);
                         printf("[SETTINGS] Barmoji result=%d\n", ok);
@@ -9035,6 +9152,7 @@ static void settings_run_actions_internal(BOOL pendingOnly)
 
                     if (runBlurryBadges) {
                         settings_progress(&step, total, "Applying BlurryBadges");
+                        settings_log_split_tweak_config(kSettingsBlurryBadgesEnabled, d, "RUN");
                         bool ok = blurrybadges_apply_in_session();
                         settings_mark_tweak_applied(kSettingsBlurryBadgesEnabled, ok && [d boolForKey:kSettingsBlurryBadgesEnabled]);
                         printf("[SETTINGS] BlurryBadges result=%d\n", ok);
@@ -9044,6 +9162,7 @@ static void settings_run_actions_internal(BOOL pendingOnly)
 
                     if (runSnapper) {
                         settings_progress(&step, total, "Applying Snapper");
+                        settings_log_split_tweak_config(kSettingsSnapperEnabled, d, "RUN");
                         bool ok = snapper_apply_in_session();
                         settings_mark_tweak_applied(kSettingsSnapperEnabled, ok && [d boolForKey:kSettingsSnapperEnabled]);
                         printf("[SETTINGS] Snapper result=%d\n", ok);
@@ -9053,6 +9172,7 @@ static void settings_run_actions_internal(BOOL pendingOnly)
 
                     if (runPullOver) {
                         settings_progress(&step, total, "Applying PullOver");
+                        settings_log_split_tweak_config(kSettingsPullOverEnabled, d, "RUN");
                         bool ok = pullover_apply_in_session();
                         settings_mark_tweak_applied(kSettingsPullOverEnabled, ok && [d boolForKey:kSettingsPullOverEnabled]);
                         printf("[SETTINGS] PullOver result=%d\n", ok);
@@ -9062,6 +9182,7 @@ static void settings_run_actions_internal(BOOL pendingOnly)
 
                     if (runAlkaline) {
                         settings_progress(&step, total, "Applying Alkaline");
+                        settings_log_split_tweak_config(kSettingsAlkalineEnabled, d, "RUN");
                         bool ok = alkaline_apply_in_session();
                         settings_mark_tweak_applied(kSettingsAlkalineEnabled, ok && [d boolForKey:kSettingsAlkalineEnabled]);
                         printf("[SETTINGS] Alkaline result=%d\n", ok);
@@ -10055,7 +10176,7 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
     [icon setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
 
     UILabel *label = [[UILabel alloc] init];
-    label.text = @"Cyanide is a limited tweak environment. Session tweaks reset on reboot, while a few packages intentionally modify local system files and may persist until restored. Backups are best-effort only. Use these tools only where you have permission, understand the legal and service-rule impact, and accept the risk. Live tweaks like StatBar and Axon Lite stop if you force-quit Cyanide. A progress log opens while changes apply; tap Hide to dismiss.";
+    label.text = @"infern0 is a limited tweak environment. Session tweaks reset on reboot, while a few packages intentionally modify local system files and may persist until restored. Backups are best-effort only. Use these tools only where you have permission, understand the legal and service-rule impact, and accept the risk. Live tweaks like StatBar and Axon Lite stop if you force-quit infern0. A progress log opens while changes apply; tap Hide to dismiss.";
     label.textColor = UIColor.labelColor;
     label.font = [UIFont systemFontOfSize:13 weight:UIFontWeightRegular];
     label.numberOfLines = 0;
@@ -10681,7 +10802,7 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
            @"title": ipadecryptor_has_app_store_account()
                 ? @"Sign In Again…"
                 : @"Sign In to App Store…",
-           @"subtitle": @"Required before Cyanide can request an authenticated IPA download ticket. 2FA is requested after Apple asks for it.",
+           @"subtitle": @"Required before infern0 can request an authenticated IPA download ticket. 2FA is requested after Apple asks for it.",
            @"action": @"ipadec-signin" },
         @{ @"kind": @"info",
            @"title": @"Selected App",
@@ -10696,7 +10817,7 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
            @"title": @"Output Folder",
            @"subtitle": ipadecryptor_default_output_directory().length > 0
                 ? ipadecryptor_default_output_directory()
-                : @"Cyanide Documents/DecryptedIPAs" },
+                : @"infern0 Documents/DecryptedIPAs" },
         @{ @"kind": @"button",
            @"title": @"Choose Installed App…",
            @"action": @"ipadec-choose" },
@@ -10838,7 +10959,7 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
            @"subtitle": @"Always On keeps the Face ID retry pulse and unlock request armed in SpringBoard until Disable, Clean Up, or respring." },
         @{ @"kind": @"button",
            @"title": @"Enable Always On",
-           @"subtitle": @"Keeps pickup-to-unlock armed after Cyanide closes.",
+           @"subtitle": @"Keeps pickup-to-unlock armed after infern0 closes.",
            @"action": @"fastlockx-enable" },
         @{ @"kind": @"button",
            @"title": @"Disable",
@@ -11167,12 +11288,12 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
 {
     return @[
         @{ @"title": @"Launch Options",     @"icon": @"bolt.fill",                          @"color": [UIColor systemRedColor],    @"section": @(SectionLaunch) },
-        @{ @"title": @"SBCustomizer",       @"icon": @"square.grid.3x3.fill",                @"color": [UIColor systemBlueColor],   @"section": @(SectionSBC) },
+        @{ @"title": @"SBCustomizer",       @"icon": @"square.grid.3x3.fill",                @"color": [UIColor systemRedColor],   @"section": @(SectionSBC) },
         @{ @"title": @"StatBar",            @"icon": @"thermometer.medium",                  @"color": [UIColor systemRedColor],    @"section": @(SectionStatBar) },
-        @{ @"title": @"NSBar",              @"icon": @"network",                             @"color": [UIColor systemBlueColor],   @"section": @(SectionNSBar) },
+        @{ @"title": @"NSBar",              @"icon": @"network",                             @"color": [UIColor systemRedColor],   @"section": @(SectionNSBar) },
         @{ @"title": @"NiceBar Lite",       @"icon": @"textformat.size",                     @"color": [UIColor systemTealColor],   @"section": @(SectionNiceBarLite) },
 #if CYANIDE_EXPERIMENTAL_TWEAKS_AVAILABLE
-        @{ @"title": @"Signal Display",     @"icon": @"antenna.radiowaves.left.and.right",   @"color": [UIColor systemBlueColor],   @"section": @(SectionRSSI), @"indev": @YES },
+        @{ @"title": @"Signal Display",     @"icon": @"antenna.radiowaves.left.and.right",   @"color": [UIColor systemRedColor],   @"section": @(SectionRSSI), @"indev": @YES },
 #endif
         @{ @"title": @"Axon Lite",          @"icon": @"bell.badge.fill",                     @"color": [UIColor systemRedColor],    @"section": @(SectionAxonLite) },
 #if CYANIDE_EXPERIMENTAL_TWEAKS_AVAILABLE
@@ -11181,19 +11302,19 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
         @{ @"title": @"IPA Decryptor",      @"icon": @"lock.open.fill",                      @"color": [UIColor systemPurpleColor], @"section": @(SectionIPADecryptor), @"indev": @YES },
         @{ @"title": @"FastLockX Lite",     @"icon": @"lock.open.fill",                      @"color": [UIColor systemGreenColor],  @"section": @(SectionFastLockXLite) },
         @{ @"title": @"CleanNC",            @"icon": @"rectangle.3.group.fill",              @"color": [UIColor systemPurpleColor], @"section": @(SectionCleanNC) },
-        @{ @"title": @"UnderTime",          @"icon": @"clock.fill",                          @"color": [UIColor systemBlueColor],   @"section": @(SectionUnderTime) },
+        @{ @"title": @"UnderTime",          @"icon": @"clock.fill",                          @"color": [UIColor systemRedColor],   @"section": @(SectionUnderTime) },
         @{ @"title": @"Zeppelin Lite",      @"icon": @"textformat.alt",                      @"color": [UIColor systemOrangeColor], @"section": @(SectionZeppelinLite) },
         @{ @"title": @"CleanHomeScreen",    @"icon": @"square.dashed",                       @"color": [UIColor systemGreenColor],  @"section": @(SectionCleanHomeScreen) },
         @{ @"title": @"RealCC",             @"icon": @"wifi.slash",                          @"color": [UIColor systemRedColor],    @"section": @(SectionRealCC) },
         @{ @"title": @"CleanCC",            @"icon": @"square.stack.3d.down.right.fill",      @"color": [UIColor systemTealColor],   @"section": @(SectionCleanCC) },
-        @{ @"title": @"FUGap",              @"icon": @"arrow.up.to.line.compact",             @"color": [UIColor systemBlueColor],   @"section": @(SectionFUGap) },
+        @{ @"title": @"FUGap",              @"icon": @"arrow.up.to.line.compact",             @"color": [UIColor systemRedColor],   @"section": @(SectionFUGap) },
         @{ @"title": @"ModuleSpacing",      @"icon": @"rectangle.grid.2x2",                  @"color": [UIColor systemIndigoColor], @"section": @(SectionModuleSpacing) },
         @{ @"title": @"SugarCane",          @"icon": @"percent",                              @"color": [UIColor systemYellowColor], @"section": @(SectionSugarCane) },
         @{ @"title": @"BetterCCXI",         @"icon": @"rectangle.grid.3x2.fill",             @"color": [UIColor systemPurpleColor], @"section": @(SectionBetterCCXI) },
         @{ @"title": @"Magma",              @"icon": @"flame.fill",                           @"color": [UIColor systemOrangeColor], @"section": @(SectionMagma) },
-        @{ @"title": @"BetterCCIcons",      @"icon": @"circle.grid.2x2.fill",                @"color": [UIColor systemCyanColor],   @"section": @(SectionBetterCCIcons) },
+        @{ @"title": @"BetterCCIcons",      @"icon": @"circle.grid.2x2.fill",                @"color": [UIColor systemOrangeColor],   @"section": @(SectionBetterCCIcons) },
         @{ @"title": @"CCNoPlatterDim",     @"icon": @"sun.max.fill",                         @"color": [UIColor systemGreenColor],  @"section": @(SectionCCNoPlatterDim) },
-        @{ @"title": @"CCStatus",           @"icon": @"info.circle.fill",                     @"color": [UIColor systemBlueColor],   @"section": @(SectionCCStatus) },
+        @{ @"title": @"CCStatus",           @"icon": @"info.circle.fill",                     @"color": [UIColor systemRedColor],   @"section": @(SectionCCStatus) },
         @{ @"title": @"HapticCC",           @"icon": @"waveform.path",                        @"color": [UIColor systemPinkColor],   @"section": @(SectionHapticCC) },
         @{ @"title": @"SecureCC",           @"icon": @"lock.shield.fill",                     @"color": [UIColor systemRedColor],    @"section": @(SectionSecureCC) },
         @{ @"title": @"HideLabels",         @"icon": @"eye.slash",                           @"color": [UIColor systemGrayColor],   @"section": @(SectionHideLabels) },
@@ -11201,8 +11322,8 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
         @{ @"title": @"Pancake",            @"icon": @"hand.point.left.fill",                @"color": [UIColor systemIndigoColor], @"section": @(SectionPancake) },
         @{ @"title": @"Cylinder Lite",      @"icon": @"perspective",                         @"color": [UIColor systemTealColor],   @"section": @(SectionCylinderLite) },
         @{ @"title": @"Barmoji",            @"icon": @"face.smiling.fill",                   @"color": [UIColor systemPinkColor],   @"section": @(SectionBarmoji) },
-        @{ @"title": @"BlurryBadges",       @"icon": @"app.badge.fill",                      @"color": [UIColor systemBlueColor],   @"section": @(SectionBlurryBadges) },
-        @{ @"title": @"Snapper",            @"icon": @"crop",                                @"color": [UIColor systemCyanColor],   @"section": @(SectionSnapper) },
+        @{ @"title": @"BlurryBadges",       @"icon": @"app.badge.fill",                      @"color": [UIColor systemRedColor],   @"section": @(SectionBlurryBadges) },
+        @{ @"title": @"Snapper",            @"icon": @"crop",                                @"color": [UIColor systemOrangeColor],   @"section": @(SectionSnapper) },
         @{ @"title": @"PullOver",           @"icon": @"sidebar.right",                       @"color": [UIColor systemIndigoColor], @"section": @(SectionPullOver) },
         @{ @"title": @"Alkaline",           @"icon": @"battery.100.bolt",                    @"color": [UIColor systemGreenColor],  @"section": @(SectionAlkaline) },
         @{ @"title": @"TweakLoader",        @"icon": @"arrow.down.circle.dotted",            @"color": [UIColor systemOrangeColor], @"section": @(SectionTweakLoader) },
@@ -11211,10 +11332,10 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
         @{ @"title": @"Gravity Lite",       @"icon": @"arrow.down.circle.fill",              @"color": [UIColor systemGreenColor],  @"section": @(SectionGravityLite) },
         @{ @"title": @"App Switcher Grid",  @"icon": @"square.grid.2x2.fill",                @"color": [UIColor systemOrangeColor], @"section": @(SectionAppSwitcherGrid) },
         @{ @"title": @"Location Simulator", @"icon": @"location.fill",                       @"color": [UIColor systemGreenColor],  @"section": @(SectionLocationSim) },
-        @{ @"title": @"SnowBoard Lite",     @"icon": @"square.stack.3d.up.fill",             @"color": [UIColor systemCyanColor],   @"section": @(SectionSnowBoardLite) },
+        @{ @"title": @"SnowBoard Lite",     @"icon": @"square.stack.3d.up.fill",             @"color": [UIColor systemOrangeColor],   @"section": @(SectionSnowBoardLite) },
         @{ @"title": @"LiveWP",             @"icon": @"play.rectangle.fill",                 @"color": [UIColor systemPurpleColor], @"section": @(SectionLiveWP) },
         @{ @"title": @"QuickLoader",        @"icon": @"bolt.fill",                           @"color": [UIColor systemYellowColor], @"section": @(SectionQuickLoader) },
-        @{ @"title": @"RepoTweaks",         @"icon": @"tray.and.arrow.down.fill",            @"color": [UIColor systemBlueColor],   @"section": @(SectionRepoTweaks) },
+        @{ @"title": @"RepoTweaks",         @"icon": @"tray.and.arrow.down.fill",            @"color": [UIColor systemRedColor],   @"section": @(SectionRepoTweaks) },
         @{ @"title": @"Powercuff",          @"icon": @"bolt.slash.fill",                     @"color": [UIColor systemOrangeColor], @"section": @(SectionPowercuff) },
         @{ @"title": @"SpringBoard Tweaks", @"icon": @"apps.iphone",                         @"color": [UIColor systemIndigoColor], @"section": @(SectionDarkSwordTweaks) },
         @{ @"title": @"Drag Coefficient",   @"icon": @"dial.medium.fill",                    @"color": [UIColor systemIndigoColor], @"section": @(SectionDragCoefficient) },
@@ -11331,7 +11452,7 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
     }
     NSInteger s = self.underlyingSection;
     if (s == SectionLaunch) {
-        return @"kexploit_opa334 runs once per app lifetime. Keep Alive applies only while Cyanide is minimized; an App Switcher kill still terminates the process.";
+        return @"kexploit_opa334 runs once per app lifetime. Keep Alive applies only while infern0 is minimized; an App Switcher kill still terminates the process.";
     }
     if (s == SectionSBC) {
         return [NSString stringWithFormat:@"Stock iOS defaults: dock %ld, columns %ld, rows %ld.",
@@ -11369,7 +11490,7 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
         return @"Underclocks the CPU/GPU via thermalmonitord by simulating thermal pressure. Nominal is the daily-use default. Light, Moderate, and Heavy intentionally underclock the CPU more and can make the device feel laggy, especially on older hardware.";
     }
     if (s == SectionStatBar) {
-        return @"Live overlay. When enabled, StatBar keeps a SpringBoard RemoteCall session open. Refresh rate applies when Cyanide is minimized but the screen is still awake; StatBar pauses while the screen is locked or asleep.";
+        return @"Live overlay. When enabled, StatBar keeps a SpringBoard RemoteCall session open. Refresh rate applies when infern0 is minimized but the screen is still awake; StatBar pauses while the screen is locked or asleep.";
     }
     if (s == SectionNSBar) {
         return @"Network speed overlay ported from d1y/cyanide-ios. When enabled, NSBar keeps a SpringBoard RemoteCall session open and refreshes roughly once per second.";
@@ -11381,13 +11502,13 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
         return @"Adds a UILabel as a sibling of each STUI signal view (no new UIWindow), refreshed every second. Cellular shows live RSRP dBm (sign implicit). WiFi shows the bar count (0-4); the wifid XPC dBm path crashed SpringBoard in prior tests.";
     }
     if (s == SectionAxonLite) {
-        return @"RemoteCall-only Axon port. It uses a live app-side loop rather than substrate hooks, so it lasts for the active Cyanide SpringBoard session.";
+        return @"RemoteCall-only Axon port. It uses a live app-side loop rather than substrate hooks, so it lasts for the active infern0 SpringBoard session.";
     }
     if (s == SectionTypeBanner) {
         return @"Partial TypeMillennium port. Detection runs against imagent using original-thread RemoteCall probes, while SpringBoard renders a prewarmed banner window.";
     }
     if (s == SectionNotificationIsland) {
-        return @"Experimental Dynamic Island notification route. Cyanide polls SpringBoard's active banner request through the shared RemoteCall session, then mirrors it through the app's ActivityKit Live Activity.";
+        return @"Experimental Dynamic Island notification route. infern0 polls SpringBoard's active banner request through the shared RemoteCall session, then mirrors it through the app's ActivityKit Live Activity.";
     }
     if (s == SectionVelvet) {
         return @"Custom notification background styles. Velvet applies background color, border, corner radius, and text colors to notification banners and Notification Center cells through SpringBoard's RemoteCall session. Experimental — may need reapply after respring.";
@@ -11486,13 +11607,13 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
         return @"Legacy icon theme engine settings.\n\n"
                @"Pick a theme before running the icon theme engine.\n\n"
                @"Compatibility: when Dynamic Stage Lite is enabled, live icon repair is paused to avoid SpringBoard resprings. The selected theme still applies once.\n\n"
-               @"Custom themes can be a folder of PNG files named by bundle ID, such as com.apple.mobilesafari.png, or a binary plist mapping bundle IDs to PNG data. Import copies the theme into Cyanide's Documents/Themes folder. Theme Format Guide includes examples and plist exports.";
+               @"Custom themes can be a folder of PNG files named by bundle ID, such as com.apple.mobilesafari.png, or a binary plist mapping bundle IDs to PNG data. Import copies the theme into infern0's Documents/Themes folder. Theme Format Guide includes examples and plist exports.";
     }
     if (s == SectionSnowBoardLite) {
-        return @"SnowBoard/IconBundles importer ported from d1y/cyanide-ios. Folder imports are copied into Cyanide's Documents/SnowBoardLite library and applied through the existing icon replacement pipeline.\n\nThe import copies theme assets into Cyanide's local storage so the original theme in Files is not changed.\n\nCompatibility: SnowBoard Lite keeps live icon repair active and reuses the SpringBoard RemoteCall channel between repair ticks. Re-run it after a respring if icons reset.";
+        return @"SnowBoard/IconBundles importer ported from d1y/cyanide-ios. Folder imports are copied into infern0's Documents/SnowBoardLite library and applied through the existing icon replacement pipeline.\n\nThe import copies theme assets into infern0's local storage so the original theme in Files is not changed.\n\nCompatibility: SnowBoard Lite keeps live icon repair active and reuses the SpringBoard RemoteCall channel between repair ticks. Re-run it after a respring if icons reset.";
     }
     if (s == SectionLiveWP) {
-        return @"Video wallpaper ported from d1y/cyanide-ios. Select an MP4, MOV, or M4V; Cyanide copies it into Documents/LiveWP and plays it in SpringBoard while the RemoteCall session stays alive.";
+        return @"Video wallpaper ported from d1y/cyanide-ios. Select an MP4, MOV, or M4V; infern0 copies it into Documents/LiveWP and plays it in SpringBoard while the RemoteCall session stays alive.";
     }
     return nil;
 }
@@ -11597,8 +11718,8 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
     versionLabel.translatesAutoresizingMaskIntoConstraints = NO;
     versionLabel.text = [NSString stringWithFormat:@" v%@ ", version];
     versionLabel.font = [UIFont monospacedDigitSystemFontOfSize:12.0 weight:UIFontWeightSemibold];
-    versionLabel.textColor = UIColor.systemBlueColor;
-    versionLabel.backgroundColor = [UIColor.systemBlueColor colorWithAlphaComponent:0.12];
+    versionLabel.textColor = UIColor.systemRedColor;
+    versionLabel.backgroundColor = [UIColor.systemRedColor colorWithAlphaComponent:0.12];
     versionLabel.layer.cornerRadius = 4.0;
     versionLabel.layer.masksToBounds = YES;
     versionLabel.textAlignment = NSTextAlignmentCenter;
@@ -11736,7 +11857,7 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
     cell.textLabel.textColor = UIColor.labelColor;
     cell.textLabel.text = @"Tweak SDK";
     cell.detailTextLabel.textColor = UIColor.secondaryLabelColor;
-    cell.detailTextLabel.text = @"How to write Cyanide tweaks";
+    cell.detailTextLabel.text = @"How to write infern0 tweaks";
     cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     cell.selectionStyle = UITableViewCellSelectionStyleDefault;
     return cell;
@@ -11758,7 +11879,7 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
 
     switch (row) {
         case 0:
-            cell.imageView.image = [SettingsViewController iconBadgeWithSymbol:@"at" color:UIColor.systemBlueColor size:29.0];
+            cell.imageView.image = [SettingsViewController iconBadgeWithSymbol:@"at" color:UIColor.systemRedColor size:29.0];
             cell.textLabel.text = @"Twitter";
             cell.detailTextLabel.text = @"@zeroxjf";
             break;
@@ -11892,7 +12013,7 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
 {
     UIAlertController *hint = [UIAlertController
         alertControllerWithTitle:@"Import Theme Archive"
-                         message:@"Pick a ZIP or DEB file that contains an IconBundles directory. Cyanide extracts and imports a local copy."
+                         message:@"Pick a ZIP or DEB file that contains an IconBundles directory. infern0 extracts and imports a local copy."
                   preferredStyle:UIAlertControllerStyleAlert];
     [hint addAction:[UIAlertAction actionWithTitle:@"Continue" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
         (void)a;
@@ -12387,7 +12508,7 @@ didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls
 - (NSString *)compileQuickLoaderScript {
     if (!self.qlRawScript) return nil;
 
-    NSMutableString *finalScript = [NSMutableString stringWithString:@"//Variables injected by Cyanide\n"];
+    NSMutableString *finalScript = [NSMutableString stringWithString:@"//Variables injected by infern0\n"];
     for (NSDictionary *param in self.qlParams) {
         NSString *varName = param[@"varName"];
         NSString *type = param[@"type"];
@@ -12410,7 +12531,7 @@ didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls
 - (void)applyQuickLoaderScript {
     if (!self.qlRawScript) return;
 
-    NSMutableString *finalScript = [NSMutableString stringWithString:@"//Variables injected by Cyanide\n"];
+    NSMutableString *finalScript = [NSMutableString stringWithString:@"//Variables injected by infern0\n"];
 
     //from UI values to JS variables
     for (NSDictionary *param in self.qlParams) {
@@ -12437,7 +12558,7 @@ didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls
     [[NSUserDefaults standardUserDefaults] setObject:finalScript forKey:@"QuickLoaderSavedJS"];
     [[NSUserDefaults standardUserDefaults] synchronize];
 
-    NSLog(@"[Cyanide] Dynamic JS Tweak Saved Successfully!");
+    NSLog(@"[infern0] Dynamic JS Tweak Saved Successfully!");
 }
 
 
@@ -12606,7 +12727,7 @@ didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls
                                                                  message:nil
                                                           preferredStyle:UIAlertControllerStyleAlert];
     [ac addTextFieldWithConfigurationHandler:^(UITextField *field) {
-        field.placeholder = @"Cyanide";
+        field.placeholder = @"infern0";
         field.text = [d stringForKey:key] ?: @"";
         field.clearButtonMode = UITextFieldViewModeWhileEditing;
     }];
@@ -12814,7 +12935,7 @@ didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls
 }
 
 // "Classic" alternate icon is registered in Info.plist with CFBundleIconFiles
-// pointing to Cyanide-Classic@{2,3}x.png at the bundle root. Modern is the
+// pointing to infern0-Classic@{2,3}x.png at the bundle root. Modern is the
 // asset-catalog primary, selected by passing nil to setAlternateIconName:.
 + (UIImage *)appIconPreviewForStyle:(NSString *)style
 {
@@ -12991,7 +13112,7 @@ didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls
     NSString *iosVersion = [UIDevice currentDevice].systemVersion ?: @"unknown";
     struct utsname info; uname(&info);
     NSString *machine = [NSString stringWithUTF8String:info.machine] ?: @"unknown";
-    NSString *summary = [NSString stringWithFormat:@"Cyanide diagnostic log\nCyanide %@ · iOS %@ · %@",
+    NSString *summary = [NSString stringWithFormat:@"infern0 diagnostic log\ninfern0 %@ · iOS %@ · %@",
                          appVersion, iosVersion, machine];
 
     UIActivityViewController *vc = [[UIActivityViewController alloc] initWithActivityItems:@[summary, logURL]
@@ -13039,7 +13160,7 @@ static void cyanide_upload_log_with_kind_event(NSString *kind, NSString *event) 
 
     // Prepend a diagnostic header so each uploaded log is self-contained.
     NSString *header = [NSString stringWithFormat:
-        @"=== Cyanide Diagnostic Log ===\n"
+        @"=== infern0 Diagnostic Log ===\n"
         @"app_version : %@\n"
         @"app_build   : %@\n"
         @"ios_version : %@\n"
@@ -13164,10 +13285,10 @@ void cyanide_present_contact(UIViewController *host)
 
     // Single-line signature so it reads correctly even in mail clients that
     // collapse newlines from mailto: bodies (Gmail-iOS being the worst offender).
-    NSString *signature = [NSString stringWithFormat:@"—— Cyanide %@ · iOS %@ · %@ ——",
+    NSString *signature = [NSString stringWithFormat:@"-- infern0 %@ · iOS %@ · %@ --",
                            appVersion, iosVersion, machine];
 
-    NSString *subject = [NSString stringWithFormat:@"Cyanide %@ — Contact", appVersion];
+    NSString *subject = [NSString stringWithFormat:@"infern0 %@ — Contact", appVersion];
 
     // CRLF rather than LF so iOS Mail, Gmail, Outlook, and the mailto: URL
     // path all preserve line breaks. Plain LF is fine in MFMailCompose but
@@ -13316,7 +13437,7 @@ void cyanide_present_contact(UIViewController *host)
         } else {
             rowEnabled = YES;
             symbol = @"arrow.down.circle.fill";
-            color  = UIColor.systemBlueColor;
+            color  = UIColor.systemRedColor;
             cell.textLabel.text = @"Check for Updates";
         }
 
@@ -13951,7 +14072,7 @@ void cyanide_present_contact(UIViewController *host)
     if (apps.count == 0) {
         UIAlertController *ac = [UIAlertController
             alertControllerWithTitle:@"No Apps Found"
-                             message:@"Cyanide could not list installed user apps yet. Run the chain once, then try again."
+                             message:@"infern0 could not list installed user apps yet. Run the chain once, then try again."
                       preferredStyle:UIAlertControllerStyleAlert];
         [ac addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
         settings_present_controller(ac, self);
@@ -14033,7 +14154,7 @@ void cyanide_present_contact(UIViewController *host)
 {
     UIAlertController *ac = [UIAlertController
         alertControllerWithTitle:@"App Store Sign In"
-                         message:@"Sign in with the Apple ID that owns or can download the app. If Apple asks for two-factor authentication, Cyanide will prompt for the code next."
+                         message:@"Sign in with the Apple ID that owns or can download the app. If Apple asks for two-factor authentication, infern0 will prompt for the code next."
                   preferredStyle:UIAlertControllerStyleAlert];
     [ac addTextFieldWithConfigurationHandler:^(UITextField *field) {
         field.placeholder = @"Apple ID email";
@@ -14179,7 +14300,7 @@ void cyanide_present_contact(UIViewController *host)
     NSUserDefaults *d = NSUserDefaults.standardUserDefaults;
     UIAlertController *ac = [UIAlertController
         alertControllerWithTitle:@"App Store Link"
-                         message:@"Paste an App Store URL like https://apps.apple.com/us/app/name/id123456789, or enter the numeric app ID. Cyanide will resolve it, then attempt the IPA download path."
+                         message:@"Paste an App Store URL like https://apps.apple.com/us/app/name/id123456789, or enter the numeric app ID. infern0 will resolve it, then attempt the IPA download path."
                   preferredStyle:UIAlertControllerStyleAlert];
     [ac addTextFieldWithConfigurationHandler:^(UITextField *field) {
         field.placeholder = @"App Store URL or app ID";

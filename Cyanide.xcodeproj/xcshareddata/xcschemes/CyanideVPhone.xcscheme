@@ -16,8 +16,8 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "AAA297762F72D439000B5902"
-               BuildableName = "Cyanide.app"
-               BlueprintName = "Cyanide"
+               BuildableName = "infern0.app"
+               BlueprintName = "infern0"
                ReferencedContainer = "container:Cyanide.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
@@ -51,8 +51,8 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "AAA297762F72D439000B5902"
-            BuildableName = "Cyanide.app"
-            BlueprintName = "Cyanide"
+            BuildableName = "infern0.app"
+            BlueprintName = "infern0"
             ReferencedContainer = "container:Cyanide.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
@@ -68,8 +68,8 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "AAA297762F72D439000B5902"
-            BuildableName = "Cyanide.app"
-            BlueprintName = "Cyanide"
+            BuildableName = "infern0.app"
+            BlueprintName = "infern0"
             ReferencedContainer = "container:Cyanide.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>

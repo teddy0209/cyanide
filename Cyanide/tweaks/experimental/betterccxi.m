@@ -17,13 +17,33 @@ static uint64_t betterccxi_key_window(void)
     return r_is_objc_ptr(app) ? r_msg2_main(app, "keyWindow", 0, 0, 0, 0) : 0;
 }
 
+static void betterccxi_class_name(uint64_t obj, char *out, size_t outLen)
+{
+    if (!out || outLen == 0) return;
+    out[0] = '\0';
+    if (!r_is_objc_ptr(obj)) return;
+    uint64_t cls = r_dlsym_call(R_TIMEOUT, "object_getClass", obj, 0, 0, 0, 0, 0, 0, 0);
+    uint64_t name = r_is_objc_ptr(cls) ? r_dlsym_call(R_TIMEOUT, "class_getName", cls, 0, 0, 0, 0, 0, 0, 0) : 0;
+    if (!name) return;
+    uint64_t buf = r_dlsym_call(R_TIMEOUT, "strdup", name, 0, 0, 0, 0, 0, 0, 0);
+    if (!buf) return;
+    remote_read(buf, out, outLen - 1);
+    out[outLen - 1] = '\0';
+    r_free(buf);
+}
+
 static void betterccxi_scan(uint64_t parent, double scale, int depth, int *hits)
 {
     if (!r_is_objc_ptr(parent) || depth > gBetterCCXIDepthLimit) return;
-    uint64_t layer = r_msg2_main(parent, "layer", 0, 0, 0, 0);
+    char cls[160] = {0};
+    betterccxi_class_name(parent, cls, sizeof(cls));
+    bool target = strstr(cls, "CCUIModule") || strstr(cls, "MediaControls") ||
+                  strstr(cls, "NowPlaying") || strstr(cls, "ControlCenter");
+    uint64_t layer = target ? r_msg2_main(parent, "layer", 0, 0, 0, 0) : 0;
     if (r_is_objc_ptr(layer)) {
         double z = (double)gBetterCCXIZLift;
         r_msg2_main_raw(layer, "setZPosition:", &z, sizeof(z), NULL, 0, NULL, 0, NULL, 0);
+        if (hits) (*hits)++;
     }
     uint64_t subviews = r_msg2_main(parent, "subviews", 0, 0, 0, 0);
     if (!r_is_objc_ptr(subviews)) return;
@@ -32,7 +52,6 @@ static void betterccxi_scan(uint64_t parent, double scale, int depth, int *hits)
     for (uint64_t i = 0; i < count; i++) {
         betterccxi_scan(r_msg2_main(subviews, "objectAtIndex:", i, 0, 0, 0), scale, depth + 1, hits);
     }
-    if (hits) (*hits)++;
 }
 
 bool betterccxi_apply_in_session(void)
@@ -49,6 +68,12 @@ bool betterccxi_apply_in_session(void)
 bool betterccxi_stop_in_session(void)
 {
     printf("[BETTERCCXI] stop\n");
+    uint64_t win = betterccxi_key_window();
+    int hits = 0;
+    int old = gBetterCCXIZLift;
+    gBetterCCXIZLift = 0;
+    if (r_is_objc_ptr(win)) betterccxi_scan(win, 1.0, 0, &hits);
+    gBetterCCXIZLift = old;
     gBetterCCXIApplied = false;
     return true;
 }

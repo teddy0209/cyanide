@@ -1,6 +1,13 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Nnnnnnn274/cyanide/main/Cyanide/Assets.xcassets/AppIcon.appiconset/infern0-icon-master.png" alt="infern0" width="160">
+</p>
+
+<h1 align="center">infern0</h1>
+
 ## Project status
 
-Cyanide is now actively maintained by `Nnnnnnn274` but it is no longer the original this is my fork!
+Cyanide is no longer maintained by `Nnnnnnn274`.  
+It is now **infern0** maintained by `Nnnnnnn274`.
 
 ## features
 AMFI bypass prob broken

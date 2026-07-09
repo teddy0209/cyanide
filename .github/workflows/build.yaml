@@ -1,4 +1,4 @@
-name: Build Cyanide
+name: Build infern0
 
 on:
   push:
@@ -26,14 +26,14 @@ jobs:
       - name: Make build script executable
         run: chmod +x ./scripts/build.sh
 
-      - name: Compile Cyanide (Unsigned)
+      - name: Compile infern0 (Unsigned)
         run: ./scripts/build.sh
 
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Cyanide-TweakRunner
-          path: build/Cyanide.ipa
+          name: infern0-TweakRunner
+          path: build/infern0.ipa
           retention-days: 7
 
   release:
@@ -73,14 +73,14 @@ jobs:
       - name: Download IPA
         uses: actions/download-artifact@v4
         with:
-          name: Cyanide-TweakRunner
+          name: infern0-TweakRunner
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.value }}
           body: ${{ steps.changelog.outputs.body }}
-          files: Cyanide.ipa
+          files: infern0.ipa
           fail_on_unmatched_files: false
           generate_release_notes: true
           update: true
@@ -99,14 +99,14 @@ jobs:
           release="${{ needs.release.result }}"
           if [ "$build" = "success" ]; then
             if [ "$release" = "success" ]; then
-              echo "title=✅ Cyanide build + release succeeded" >> "$GITHUB_OUTPUT"
+              echo "title=✅ infern0 build + release succeeded" >> "$GITHUB_OUTPUT"
               echo "color=5763719" >> "$GITHUB_OUTPUT"
             else
-              echo "title=✅ Cyanide build succeeded" >> "$GITHUB_OUTPUT"
+              echo "title=✅ infern0 build succeeded" >> "$GITHUB_OUTPUT"
               echo "color=5763719" >> "$GITHUB_OUTPUT"
             fi
           else
-            echo "title=❌ Cyanide build failed" >> "$GITHUB_OUTPUT"
+            echo "title=❌ infern0 build failed" >> "$GITHUB_OUTPUT"
             echo "color=15548997" >> "$GITHUB_OUTPUT"
           fi
 

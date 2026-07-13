@@ -160,6 +160,8 @@ static const NSInteger kSecCallRecordingSound = 55;
 static const NSInteger kSecHideHomeBar      = 56;
 static const NSInteger kSecRoundedIcons     = 57;
 static const NSInteger kSecWatchLayout      = 58;
+static const NSInteger kSecLockCustomizer   = 59;
+static const NSInteger kSecFreePlacement    = 60;
 static const NSInteger kSecDarkSwordTweaks  = 13;
 
 + (NSArray<Package *> *)allPackages
@@ -790,10 +792,36 @@ static const NSInteger kSecDarkSwordTweaks  = 13;
                                           isNew:YES];
         watchLayout.settingsSection = kSecWatchLayout;
 
+        Package *lockCustomizer = [[Package alloc] initWithIdentifier:@"com.darksword.lockcustomizer"
+                                           name:@"Lock Screen Customizer"
+                               shortDescription:@"Move, resize, and clean up the Lock Screen"
+                                longDescription:@"A configurable Lock Screen customizer that resizes and repositions the live clock, adjusts its opacity, and can hide camera, flashlight, and page-dot views. Every matched change is logged and uninstall restores stock transforms and visibility."
+                                        version:version
+                                         author:@"Nnnnnnn274"
+                                       category:@"Lock Screen"
+                                     symbolName:@"lock.rectangle"
+                                           kind:PackageInstallKindToggle
+                                     enabledKey:kSettingsLockCustomizerEnabled
+                                          isNew:YES];
+        lockCustomizer.settingsSection = kSecLockCustomizer;
+
+        Package *freePlacement = [[Package alloc] initWithIdentifier:@"com.darksword.freeplacementlite"
+                                           name:@"Free Placement Lite"
+                               shortDescription:@"Configurable free-form icon offsets"
+                                longDescription:@"Creates a configurable staggered, free-form layout across every discovered live Home Screen icon while keeping icons pressable. This first RemoteCall port provides global placement controls and clean frame restoration; per-icon dragging is not included yet."
+                                        version:version
+                                         author:@"Nnnnnnn274"
+                                       category:@"Home Screen"
+                                     symbolName:@"move.3d"
+                                           kind:PackageInstallKindToggle
+                                     enabledKey:kSettingsFreePlacementEnabled
+                                          isNew:YES];
+        freePlacement.settingsSection = kSecFreePlacement;
+
         Package *blurryBadges = [[Package alloc] initWithIdentifier:@"com.darksword.blurrybadges"
-                                           name:@"BlurryBadges"
-                               shortDescription:@"Colorized notification badges"
-                                longDescription:@"First-pass BlurryBadges port. Tints visible SpringBoard badge views for a softer colorized look.\n\nDominant app-icon color extraction is planned; this version applies a stable badge tint pass."
+                                           name:@"Badge Studio"
+                               shortDescription:@"Colorized badges that grow with the count"
+                                longDescription:@"Combines the BlurryBadges tint pass with Growing Badges+ behavior. It scans every discovered SpringBoard window, reads live badge values, and scales larger counts toward a configurable maximum. Tint, opacity, growth, and maximum size all have settings and detailed logs."
                                         version:version
                                          author:@"Nnnnnnn274"
                                        category:@"Home Screen"
@@ -1042,6 +1070,8 @@ static const NSInteger kSecDarkSwordTweaks  = 13;
             barmoji,
             roundedIcons,
             watchLayout,
+            lockCustomizer,
+            freePlacement,
             blurryBadges,
             snapper,
             pullOver,

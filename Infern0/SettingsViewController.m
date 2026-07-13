@@ -855,6 +855,11 @@ NSString * const kSettingsSBCDockIcons  = @"SBCDockIcons";
 NSString * const kSettingsSBCCols       = @"SBCCols";
 NSString * const kSettingsSBCRows       = @"SBCRows";
 NSString * const kSettingsSBCHideLabels = @"SBCHideLabels";
+static NSString * const kSettingsSBCHideBadges = @"SBCHideBadges";
+static NSString * const kSettingsSBCHidePageDots = @"SBCHidePageDots";
+static NSString * const kSettingsSBCHideFolderBackground = @"SBCHideFolderBackground";
+static NSString * const kSettingsSBCHideDockBackground = @"SBCHideDockBackground";
+static NSString * const kSettingsSBCIconAlphaPct = @"SBCIconAlphaPct";
 
 NSString * const kSettingsPowercuffEnabled = @"PowercuffEnabled";
 NSString * const kSettingsPowercuffLevel   = @"PowercuffLevel";
@@ -877,6 +882,8 @@ NSString * const kSettingsLayoutHomeExtraBottom = @"LayoutHomeExtraBottom";
 NSString * const kSettingsLayoutDockExtraHorizontal = @"LayoutDockExtraHorizontal";
 NSString * const kSettingsLayoutHomeScalePct    = @"LayoutHomeScalePct";
 NSString * const kSettingsLayoutDockScalePct    = @"LayoutDockScalePct";
+static NSString * const kSettingsLayoutApplyHomeControls = @"LayoutApplyHomeControls";
+static NSString * const kSettingsLayoutApplyDockControls = @"LayoutApplyDockControls";
 
 static double settings_number_row_normalized_value(NSDictionary *row, double value)
 {
@@ -1052,11 +1059,24 @@ static NSString * const kSettingsRoundedIconsRadius = @"RoundedIconsRadius";
 NSString * const kSettingsWatchLayoutEnabled = @"WatchLayoutEnabled";
 static NSString * const kSettingsWatchLayoutCompactPct = @"WatchLayoutCompactPct";
 static NSString * const kSettingsWatchLayoutScalePct = @"WatchLayoutScalePct";
+NSString * const kSettingsLockCustomizerEnabled = @"LockCustomizerEnabled";
+static NSString * const kSettingsLockCustomizerClockScalePct = @"LockCustomizerClockScalePct";
+static NSString * const kSettingsLockCustomizerXOffset = @"LockCustomizerXOffset";
+static NSString * const kSettingsLockCustomizerYOffset = @"LockCustomizerYOffset";
+static NSString * const kSettingsLockCustomizerHideQuickActions = @"LockCustomizerHideQuickActions";
+static NSString * const kSettingsLockCustomizerHidePageDots = @"LockCustomizerHidePageDots";
+static NSString * const kSettingsLockCustomizerContentAlphaPct = @"LockCustomizerContentAlphaPct";
+NSString * const kSettingsFreePlacementEnabled = @"FreePlacementEnabled";
+static NSString * const kSettingsFreePlacementHorizontalStep = @"FreePlacementHorizontalStep";
+static NSString * const kSettingsFreePlacementVerticalStep = @"FreePlacementVerticalStep";
+static NSString * const kSettingsFreePlacementStaggerPct = @"FreePlacementStaggerPct";
 NSString * const kSettingsBlurryBadgesEnabled = @"BlurryBadgesEnabled";
 static NSString * const kSettingsBlurryBadgesRed = @"BlurryBadgesRed";
 static NSString * const kSettingsBlurryBadgesGreen = @"BlurryBadgesGreen";
 static NSString * const kSettingsBlurryBadgesBlue = @"BlurryBadgesBlue";
 static NSString * const kSettingsBlurryBadgesAlphaPct = @"BlurryBadgesAlphaPct";
+static NSString * const kSettingsBlurryBadgesGrowEnabled = @"BlurryBadgesGrowEnabled";
+static NSString * const kSettingsBlurryBadgesMaxScalePct = @"BlurryBadgesMaxScalePct";
 NSString * const kSettingsSnapperEnabled = @"SnapperEnabled";
 static NSString * const kSettingsSnapperX = @"SnapperX";
 static NSString * const kSettingsSnapperY = @"SnapperY";
@@ -1573,6 +1593,18 @@ static bool settings_stop_roundedicons_registered(BOOL springboardWillDie)
     return roundedicons_stop_in_session();
 }
 
+static bool settings_stop_lockcustomizer_registered(BOOL springboardWillDie)
+{
+    (void)springboardWillDie;
+    return lockcustomizer_stop_in_session();
+}
+
+static bool settings_stop_freeplacement_registered(BOOL springboardWillDie)
+{
+    (void)springboardWillDie;
+    return freeplacement_stop_in_session();
+}
+
 static bool settings_stop_watchlayout_registered(BOOL springboardWillDie)
 {
     (void)springboardWillDie;
@@ -1670,7 +1702,9 @@ static void settings_each_springboard_cleanup_entry(void (^block)(const Settings
         { kSettingsCylinderLiteEnabled, "Cylinder Lite", NULL, settings_stop_cylinderlite_registered, cylinderlite_forget_remote_state, NULL, YES, YES },
         { kSettingsBarmojiEnabled, "Barmoji", NULL, settings_stop_barmoji_registered, barmoji_forget_remote_state, NULL, YES, YES },
         { kSettingsRoundedIconsEnabled, "Rounded Icons", NULL, settings_stop_roundedicons_registered, roundedicons_forget_remote_state, NULL, YES, YES },
+        { kSettingsFreePlacementEnabled, "Free Placement Lite", NULL, settings_stop_freeplacement_registered, freeplacement_forget_remote_state, NULL, YES, YES },
         { kSettingsWatchLayoutEnabled, "Watch Layout", NULL, settings_stop_watchlayout_registered, watchlayout_forget_remote_state, NULL, YES, YES },
+        { kSettingsLockCustomizerEnabled, "Lock Screen Customizer", NULL, settings_stop_lockcustomizer_registered, lockcustomizer_forget_remote_state, NULL, YES, YES },
         { kSettingsBlurryBadgesEnabled, "BlurryBadges", NULL, settings_stop_blurrybadges_registered, blurrybadges_forget_remote_state, NULL, YES, YES },
         { kSettingsSnapperEnabled, "Snapper", NULL, settings_stop_snapper_registered, snapper_forget_remote_state, NULL, YES, YES },
         { kSettingsPullOverEnabled, "PullOver", NULL, settings_stop_pullover_registered, pullover_forget_remote_state, NULL, YES, YES },
@@ -3360,12 +3394,40 @@ void settings_destroy_springboard_remote_call(void)
 
 static bool settings_apply_sbc_from_defaults_locked(NSUserDefaults *d)
 {
-    if (![d boolForKey:kSettingsSBCEnabled]) return false;
+    if (![d boolForKey:kSettingsSBCEnabled]) {
+        NSInteger oldAlpha = [d objectForKey:kSettingsSBCIconAlphaPct] ? [d integerForKey:kSettingsSBCIconAlphaPct] : 100;
+        BOOL hadAppearanceChanges = [d boolForKey:kSettingsSBCHideBadges] ||
+                                    [d boolForKey:kSettingsSBCHidePageDots] ||
+                                    [d boolForKey:kSettingsSBCHideFolderBackground] ||
+                                    [d boolForKey:kSettingsSBCHideDockBackground] || oldAlpha != 100;
+        if (hadAppearanceChanges) homecustom_stop_in_session();
+        printf("[SBCUSTOMIZER] disabled; atriaExtrasRestored=%d\n", hadAppearanceChanges);
+        return false;
+    }
 
-    return sbcustomizer_apply_in_session((int)[d integerForKey:kSettingsSBCDockIcons],
-                                         (int)[d integerForKey:kSettingsSBCCols],
-                                         (int)[d integerForKey:kSettingsSBCRows],
-                                         [d boolForKey:kSettingsSBCHideLabels]);
+    NSInteger iconAlpha = [d objectForKey:kSettingsSBCIconAlphaPct] ? [d integerForKey:kSettingsSBCIconAlphaPct] : 100;
+    homecustom_configure([d boolForKey:kSettingsSBCHideBadges],
+                         [d boolForKey:kSettingsSBCHidePageDots],
+                         [d boolForKey:kSettingsSBCHideFolderBackground],
+                         [d boolForKey:kSettingsSBCHideDockBackground],
+                         (int)iconAlpha);
+    bool layoutOK = sbcustomizer_apply_in_session((int)[d integerForKey:kSettingsSBCDockIcons],
+                                                  (int)[d integerForKey:kSettingsSBCCols],
+                                                  (int)[d integerForKey:kSettingsSBCRows],
+                                                  [d boolForKey:kSettingsSBCHideLabels]);
+    bool appearanceOK = homecustom_apply_in_session();
+    printf("[SBCUSTOMIZER] layout=%d atriaExtras=%d\n", layoutOK, appearanceOK);
+    log_user("[SBCUSTOMIZER] dock=%ld grid=%ldx%ld labelsHidden=%d badgesHidden=%d pageDotsHidden=%d folderBackgroundHidden=%d dockBackgroundHidden=%d iconOpacity=%ld%% layoutResult=%d appearanceResult=%d.\n",
+             (long)[d integerForKey:kSettingsSBCDockIcons],
+             (long)[d integerForKey:kSettingsSBCCols],
+             (long)[d integerForKey:kSettingsSBCRows],
+             [d boolForKey:kSettingsSBCHideLabels],
+             [d boolForKey:kSettingsSBCHideBadges],
+             [d boolForKey:kSettingsSBCHidePageDots],
+             [d boolForKey:kSettingsSBCHideFolderBackground],
+             [d boolForKey:kSettingsSBCHideDockBackground],
+             (long)iconAlpha, layoutOK, appearanceOK);
+    return layoutOK || appearanceOK;
 }
 
 static NSString *settings_nicebar_key(NSString *prefix, NSInteger slot)
@@ -3887,8 +3949,14 @@ static bool settings_apply_layout_extras_from_defaults_locked(NSUserDefaults *d)
     double dockExH = (double)[d integerForKey:kSettingsLayoutDockExtraHorizontal];
     NSInteger hsPct = [d integerForKey:kSettingsLayoutHomeScalePct];
     NSInteger dkPct = [d integerForKey:kSettingsLayoutDockScalePct];
+    BOOL applyHome = [d objectForKey:kSettingsLayoutApplyHomeControls] ? [d boolForKey:kSettingsLayoutApplyHomeControls] : YES;
+    BOOL applyDock = [d objectForKey:kSettingsLayoutApplyDockControls] ? [d boolForKey:kSettingsLayoutApplyDockControls] : YES;
+    if (!applyHome) { exL = 0; exR = 0; exT = 0; exB = 0; hsPct = 100; }
+    if (!applyDock) { dockExH = 0; dkPct = 100; }
     double homeScale = (hsPct > 0) ? (double)hsPct / 100.0 : 1.0;
     double dockScale = (dkPct > 0) ? (double)dkPct / 100.0 : 1.0;
+    log_user("[HOME EXTRAS] homeControls=%d dockControls=%d insets=%.0f/%.0f/%.0f/%.0f dockExtra=%.0f scales=%.0f%%/%.0f%%.\n",
+             applyHome, applyDock, exL, exR, exT, exB, dockExH, homeScale * 100.0, dockScale * 100.0);
     return darksword_layout_apply_in_session(exL, exR, exT, exB, dockExH, homeScale, dockScale);
 }
 
@@ -4277,6 +4345,11 @@ static void settings_reset_sbc_defaults(void)
     [d setInteger:kSBCDefaultCols forKey:kSettingsSBCCols];
     [d setInteger:kSBCDefaultRows forKey:kSettingsSBCRows];
     [d setBool:kSBCDefaultHideLabels forKey:kSettingsSBCHideLabels];
+    [d setBool:NO forKey:kSettingsSBCHideBadges];
+    [d setBool:NO forKey:kSettingsSBCHidePageDots];
+    [d setBool:NO forKey:kSettingsSBCHideFolderBackground];
+    [d setBool:NO forKey:kSettingsSBCHideDockBackground];
+    [d setInteger:100 forKey:kSettingsSBCIconAlphaPct];
     [d synchronize];
 
     printf("[SETTINGS] SBC reset defaults dock=%ld hs=%ldx%ld hideLabels=%d rcReady=%d\n",
@@ -5820,7 +5893,9 @@ static BOOL settings_visual_refresh_enabled(NSUserDefaults *d)
            [d boolForKey:kSettingsBlurryBadgesEnabled] ||
            [d boolForKey:kSettingsAlkalineEnabled] ||
            [d boolForKey:kSettingsRoundedIconsEnabled] ||
-           [d boolForKey:kSettingsWatchLayoutEnabled];
+           [d boolForKey:kSettingsWatchLayoutEnabled] ||
+           [d boolForKey:kSettingsLockCustomizerEnabled] ||
+           [d boolForKey:kSettingsFreePlacementEnabled];
 }
 
 static void settings_visual_refresh_mark_if_ready(NSString *key, bool ready)
@@ -5860,6 +5935,10 @@ static void settings_visual_refresh_tick(NSUserDefaults *d, BOOL fullScan)
         settings_visual_refresh_mark_if_ready(kSettingsRoundedIconsEnabled, roundedicons_apply_in_session());
     if (fullScan && [d boolForKey:kSettingsWatchLayoutEnabled])
         settings_visual_refresh_mark_if_ready(kSettingsWatchLayoutEnabled, watchlayout_apply_in_session());
+    if (fullScan && [d boolForKey:kSettingsLockCustomizerEnabled])
+        settings_visual_refresh_mark_if_ready(kSettingsLockCustomizerEnabled, lockcustomizer_apply_in_session());
+    if (fullScan && [d boolForKey:kSettingsFreePlacementEnabled])
+        settings_visual_refresh_mark_if_ready(kSettingsFreePlacementEnabled, freeplacement_apply_in_session());
 }
 
 static void settings_start_visual_refresh_live_loop(void)
@@ -6255,7 +6334,12 @@ static BOOL settings_key_is_sbc(NSString *key)
            [key isEqualToString:kSettingsSBCDockIcons] ||
            [key isEqualToString:kSettingsSBCCols] ||
            [key isEqualToString:kSettingsSBCRows] ||
-           [key isEqualToString:kSettingsSBCHideLabels];
+           [key isEqualToString:kSettingsSBCHideLabels] ||
+           [key isEqualToString:kSettingsSBCHideBadges] ||
+           [key isEqualToString:kSettingsSBCHidePageDots] ||
+           [key isEqualToString:kSettingsSBCHideFolderBackground] ||
+           [key isEqualToString:kSettingsSBCHideDockBackground] ||
+           [key isEqualToString:kSettingsSBCIconAlphaPct];
 }
 
 static BOOL settings_key_is_sbc_configuration(NSString *key)
@@ -6263,7 +6347,12 @@ static BOOL settings_key_is_sbc_configuration(NSString *key)
     return [key isEqualToString:kSettingsSBCDockIcons] ||
            [key isEqualToString:kSettingsSBCCols] ||
            [key isEqualToString:kSettingsSBCRows] ||
-           [key isEqualToString:kSettingsSBCHideLabels];
+           [key isEqualToString:kSettingsSBCHideLabels] ||
+           [key isEqualToString:kSettingsSBCHideBadges] ||
+           [key isEqualToString:kSettingsSBCHidePageDots] ||
+           [key isEqualToString:kSettingsSBCHideFolderBackground] ||
+           [key isEqualToString:kSettingsSBCHideDockBackground] ||
+           [key isEqualToString:kSettingsSBCIconAlphaPct];
 }
 
 static void settings_note_package_configuration_changed(NSString *key)
@@ -6483,7 +6572,9 @@ static void settings_configure_control_center_tweaks(NSUserDefaults *d)
     blurrybadges_configure((int)[d integerForKey:kSettingsBlurryBadgesRed],
                            (int)[d integerForKey:kSettingsBlurryBadgesGreen],
                            (int)[d integerForKey:kSettingsBlurryBadgesBlue],
-                           (int)[d integerForKey:kSettingsBlurryBadgesAlphaPct]);
+                           (int)[d integerForKey:kSettingsBlurryBadgesAlphaPct],
+                           [d boolForKey:kSettingsBlurryBadgesGrowEnabled],
+                           (int)[d integerForKey:kSettingsBlurryBadgesMaxScalePct]);
     snapper_configure((int)[d integerForKey:kSettingsSnapperX],
                       (int)[d integerForKey:kSettingsSnapperY],
                       (int)[d integerForKey:kSettingsSnapperWidth],
@@ -6502,6 +6593,18 @@ static void settings_configure_control_center_tweaks(NSUserDefaults *d)
     roundedicons_configure((int)[d integerForKey:kSettingsRoundedIconsRadius]);
     watchlayout_configure((int)[d integerForKey:kSettingsWatchLayoutCompactPct],
                           (int)[d integerForKey:kSettingsWatchLayoutScalePct]);
+    NSInteger lockScale = [d objectForKey:kSettingsLockCustomizerClockScalePct] ? [d integerForKey:kSettingsLockCustomizerClockScalePct] : 100;
+    NSInteger lockAlpha = [d objectForKey:kSettingsLockCustomizerContentAlphaPct] ? [d integerForKey:kSettingsLockCustomizerContentAlphaPct] : 100;
+    lockcustomizer_configure((int)lockScale,
+                             (int)[d integerForKey:kSettingsLockCustomizerXOffset],
+                             (int)[d integerForKey:kSettingsLockCustomizerYOffset],
+                             [d boolForKey:kSettingsLockCustomizerHideQuickActions],
+                             [d boolForKey:kSettingsLockCustomizerHidePageDots],
+                             (int)lockAlpha);
+    NSInteger freeX = [d objectForKey:kSettingsFreePlacementHorizontalStep] ? [d integerForKey:kSettingsFreePlacementHorizontalStep] : 8;
+    NSInteger freeY = [d objectForKey:kSettingsFreePlacementVerticalStep] ? [d integerForKey:kSettingsFreePlacementVerticalStep] : 5;
+    NSInteger freeStagger = [d objectForKey:kSettingsFreePlacementStaggerPct] ? [d integerForKey:kSettingsFreePlacementStaggerPct] : 35;
+    freeplacement_configure((int)freeX, (int)freeY, (int)freeStagger);
 }
 
 static void settings_log_split_tweak_config(NSString *masterKey, NSUserDefaults *d, const char *prefix)
@@ -6557,11 +6660,13 @@ static void settings_log_split_tweak_config(NSString *masterKey, NSUserDefaults 
                  (long)[d integerForKey:kSettingsBarmojiFontSize],
                  (long)[d integerForKey:kSettingsBarmojiBackgroundAlphaPct]);
     } else if ([masterKey isEqualToString:kSettingsBlurryBadgesEnabled]) {
-        log_user("[%s] BlurryBadges config: rgba=%ld/%ld/%ld/%ld%%.\n", tag,
+        log_user("[%s] Badge Studio config: rgba=%ld/%ld/%ld/%ld%% grow=%d maxScale=%ld%%.\n", tag,
                  (long)[d integerForKey:kSettingsBlurryBadgesRed],
                  (long)[d integerForKey:kSettingsBlurryBadgesGreen],
                  (long)[d integerForKey:kSettingsBlurryBadgesBlue],
-                 (long)[d integerForKey:kSettingsBlurryBadgesAlphaPct]);
+                 (long)[d integerForKey:kSettingsBlurryBadgesAlphaPct],
+                 [d boolForKey:kSettingsBlurryBadgesGrowEnabled],
+                 (long)[d integerForKey:kSettingsBlurryBadgesMaxScalePct]);
     } else if ([masterKey isEqualToString:kSettingsSnapperEnabled]) {
         log_user("[%s] Snapper config: frame=%ld,%ld %ldx%ld border=%ld radius=%ld.\n", tag,
                  (long)[d integerForKey:kSettingsSnapperX],
@@ -6590,6 +6695,19 @@ static void settings_log_split_tweak_config(NSString *masterKey, NSUserDefaults 
         log_user("[%s] Watch Layout config: compact=%ld%% scale=%ld%% circular=1 pages=all discovered.\n", tag,
                  (long)[d integerForKey:kSettingsWatchLayoutCompactPct],
                  (long)[d integerForKey:kSettingsWatchLayoutScalePct]);
+    } else if ([masterKey isEqualToString:kSettingsLockCustomizerEnabled]) {
+        log_user("[%s] Lock Customizer config: clockScale=%ld%% x=%ld y=%ld quickActionsHidden=%d pageDotsHidden=%d alpha=%ld%%.\n", tag,
+                 (long)[d integerForKey:kSettingsLockCustomizerClockScalePct],
+                 (long)[d integerForKey:kSettingsLockCustomizerXOffset],
+                 (long)[d integerForKey:kSettingsLockCustomizerYOffset],
+                 [d boolForKey:kSettingsLockCustomizerHideQuickActions],
+                 [d boolForKey:kSettingsLockCustomizerHidePageDots],
+                 (long)[d integerForKey:kSettingsLockCustomizerContentAlphaPct]);
+    } else if ([masterKey isEqualToString:kSettingsFreePlacementEnabled]) {
+        log_user("[%s] Free Placement Lite config: horizontalStep=%ld verticalStep=%ld stagger=%ld%%; live icon taps preserved.\n", tag,
+                 (long)[d integerForKey:kSettingsFreePlacementHorizontalStep],
+                 (long)[d integerForKey:kSettingsFreePlacementVerticalStep],
+                 (long)[d integerForKey:kSettingsFreePlacementStaggerPct]);
     }
 }
 
@@ -6636,7 +6754,9 @@ static NSString *settings_split_tweak_master_key_for_key(NSString *key)
         [key isEqualToString:kSettingsBlurryBadgesRed] ||
         [key isEqualToString:kSettingsBlurryBadgesGreen] ||
         [key isEqualToString:kSettingsBlurryBadgesBlue] ||
-        [key isEqualToString:kSettingsBlurryBadgesAlphaPct]) return kSettingsBlurryBadgesEnabled;
+        [key isEqualToString:kSettingsBlurryBadgesAlphaPct] ||
+        [key isEqualToString:kSettingsBlurryBadgesGrowEnabled] ||
+        [key isEqualToString:kSettingsBlurryBadgesMaxScalePct]) return kSettingsBlurryBadgesEnabled;
     if ([key isEqualToString:kSettingsSnapperEnabled] ||
         [key isEqualToString:kSettingsSnapperX] ||
         [key isEqualToString:kSettingsSnapperY] ||
@@ -6660,6 +6780,17 @@ static NSString *settings_split_tweak_master_key_for_key(NSString *key)
     if ([key isEqualToString:kSettingsWatchLayoutEnabled] ||
         [key isEqualToString:kSettingsWatchLayoutCompactPct] ||
         [key isEqualToString:kSettingsWatchLayoutScalePct]) return kSettingsWatchLayoutEnabled;
+    if ([key isEqualToString:kSettingsLockCustomizerEnabled] ||
+        [key isEqualToString:kSettingsLockCustomizerClockScalePct] ||
+        [key isEqualToString:kSettingsLockCustomizerXOffset] ||
+        [key isEqualToString:kSettingsLockCustomizerYOffset] ||
+        [key isEqualToString:kSettingsLockCustomizerHideQuickActions] ||
+        [key isEqualToString:kSettingsLockCustomizerHidePageDots] ||
+        [key isEqualToString:kSettingsLockCustomizerContentAlphaPct]) return kSettingsLockCustomizerEnabled;
+    if ([key isEqualToString:kSettingsFreePlacementEnabled] ||
+        [key isEqualToString:kSettingsFreePlacementHorizontalStep] ||
+        [key isEqualToString:kSettingsFreePlacementVerticalStep] ||
+        [key isEqualToString:kSettingsFreePlacementStaggerPct]) return kSettingsFreePlacementEnabled;
     return nil;
 }
 
@@ -7753,6 +7884,12 @@ static void settings_schedule_live_apply_for_key(NSString *key)
                     } else if ([masterKey isEqualToString:kSettingsWatchLayoutEnabled]) {
                         ok = [d boolForKey:kSettingsWatchLayoutEnabled] ? watchlayout_apply_in_session() : watchlayout_stop_in_session();
                         settings_mark_tweak_applied(kSettingsWatchLayoutEnabled, ok && [d boolForKey:kSettingsWatchLayoutEnabled]);
+                    } else if ([masterKey isEqualToString:kSettingsLockCustomizerEnabled]) {
+                        ok = [d boolForKey:kSettingsLockCustomizerEnabled] ? lockcustomizer_apply_in_session() : lockcustomizer_stop_in_session();
+                        settings_mark_tweak_applied(kSettingsLockCustomizerEnabled, ok && [d boolForKey:kSettingsLockCustomizerEnabled]);
+                    } else if ([masterKey isEqualToString:kSettingsFreePlacementEnabled]) {
+                        ok = [d boolForKey:kSettingsFreePlacementEnabled] ? freeplacement_apply_in_session() : freeplacement_stop_in_session();
+                        settings_mark_tweak_applied(kSettingsFreePlacementEnabled, ok && [d boolForKey:kSettingsFreePlacementEnabled]);
                     }
                     printf("[SETTINGS] live split tweak %s owner=%s result=%d\n", key.UTF8String, masterKey.UTF8String, ok);
                 }
@@ -8218,6 +8355,11 @@ void settings_register_defaults(void)
         kSettingsSBCCols:       @(kSBCDefaultCols),
         kSettingsSBCRows:       @(kSBCDefaultRows),
         kSettingsSBCHideLabels: @(kSBCDefaultHideLabels),
+        kSettingsSBCHideBadges: @NO,
+        kSettingsSBCHidePageDots: @NO,
+        kSettingsSBCHideFolderBackground: @NO,
+        kSettingsSBCHideDockBackground: @NO,
+        kSettingsSBCIconAlphaPct: @100,
 
         kSettingsPowercuffEnabled: @NO,
         kSettingsPowercuffLevel:   @"nominal",
@@ -8239,6 +8381,8 @@ void settings_register_defaults(void)
         kSettingsLayoutDockExtraHorizontal: @0,
         kSettingsLayoutHomeScalePct:        @100,
         kSettingsLayoutDockScalePct:        @100,
+        kSettingsLayoutApplyHomeControls:   @YES,
+        kSettingsLayoutApplyDockControls:   @YES,
 
         kSettingsStatBarEnabled: @NO,
         kSettingsStatBarCelsius: @NO,
@@ -8363,11 +8507,24 @@ void settings_register_defaults(void)
         kSettingsWatchLayoutEnabled: @NO,
         kSettingsWatchLayoutCompactPct: @82,
         kSettingsWatchLayoutScalePct: @88,
+        kSettingsLockCustomizerEnabled: @NO,
+        kSettingsLockCustomizerClockScalePct: @100,
+        kSettingsLockCustomizerXOffset: @0,
+        kSettingsLockCustomizerYOffset: @0,
+        kSettingsLockCustomizerHideQuickActions: @NO,
+        kSettingsLockCustomizerHidePageDots: @NO,
+        kSettingsLockCustomizerContentAlphaPct: @100,
+        kSettingsFreePlacementEnabled: @NO,
+        kSettingsFreePlacementHorizontalStep: @8,
+        kSettingsFreePlacementVerticalStep: @5,
+        kSettingsFreePlacementStaggerPct: @35,
         kSettingsBlurryBadgesEnabled: @NO,
         kSettingsBlurryBadgesRed: @59,
         kSettingsBlurryBadgesGreen: @140,
         kSettingsBlurryBadgesBlue: @255,
         kSettingsBlurryBadgesAlphaPct: @92,
+        kSettingsBlurryBadgesGrowEnabled: @YES,
+        kSettingsBlurryBadgesMaxScalePct: @160,
         kSettingsSnapperEnabled: @NO,
         kSettingsSnapperX: @44,
         kSettingsSnapperY: @160,
@@ -8471,6 +8628,8 @@ void settings_register_defaults(void)
             kSettingsBarmojiEnabled,
             kSettingsRoundedIconsEnabled,
             kSettingsWatchLayoutEnabled,
+            kSettingsLockCustomizerEnabled,
+            kSettingsFreePlacementEnabled,
             kSettingsBlurryBadgesEnabled,
             kSettingsSnapperEnabled,
             kSettingsPullOverEnabled,
@@ -8543,7 +8702,9 @@ static void settings_log_tweak_plan_details(NSUserDefaults *d, BOOL pendingOnly)
         { kSettingsBarmojiEnabled, "Barmoji", "adds the configured emoji strip overlay to SpringBoard" },
         { kSettingsRoundedIconsEnabled, "Rounded Icons", "applies a continuous corner mask to every discovered Home Screen icon" },
         { kSettingsWatchLayoutEnabled, "Watch Layout", "compacts every discovered icon page into a circular Apple Watch-style grid" },
-        { kSettingsBlurryBadgesEnabled, "BlurryBadges", "tints visible notification badges with the configured color" },
+        { kSettingsLockCustomizerEnabled, "Lock Screen Customizer", "moves and scales the live clock and optionally hides quick actions and page dots" },
+        { kSettingsFreePlacementEnabled, "Free Placement Lite", "applies configurable free-form offsets to live icons while preserving taps" },
+        { kSettingsBlurryBadgesEnabled, "Badge Studio", "tints icon badges and scales them from their live notification counts" },
         { kSettingsSnapperEnabled, "Snapper", "shows the configured crop-frame overlay" },
         { kSettingsPullOverEnabled, "PullOver", "shows the configured slide-over tray shell" },
         { kSettingsAlkalineEnabled, "Alkaline", "tints visible battery views with the configured color" },
@@ -8662,6 +8823,8 @@ static void settings_run_actions_internal(BOOL pendingOnly)
             BOOL runBarmoji = settings_barmoji_install_allowed() && settings_enabled_tweak_should_run(d, kSettingsBarmojiEnabled, springBoardPendingOnly);
             BOOL runRoundedIcons = settings_enabled_tweak_should_run(d, kSettingsRoundedIconsEnabled, springBoardPendingOnly);
             BOOL runWatchLayout = settings_enabled_tweak_should_run(d, kSettingsWatchLayoutEnabled, springBoardPendingOnly);
+            BOOL runLockCustomizer = cyanide_experimental_tweaks_available() && settings_enabled_tweak_should_run(d, kSettingsLockCustomizerEnabled, springBoardPendingOnly);
+            BOOL runFreePlacement = cyanide_experimental_tweaks_available() && settings_enabled_tweak_should_run(d, kSettingsFreePlacementEnabled, springBoardPendingOnly);
             BOOL runBlurryBadges = settings_blurrybadges_install_allowed() && settings_enabled_tweak_should_run(d, kSettingsBlurryBadgesEnabled, springBoardPendingOnly);
             BOOL runSnapper = settings_snapper_install_allowed() && settings_enabled_tweak_should_run(d, kSettingsSnapperEnabled, springBoardPendingOnly);
             BOOL runPullOver = settings_pullover_install_allowed() && settings_enabled_tweak_should_run(d, kSettingsPullOverEnabled, springBoardPendingOnly);
@@ -8682,7 +8845,7 @@ static void settings_run_actions_internal(BOOL pendingOnly)
                 settings_note_themer_stage_conflict(YES);
             }
             BOOL cleanupDisabledSpringBoardTweaks = settings_disabled_applied_springboard_cleanup_needed(d);
-            BOOL needsSpringBoardWork = runSBC || runDarkTweaks || runStatBar || runNSBar || runNiceBarLite || runRSSI || runAxonLite || runGravityLite || runLayoutExtras || runTypeBanner || runNotificationIsland || runVelvet || runCleanNC || runUnderTime || runZeppelinLite || runCleanHomeScreen || runRealCC || runCleanCC || runFUGap || runModuleSpacing || runSugarCane || runBetterCCXI || runMagma || runBetterCCIcons || runCCNoPlatterDim || runCCStatus || runHapticCC || runSecureCC || runHideLabels || runFakeClockUp || runPancake || runCylinderLite || runBarmoji || runRoundedIcons || runWatchLayout || runBlurryBadges || runSnapper || runPullOver || runAlkaline || runTweakLoader || runAppSwitcherGrid || runThemer || runSnowBoardLite || runLiveWP || runStageStrip || runFastLockXLite || runQuickLoader || runRepoTweaks || cleanupDisabledSpringBoardTweaks;
+            BOOL needsSpringBoardWork = runSBC || runDarkTweaks || runStatBar || runNSBar || runNiceBarLite || runRSSI || runAxonLite || runGravityLite || runLayoutExtras || runTypeBanner || runNotificationIsland || runVelvet || runCleanNC || runUnderTime || runZeppelinLite || runCleanHomeScreen || runRealCC || runCleanCC || runFUGap || runModuleSpacing || runSugarCane || runBetterCCXI || runMagma || runBetterCCIcons || runCCNoPlatterDim || runCCStatus || runHapticCC || runSecureCC || runHideLabels || runFakeClockUp || runPancake || runCylinderLite || runBarmoji || runRoundedIcons || runWatchLayout || runLockCustomizer || runFreePlacement || runBlurryBadges || runSnapper || runPullOver || runAlkaline || runTweakLoader || runAppSwitcherGrid || runThemer || runSnowBoardLite || runLiveWP || runStageStrip || runFastLockXLite || runQuickLoader || runRepoTweaks || cleanupDisabledSpringBoardTweaks;
             BOOL runSandboxEscape = [d boolForKey:kSettingsRunSandboxEscape] && (!pendingOnly || needsSpringBoardWork);
             // TypeBanner prewarms its hidden SpringBoard window during Apply
             // and reuses the open SpringBoard session for text-only updates.
@@ -8738,6 +8901,8 @@ static void settings_run_actions_internal(BOOL pendingOnly)
             if (runBarmoji) total++;
             if (runRoundedIcons) total++;
             if (runWatchLayout) total++;
+            if (runLockCustomizer) total++;
+            if (runFreePlacement) total++;
             if (runBlurryBadges) total++;
             if (runSnapper) total++;
             if (runPullOver) total++;
@@ -8786,6 +8951,8 @@ static void settings_run_actions_internal(BOOL pendingOnly)
             if (runBarmoji) [enabledTweaks addObject:@"barmoji"];
             if (runRoundedIcons) [enabledTweaks addObject:@"rounded-icons"];
             if (runWatchLayout) [enabledTweaks addObject:@"watch-layout"];
+            if (runLockCustomizer) [enabledTweaks addObject:@"lock-customizer"];
+            if (runFreePlacement) [enabledTweaks addObject:@"free-placement-lite"];
             if (runBlurryBadges) [enabledTweaks addObject:@"blurrybadges"];
             if (runSnapper) [enabledTweaks addObject:@"snapper"];
             if (runPullOver) [enabledTweaks addObject:@"pullover"];
@@ -9387,13 +9554,29 @@ static void settings_run_actions_internal(BOOL pendingOnly)
                         log_user("%s Watch Layout %s.\n", ok ? "[OK]" : "[WARN]", ok ? "active with tappable circular icons" : "found no icon views");
                     }
 
+                    if (runLockCustomizer) {
+                        settings_progress(&step, total, "Applying Lock Screen Customizer");
+                        settings_log_split_tweak_config(kSettingsLockCustomizerEnabled, d, "RUN");
+                        bool ok = lockcustomizer_apply_in_session();
+                        settings_mark_tweak_applied(kSettingsLockCustomizerEnabled, ok && [d boolForKey:kSettingsLockCustomizerEnabled]);
+                        log_user("%s Lock Screen Customizer %s.\n", ok ? "[OK]" : "[WARN]", ok ? "updated live clock and controls" : "found no matching lock-screen views yet");
+                    }
+
+                    if (runFreePlacement) {
+                        settings_progress(&step, total, "Applying Free Placement Lite");
+                        settings_log_split_tweak_config(kSettingsFreePlacementEnabled, d, "RUN");
+                        bool ok = freeplacement_apply_in_session();
+                        settings_mark_tweak_applied(kSettingsFreePlacementEnabled, ok && [d boolForKey:kSettingsFreePlacementEnabled]);
+                        log_user("%s Free Placement Lite %s.\n", ok ? "[OK]" : "[WARN]", ok ? "moved discovered live icons and preserved taps" : "found no icon views");
+                    }
+
                     if (runBlurryBadges) {
-                        settings_progress(&step, total, "Applying BlurryBadges");
+                        settings_progress(&step, total, "Applying Badge Studio");
                         settings_log_split_tweak_config(kSettingsBlurryBadgesEnabled, d, "RUN");
                         bool ok = blurrybadges_apply_in_session();
                         settings_mark_tweak_applied(kSettingsBlurryBadgesEnabled, ok && [d boolForKey:kSettingsBlurryBadgesEnabled]);
-                        printf("[SETTINGS] BlurryBadges result=%d\n", ok);
-                        log_user("%s BlurryBadges %s.\n", ok ? "[OK]" : "[WARN]", ok ? "active" : "did not find badge views yet");
+                        printf("[SETTINGS] Badge Studio result=%d\n", ok);
+                        log_user("%s Badge Studio %s.\n", ok ? "[OK]" : "[WARN]", ok ? "tint and count growth active" : "did not find icon badge views yet");
                         cyanide_upload_log_milestone(ok ? @"blurrybadges-applied" : @"blurrybadges-failed");
                     }
 
@@ -9703,6 +9886,8 @@ typedef NS_ENUM(NSInteger, SettingsSection) {
     SectionHideHomeBar,
     SectionRoundedIcons,
     SectionWatchLayout,
+    SectionLockCustomizer,
+    SectionFreePlacement,
     SectionCount,
 };
 
@@ -10475,6 +10660,13 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
         @{ @"kind": @"stepper", @"key": kSettingsSBCCols,       @"title": @"Home columns", @"min": @3, @"max": @7, @"default": @(kSBCDefaultCols) },
         @{ @"kind": @"stepper", @"key": kSettingsSBCRows,       @"title": @"Home rows", @"min": @4, @"max": @8, @"default": @(kSBCDefaultRows) },
         @{ @"kind": @"toggle",  @"key": kSettingsSBCHideLabels, @"title": @"Hide icon labels" },
+        @{ @"kind": @"toggle",  @"key": kSettingsSBCHideBadges, @"title": @"Hide icon badges" },
+        @{ @"kind": @"toggle",  @"key": kSettingsSBCHidePageDots, @"title": @"Hide page dots" },
+        @{ @"kind": @"toggle",  @"key": kSettingsSBCHideFolderBackground, @"title": @"Hide folder backgrounds" },
+        @{ @"kind": @"toggle",  @"key": kSettingsSBCHideDockBackground, @"title": @"Hide dock background" },
+        @{ @"kind": @"slider", @"key": kSettingsSBCIconAlphaPct, @"title": @"Icon opacity", @"min": @20, @"max": @100, @"step": @1, @"default": @100, @"unit": @"%" },
+        @{ @"kind": @"info", @"title": @"Atria Lite controls", @"subtitle": @"These appearance controls are part of SBCustomizer and scan every discovered Home Screen window." },
+        @{ @"kind": @"button", @"title": @"View Detailed Activity Log", @"action": @"view-log" },
         @{ @"kind": @"button",  @"title": @"Reset to Defaults" },
     ];
 }
@@ -10551,6 +10743,8 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
 - (NSArray<NSDictionary *> *)darkSwordTweakRows
 {
     return @[
+        @{ @"kind": @"toggle", @"key": kSettingsLayoutApplyHomeControls, @"title": @"Apply Home Screen controls" },
+        @{ @"kind": @"toggle", @"key": kSettingsLayoutApplyDockControls, @"title": @"Apply Dock controls" },
         @{ @"kind": @"info", @"title": @"Runtime behavior",
            @"subtitle": @"The installed DarkSword patch changes SpringBoard in memory. A respring restores stock behavior." },
         @{ @"kind": @"button", @"title": @"View Detailed Activity Log", @"action": @"view-log" },
@@ -10586,6 +10780,8 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
            @"title": @"Home icon scale",   @"min": @25, @"max": @250, @"step": @1, @"unit": @"%", @"default": @100 },
         @{ @"kind": @"number", @"key": kSettingsLayoutDockScalePct,
            @"title": @"Dock icon scale",   @"min": @25, @"max": @250, @"step": @1, @"unit": @"%", @"default": @100 },
+        @{ @"kind": @"info", @"title": @"Atria Lite groups", @"subtitle": @"Home and Dock controls can now be toggled independently without losing the configured values." },
+        @{ @"kind": @"button", @"title": @"View Detailed Activity Log", @"action": @"view-log" },
     ];
 }
 
@@ -10920,6 +11116,33 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
     ];
 }
 
+- (NSArray<NSDictionary *> *)lockCustomizerRows
+{
+    return @[
+        @{ @"kind": @"toggle", @"key": kSettingsLockCustomizerEnabled, @"title": @"Enable Lock Screen Customizer" },
+        @{ @"kind": @"slider", @"key": kSettingsLockCustomizerClockScalePct, @"title": @"Clock size", @"min": @50, @"max": @180, @"step": @1, @"default": @100, @"unit": @"%" },
+        @{ @"kind": @"slider", @"key": kSettingsLockCustomizerXOffset, @"title": @"Clock horizontal offset", @"min": @-160, @"max": @160, @"step": @1, @"default": @0, @"unit": @"pt" },
+        @{ @"kind": @"slider", @"key": kSettingsLockCustomizerYOffset, @"title": @"Clock vertical offset", @"min": @-300, @"max": @300, @"step": @1, @"default": @0, @"unit": @"pt" },
+        @{ @"kind": @"slider", @"key": kSettingsLockCustomizerContentAlphaPct, @"title": @"Clock opacity", @"min": @20, @"max": @100, @"step": @1, @"default": @100, @"unit": @"%" },
+        @{ @"kind": @"toggle", @"key": kSettingsLockCustomizerHideQuickActions, @"title": @"Hide camera and flashlight" },
+        @{ @"kind": @"toggle", @"key": kSettingsLockCustomizerHidePageDots, @"title": @"Hide lock-screen page dots" },
+        @{ @"kind": @"info", @"title": @"Safe restore", @"subtitle": @"Uninstall restores stock transforms and visibility for all matched live lock-screen views." },
+        @{ @"kind": @"button", @"title": @"View Detailed Activity Log", @"action": @"view-log" },
+    ];
+}
+
+- (NSArray<NSDictionary *> *)freePlacementRows
+{
+    return @[
+        @{ @"kind": @"toggle", @"key": kSettingsFreePlacementEnabled, @"title": @"Enable Free Placement Lite" },
+        @{ @"kind": @"slider", @"key": kSettingsFreePlacementHorizontalStep, @"title": @"Horizontal offset step", @"min": @-40, @"max": @40, @"step": @1, @"default": @8, @"unit": @"pt" },
+        @{ @"kind": @"slider", @"key": kSettingsFreePlacementVerticalStep, @"title": @"Vertical offset step", @"min": @-40, @"max": @40, @"step": @1, @"default": @5, @"unit": @"pt" },
+        @{ @"kind": @"slider", @"key": kSettingsFreePlacementStaggerPct, @"title": @"Alternate-icon stagger", @"min": @0, @"max": @100, @"step": @1, @"default": @35, @"unit": @"%" },
+        @{ @"kind": @"info", @"title": @"First port", @"subtitle": @"Builds a configurable free-form offset pattern across all discovered live icons. Taps work; per-icon dragging is not included yet." },
+        @{ @"kind": @"button", @"title": @"View Detailed Activity Log", @"action": @"view-log" },
+    ];
+}
+
 - (NSArray<NSDictionary *> *)blurrybadgesRows
 {
     return @[
@@ -10928,6 +11151,10 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
         @{ @"kind": @"slider", @"key": kSettingsBlurryBadgesGreen, @"title": @"Green", @"min": @0, @"max": @255, @"step": @1, @"default": @140 },
         @{ @"kind": @"slider", @"key": kSettingsBlurryBadgesBlue, @"title": @"Blue", @"min": @0, @"max": @255, @"step": @1, @"default": @255 },
         @{ @"kind": @"slider", @"key": kSettingsBlurryBadgesAlphaPct, @"title": @"Tint alpha", @"min": @10, @"max": @100, @"step": @1, @"default": @92, @"unit": @"%" },
+        @{ @"kind": @"toggle", @"key": kSettingsBlurryBadgesGrowEnabled, @"title": @"Grow badges with notification count" },
+        @{ @"kind": @"slider", @"key": kSettingsBlurryBadgesMaxScalePct, @"title": @"Maximum badge size", @"min": @100, @"max": @220, @"step": @1, @"default": @160, @"unit": @"%" },
+        @{ @"kind": @"info", @"title": @"Growing Badges+", @"subtitle": @"Reads each live badge value and scales larger counts toward the configured maximum. All discovered SpringBoard windows are scanned." },
+        @{ @"kind": @"button", @"title": @"View Detailed Activity Log", @"action": @"view-log" },
     ];
 }
 
@@ -11594,6 +11821,8 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
         case SectionHideHomeBar: return self.hideHomeBarRows;
         case SectionRoundedIcons: return self.roundedIconsRows;
         case SectionWatchLayout: return self.watchLayoutRows;
+        case SectionLockCustomizer: return cyanide_experimental_tweaks_available() ? self.lockCustomizerRows : @[];
+        case SectionFreePlacement: return cyanide_experimental_tweaks_available() ? self.freePlacementRows : @[];
         default: return @[];
     }
 }
@@ -11665,6 +11894,8 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
 #endif
         @{ @"title": @"Rounded Icons", @"icon": @"app.fill", @"color": [UIColor systemBlueColor], @"section": @(SectionRoundedIcons) },
         @{ @"title": @"Watch Layout", @"icon": @"circle.grid.3x3.fill", @"color": [UIColor systemGreenColor], @"section": @(SectionWatchLayout) },
+        @{ @"title": @"Lock Screen Customizer", @"icon": @"lock.rectangle", @"color": [UIColor systemIndigoColor], @"section": @(SectionLockCustomizer), @"experimental": @YES },
+        @{ @"title": @"Free Placement Lite", @"icon": @"move.3d", @"color": [UIColor systemPinkColor], @"section": @(SectionFreePlacement), @"experimental": @YES },
     ];
 }
 
@@ -11918,8 +12149,14 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
     if (s == SectionWatchLayout) {
         return @"Compacts every discovered Home Screen page into a circular Apple Watch-style layout. Refreshes use saved stock frames, so the layout does not keep shrinking and can be restored.";
     }
+    if (s == SectionLockCustomizer) {
+        return @"Resizes and repositions the live Lock Screen clock and optionally hides quick actions or page dots. Changes are session-based, logged, and restored on uninstall.";
+    }
+    if (s == SectionFreePlacement) {
+        return @"Applies a configurable staggered offset pattern to every discovered live Home Screen icon. Icons remain pressable and saved stock frames are restored on uninstall; per-icon dragging is not included yet.";
+    }
     if (s == SectionBlurryBadges) {
-        return @"Tints visible notification badge views for a softer, colorized badge look.";
+        return @"Badge Studio combines configurable BlurryBadges tinting with Growing Badges+ scaling based on each live notification count.";
     }
     if (s == SectionSnapper) {
         return @"Shows a first-pass crop frame overlay for Snapper-style pinned screenshots.";

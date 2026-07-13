@@ -53,7 +53,8 @@ set intentionally modifies persistent files and is clearly marked in the app.
 
 | Area | Highlights |
 | --- | --- |
-| **Home Screen** | SBCustomizer, Gravity Lite, Cylinder Lite, Rounded Icons, Watch Layout, labels, badges, themes, and layout controls |
+| **Home Screen** | SBCustomizer with Atria Lite controls, Gravity Lite, Cylinder Lite, Rounded Icons, Watch Layout, Free Placement Lite, Badge Studio, themes, and layout controls |
+| **Lock Screen** | Lock Screen Customizer for clock placement, scale, opacity, quick actions, and page dots |
 | **Status Bar** | StatBar, NSBar, NiceBar Lite, Signal Readouts, carrier text, and live system information |
 | **Control Center** | Layout, spacing, appearance, status, haptics, and security experiments |
 | **Theming** | Cyanide Themer, SnowBoard Lite imports, icon styles, and LiveWP |
@@ -66,6 +67,12 @@ set intentionally modifies persistent files and is clearly marked in the app.
   Home Screen icon without requiring a theme.
 - **Watch Layout** creates a compact Apple Watch-style grid with circular,
   pressable icons and reversible layout changes.
+- **Free Placement Lite** adds configurable staggered icon offsets while keeping
+  every live icon pressable and restoring saved stock frames on uninstall.
+- **Badge Studio** combines BlurryBadges tinting with notification-count-based
+  Growing Badges+ scaling.
+- **Lock Screen Customizer** moves and scales the live clock and can hide quick
+  actions or page dots, with stock-state cleanup and detailed activity logs.
 - **Gravity Lite** runs physics on live icon views across discovered pages so
   icons remain interactive.
 - **Cylinder Lite** applies perspective depth across the Home Screen while

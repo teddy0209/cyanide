@@ -139,7 +139,7 @@ void CYSuccessHaptic(void)
 
 void CYAnimateEntrance(UIView *view)
 {
-    if (!view || [UIAccessibility isReduceMotionEnabled] || objc_getAssociatedObject(view, kCYEntranceAnimatedKey)) return;
+    if (!view || UIAccessibilityIsReduceMotionEnabled() || objc_getAssociatedObject(view, kCYEntranceAnimatedKey)) return;
     objc_setAssociatedObject(view, kCYEntranceAnimatedKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     view.alpha = 0.0;
     view.transform = CGAffineTransformMakeTranslation(0.0, 10.0);

@@ -18,43 +18,79 @@ static uint64_t gWatchIcons[512] = {0};
 static ISRect gWatchFrames[512] = {0};
 static int gWatchIconCount = 0;
 
-static void is_class_name(uint64_t obj, char *out, size_t outLen)
+typedef struct {
+    uint64_t cls;
+    bool readOK;
+    char name[160];
+} ISClassNameEntry;
+
+typedef struct {
+    ISClassNameEntry entries[128];
+    int count;
+    int readFailures;
+} ISClassNameCache;
+
+static bool is_class_name(uint64_t obj, char *out, size_t outLen, ISClassNameCache *cache)
 {
-    if (!out || outLen == 0) return;
+    if (!out || outLen == 0) return false;
     out[0] = '\0';
-    if (!r_is_objc_ptr(obj)) return;
+    if (!r_is_objc_ptr(obj)) return false;
     uint64_t cls = r_dlsym_call(R_TIMEOUT, "object_getClass", obj, 0, 0, 0, 0, 0, 0, 0);
-    uint64_t name = r_is_objc_ptr(cls)
-        ? r_dlsym_call(R_TIMEOUT, "class_getName", cls, 0, 0, 0, 0, 0, 0, 0) : 0;
-    if (!name) return;
-    remote_read(name, out, outLen - 1);
-    out[outLen - 1] = '\0';
-}
+    if (!r_is_objc_ptr(cls)) return false;
 
-static bool is_inside_app_library(uint64_t view)
-{
-    for (int depth = 0; r_is_objc_ptr(view) && depth < 12; depth++) {
-        uint64_t cls = r_dlsym_call(R_TIMEOUT, "object_getClass", view, 0, 0, 0, 0, 0, 0, 0);
-        uint64_t name = r_is_objc_ptr(cls)
-            ? r_dlsym_call(R_TIMEOUT, "class_getName", cls, 0, 0, 0, 0, 0, 0, 0) : 0;
-        char buffer[160] = {0};
-        if (name) remote_read(name, buffer, sizeof(buffer) - 1);
-        if (strstr(buffer, "SBHLibrary") || strstr(buffer, "AppLibrary") ||
-            strstr(buffer, "LibraryPod") || strstr(buffer, "LibraryCategory")) return true;
-        view = r_msg2_main(view, "superview", 0, 0, 0, 0);
+    if (cache) {
+        for (int i = 0; i < cache->count; i++) {
+            if (cache->entries[i].cls != cls) continue;
+            if (!cache->entries[i].readOK) return false;
+            strncpy(out, cache->entries[i].name, outLen - 1);
+            out[outLen - 1] = '\0';
+            return out[0] != '\0';
+        }
     }
-    return false;
+
+    uint64_t name = r_dlsym_call(R_TIMEOUT, "class_getName", cls, 0, 0, 0, 0, 0, 0, 0);
+    uint64_t remoteLength = name
+        ? r_dlsym_call(R_TIMEOUT, "strlen", name, 0, 0, 0, 0, 0, 0, 0) : 0;
+    size_t readLength = (size_t)remoteLength;
+    if (readLength >= outLen) readLength = outLen - 1;
+    uint64_t heapName = readLength
+        ? r_dlsym_call(R_TIMEOUT, "strdup", name, 0, 0, 0, 0, 0, 0, 0) : 0;
+    bool ok = heapName && remote_read(heapName, out, readLength);
+    if (heapName) r_free(heapName);
+    out[readLength] = '\0';
+
+    if (cache) {
+        if (!ok) cache->readFailures++;
+        if (cache->count < (int)(sizeof(cache->entries) / sizeof(cache->entries[0]))) {
+            ISClassNameEntry *entry = &cache->entries[cache->count++];
+            entry->cls = cls;
+            entry->readOK = ok && out[0] != '\0';
+            if (entry->readOK) {
+                strncpy(entry->name, out, sizeof(entry->name) - 1);
+                entry->name[sizeof(entry->name) - 1] = '\0';
+            }
+        }
+    }
+    return ok && out[0] != '\0';
 }
 
-static bool is_inside_dock(uint64_t view)
+static void is_icon_context(uint64_t view, ISClassNameCache *cache,
+                            bool *insideAppLibrary, bool *insideDock)
 {
+    if (insideAppLibrary) *insideAppLibrary = false;
+    if (insideDock) *insideDock = false;
     for (int depth = 0; r_is_objc_ptr(view) && depth < 12; depth++) {
         char name[160] = {0};
-        is_class_name(view, name, sizeof(name));
-        if (strstr(name, "Dock") || strstr(name, "FloatingDock")) return true;
+        if (is_class_name(view, name, sizeof(name), cache)) {
+            bool library = strstr(name, "SBHLibrary") || strstr(name, "AppLibrary") ||
+                           strstr(name, "LibraryPod") || strstr(name, "LibraryCategory");
+            bool dock = strstr(name, "Dock") || strstr(name, "FloatingDock");
+            if (insideAppLibrary) *insideAppLibrary = library;
+            if (insideDock) *insideDock = dock;
+            if (library || dock) return;
+        }
         view = r_msg2_main(view, "superview", 0, 0, 0, 0);
     }
-    return false;
 }
 
 static bool is_get_rect(uint64_t obj, const char *selector, ISRect *out)
@@ -168,14 +204,17 @@ bool watchlayout_apply_in_session(void)
     int count = r_is_objc_ptr(iconClass) ? sb_collect_views_in_windows(iconClass, icons, 512) : 0;
     uint64_t validIcons[512] = {0}, parents[512] = {0};
     ISRect original[512] = {{0}};
+    ISClassNameCache classCache = {0};
     int validCount = 0, skippedLibrary = 0, skippedDock = 0, invalidGeometry = 0;
     double compact = (double)gWatchCompactPercent / 100.0;
     double scale = (double)gWatchScalePercent / 100.0;
     ISAffineTransform transform = { scale, 0, 0, scale, 0, 0 };
     for (int i = 0; i < count; i++) {
         uint64_t icon = icons[i];
-        if (is_inside_app_library(icon)) { skippedLibrary++; continue; }
-        if (is_inside_dock(icon)) { skippedDock++; continue; }
+        bool insideAppLibrary = false, insideDock = false;
+        is_icon_context(icon, &classCache, &insideAppLibrary, &insideDock);
+        if (insideAppLibrary) { skippedLibrary++; continue; }
+        if (insideDock) { skippedDock++; continue; }
         uint64_t parent = r_is_objc_ptr(icon) ? r_msg2_main(icon, "superview", 0, 0, 0, 0) : 0;
         ISRect frame, bounds;
         if (!r_is_objc_ptr(parent) || !is_get_rect(icon, "frame", &frame) ||
@@ -301,9 +340,10 @@ bool watchlayout_apply_in_session(void)
     }
     printf("[WATCHLAYOUT] geometry=honeycomb compact=%d%% scale=%d%% icons=%d pages=%d taps=preserved\n",
            gWatchCompactPercent, gWatchScalePercent, changed, pageCount);
-    log_user("[WATCHLAYOUT][APPLY] geometry=honeycomb discovered=%d eligible=%d changed=%d pages=%d skippedAppLibrary=%d skippedDock=%d invalidGeometry=%d savedStockFrames=%d tapsPreserved=1 result=%s.\n",
+    log_user("[WATCHLAYOUT][APPLY] geometry=honeycomb discovered=%d eligible=%d changed=%d pages=%d skippedAppLibrary=%d skippedDock=%d invalidGeometry=%d uniqueAncestorClasses=%d classNameReadFailures=%d savedStockFrames=%d tapsPreserved=1 result=%s.\n",
              count, validCount, changed, pageCount, skippedLibrary, skippedDock,
-             invalidGeometry, gWatchIconCount, changed > 0 ? "active" : "no eligible icons");
+             invalidGeometry, classCache.count, classCache.readFailures, gWatchIconCount,
+             changed > 0 ? "active" : "no eligible icons");
     return changed > 0;
 }
 

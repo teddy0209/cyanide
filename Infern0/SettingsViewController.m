@@ -1117,6 +1117,21 @@ static NSString * const kSettingsAlkalineGreen = @"AlkalineGreen";
 static NSString * const kSettingsAlkalineBlue = @"AlkalineBlue";
 static NSString * const kSettingsAlkalineAlphaPct = @"AlkalineAlphaPct";
 NSString * const kSettingsTweakLoaderEnabled = @"TweakLoaderEnabled";
+NSString * const kSettingsScrollingDockEnabled = @"ScrollingDockEnabled";
+NSString * const kSettingsNiuBiBarEnabled = @"NiuBiBarEnabled";
+NSString * const kSettingsVolSkipEnabled = @"VolSkipEnabled";
+NSString * const kSettingsFlowLiteEnabled = @"FlowLiteEnabled";
+NSString * const kSettingsAppProfilesEnabled = @"AppProfilesEnabled";
+NSString * const kSettingsChargeFXEnabled = @"ChargeFXEnabled";
+NSString * const kSettingsRotateProEnabled = @"RotateProEnabled";
+NSString * const kSettingsKeepEyeEnabled = @"KeepEyeEnabled";
+NSString * const kSettingsLastLookEnabled = @"LastLookEnabled";
+static NSString * const kSettingsCommunityDockVisible = @"CommunityDockVisible";
+static NSString * const kSettingsCommunityBarThickness = @"CommunityBarThickness";
+static NSString * const kSettingsCommunityProfileBrightness = @"CommunityProfileBrightness";
+static NSString * const kSettingsCommunityChargeThickness = @"CommunityChargeThickness";
+static NSString * const kSettingsCommunityHUDYOffset = @"CommunityHUDYOffset";
+static NSString * const kSettingsCommunityLastLookAlpha = @"CommunityLastLookAlpha";
 
 static NSString * const kSettingsFastLockXLiteRetryInterval = @"FastLockXLiteRetryInterval";
 static NSString * const kSettingsHideHomeBarHidden = @"HideHomeBarHidden";
@@ -1662,6 +1677,19 @@ static bool settings_stop_pullover_registered(BOOL springboardWillDie)
     return pullover_stop_in_session();
 }
 
+#define SETTINGS_COMMUNITY_STOP_FN(fnName, portValue) \
+static bool fnName(BOOL springboardWillDie) { (void)springboardWillDie; return communityports_stop(portValue); }
+SETTINGS_COMMUNITY_STOP_FN(settings_stop_scrollingdock_registered, CommunityPortScrollingDock)
+SETTINGS_COMMUNITY_STOP_FN(settings_stop_niubibar_registered, CommunityPortNiuBiBar)
+SETTINGS_COMMUNITY_STOP_FN(settings_stop_volskip_registered, CommunityPortVolSkip)
+SETTINGS_COMMUNITY_STOP_FN(settings_stop_flowlite_registered, CommunityPortFlow)
+SETTINGS_COMMUNITY_STOP_FN(settings_stop_appprofiles_registered, CommunityPortAppProfiles)
+SETTINGS_COMMUNITY_STOP_FN(settings_stop_chargefx_registered, CommunityPortChargeFX)
+SETTINGS_COMMUNITY_STOP_FN(settings_stop_rotatepro_registered, CommunityPortRotatePro)
+SETTINGS_COMMUNITY_STOP_FN(settings_stop_keepeye_registered, CommunityPortKeepEye)
+SETTINGS_COMMUNITY_STOP_FN(settings_stop_lastlook_registered, CommunityPortLastLook)
+#undef SETTINGS_COMMUNITY_STOP_FN
+
 static bool settings_stop_alkaline_registered(BOOL springboardWillDie)
 {
     (void)springboardWillDie;
@@ -1742,10 +1770,20 @@ static void settings_each_springboard_cleanup_entry(void (^block)(const Settings
         { kSettingsBlurryBadgesEnabled, "BlurryBadges", NULL, settings_stop_blurrybadges_registered, blurrybadges_forget_remote_state, NULL, YES, YES },
         { kSettingsSnapperEnabled, "Snapper", NULL, settings_stop_snapper_registered, snapper_forget_remote_state, NULL, YES, YES },
         { kSettingsPullOverEnabled, "PullOver", NULL, settings_stop_pullover_registered, pullover_forget_remote_state, NULL, YES, YES },
+        { kSettingsScrollingDockEnabled, "Scrolling Dock Lite", NULL, settings_stop_scrollingdock_registered, NULL, NULL, YES, YES },
+        { kSettingsNiuBiBarEnabled, "NiuBiBar Lite", NULL, settings_stop_niubibar_registered, NULL, NULL, YES, YES },
+        { kSettingsVolSkipEnabled, "VolSkip Lite", NULL, settings_stop_volskip_registered, NULL, NULL, YES, YES },
+        { kSettingsFlowLiteEnabled, "Flow Lite", NULL, settings_stop_flowlite_registered, NULL, NULL, YES, YES },
+        { kSettingsAppProfilesEnabled, "App Profiles Lite", NULL, settings_stop_appprofiles_registered, NULL, NULL, YES, YES },
+        { kSettingsChargeFXEnabled, "ChargeFX Lite", NULL, settings_stop_chargefx_registered, NULL, NULL, YES, YES },
+        { kSettingsRotateProEnabled, "RotatePro Lite", NULL, settings_stop_rotatepro_registered, NULL, NULL, YES, YES },
+        { kSettingsKeepEyeEnabled, "KeepEye HUD", NULL, settings_stop_keepeye_registered, NULL, NULL, YES, YES },
+        { kSettingsLastLookEnabled, "LastLook Lite", NULL, settings_stop_lastlook_registered, NULL, NULL, YES, YES },
         { kSettingsAlkalineEnabled, "Alkaline", NULL, settings_stop_alkaline_registered, alkaline_forget_remote_state, NULL, YES, YES },
         { kSettingsTweakLoaderEnabled, "TweakLoader", NULL, settings_stop_tweakloader_registered, tweakloader_forget_remote_state, NULL, YES, YES },
         { kSettingsQuickLoaderEnabled, "QuickLoader", NULL, settings_stop_quickloader_registered, NULL, NULL, YES, YES },
         { kSettingsRepoTweaksEnabled, "RepoTweaks", NULL, settings_stop_repotweaks_registered, NULL, NULL, YES, YES },
+        { nil, "Community Ports state", NULL, NULL, communityports_forget_remote_state, NULL, NO, NO },
         { nil, "Kill All Apps", NULL, NULL, killallapps_forget_remote_state, NULL, NO, NO },
     };
     size_t count = sizeof(entries) / sizeof(entries[0]);
@@ -5912,7 +5950,11 @@ static BOOL settings_visual_refresh_enabled(NSUserDefaults *d)
            [d boolForKey:kSettingsWatchLayoutEnabled] ||
            [d boolForKey:kSettingsAppLibraryStudioEnabled] ||
            [d boolForKey:kSettingsLockCustomizerEnabled] ||
-           [d boolForKey:kSettingsFreePlacementEnabled];
+           [d boolForKey:kSettingsFreePlacementEnabled] ||
+           [d boolForKey:kSettingsFlowLiteEnabled] ||
+           [d boolForKey:kSettingsAppProfilesEnabled] ||
+           [d boolForKey:kSettingsChargeFXEnabled] ||
+           [d boolForKey:kSettingsLastLookEnabled];
 }
 
 static void settings_visual_refresh_mark_if_ready(NSString *key, bool ready)
@@ -5960,6 +6002,14 @@ static void settings_visual_refresh_tick(NSUserDefaults *d, BOOL fullScan)
         settings_visual_refresh_mark_if_ready(kSettingsLockCustomizerEnabled, lockcustomizer_apply_in_session());
     if (fullScan && [d boolForKey:kSettingsFreePlacementEnabled])
         settings_visual_refresh_mark_if_ready(kSettingsFreePlacementEnabled, freeplacement_apply_in_session());
+    if (fullScan && [d boolForKey:kSettingsFlowLiteEnabled])
+        settings_visual_refresh_mark_if_ready(kSettingsFlowLiteEnabled, communityports_apply(CommunityPortFlow));
+    if (fullScan && [d boolForKey:kSettingsAppProfilesEnabled])
+        settings_visual_refresh_mark_if_ready(kSettingsAppProfilesEnabled, communityports_apply(CommunityPortAppProfiles));
+    if (fullScan && [d boolForKey:kSettingsChargeFXEnabled])
+        settings_visual_refresh_mark_if_ready(kSettingsChargeFXEnabled, communityports_apply(CommunityPortChargeFX));
+    if (fullScan && [d boolForKey:kSettingsLastLookEnabled])
+        settings_visual_refresh_mark_if_ready(kSettingsLastLookEnabled, communityports_apply(CommunityPortLastLook));
 }
 
 static void settings_start_visual_refresh_live_loop(void)
@@ -6602,6 +6652,15 @@ static void settings_configure_control_center_tweaks(NSUserDefaults *d)
                       (int)[d integerForKey:kSettingsBarmojiWidthPct],
                       (int)[d integerForKey:kSettingsBarmojiFontSize],
                       (int)[d integerForKey:kSettingsBarmojiBackgroundAlphaPct]);
+    barmoji_configure_shared_snippets([d stringForKey:kSettingsCopypastaSnippet1].UTF8String,
+                                      [d stringForKey:kSettingsCopypastaSnippet2].UTF8String,
+                                      [d stringForKey:kSettingsCopypastaSnippet3].UTF8String);
+    communityports_configure((int)[d integerForKey:kSettingsCommunityDockVisible],
+                             (int)[d integerForKey:kSettingsCommunityBarThickness],
+                             (int)[d integerForKey:kSettingsCommunityProfileBrightness],
+                             (int)[d integerForKey:kSettingsCommunityChargeThickness],
+                             (int)[d integerForKey:kSettingsCommunityHUDYOffset],
+                             (int)[d integerForKey:kSettingsCommunityLastLookAlpha]);
     blurrybadges_configure((int)[d integerForKey:kSettingsBlurryBadgesRed],
                            (int)[d integerForKey:kSettingsBlurryBadgesGreen],
                            (int)[d integerForKey:kSettingsBlurryBadgesBlue],
@@ -7381,6 +7440,28 @@ static NSString *settings_resolve_icon_layout_conflict(NSUserDefaults *d, NSStri
     return disabledKey;
 }
 
+static bool settings_apply_community_ports(NSUserDefaults *d);
+static BOOL settings_community_ports_should_run(NSUserDefaults *d, BOOL pendingOnly);
+
+static BOOL settings_key_is_community_port(NSString *key)
+{
+    return [key isEqualToString:kSettingsScrollingDockEnabled] ||
+           [key isEqualToString:kSettingsNiuBiBarEnabled] ||
+           [key isEqualToString:kSettingsVolSkipEnabled] ||
+           [key isEqualToString:kSettingsFlowLiteEnabled] ||
+           [key isEqualToString:kSettingsAppProfilesEnabled] ||
+           [key isEqualToString:kSettingsChargeFXEnabled] ||
+           [key isEqualToString:kSettingsRotateProEnabled] ||
+           [key isEqualToString:kSettingsKeepEyeEnabled] ||
+           [key isEqualToString:kSettingsLastLookEnabled] ||
+           [key isEqualToString:kSettingsCommunityDockVisible] ||
+           [key isEqualToString:kSettingsCommunityBarThickness] ||
+           [key isEqualToString:kSettingsCommunityProfileBrightness] ||
+           [key isEqualToString:kSettingsCommunityChargeThickness] ||
+           [key isEqualToString:kSettingsCommunityHUDYOffset] ||
+           [key isEqualToString:kSettingsCommunityLastLookAlpha];
+}
+
 static void settings_schedule_live_apply_for_key(NSString *key)
 {
     if (settings_cleanup_in_progress()) {
@@ -7399,6 +7480,21 @@ static void settings_schedule_live_apply_for_key(NSString *key)
     if (([key isEqualToString:kSettingsWatchLayoutEnabled] ||
          [key isEqualToString:kSettingsFreePlacementEnabled]) && [d boolForKey:key]) {
         layoutKeyToStop = settings_resolve_icon_layout_conflict(d, key);
+    }
+    if (settings_key_is_community_port(key)) {
+        if (!g_springboard_rc_ready) {
+            if (settings_key_affects_package_state(key)) settings_mark_tweak_applied(key, NO);
+            settings_notify_package_queue_changed_async();
+            return;
+        }
+        dispatch_async(dispatch_get_global_queue(0, 0), ^{
+            @synchronized (settings_rc_lock()) {
+                if (!settings_cleanup_in_progress() && g_springboard_rc_ready)
+                    (void)settings_apply_community_ports(d);
+            }
+            settings_notify_package_queue_changed_async();
+        });
+        return;
     }
     if (settings_key_is_location_sim(key)) {
         BOOL locsimStarted = [d boolForKey:kSettingsLocationSimStarted];
@@ -8683,6 +8779,21 @@ void settings_register_defaults(void)
         kSettingsAlkalineBlue: @115,
         kSettingsAlkalineAlphaPct: @100,
         kSettingsTweakLoaderEnabled: @NO,
+        kSettingsScrollingDockEnabled: @NO,
+        kSettingsNiuBiBarEnabled: @NO,
+        kSettingsVolSkipEnabled: @NO,
+        kSettingsFlowLiteEnabled: @NO,
+        kSettingsAppProfilesEnabled: @NO,
+        kSettingsChargeFXEnabled: @NO,
+        kSettingsRotateProEnabled: @NO,
+        kSettingsKeepEyeEnabled: @NO,
+        kSettingsLastLookEnabled: @NO,
+        kSettingsCommunityDockVisible: @5,
+        kSettingsCommunityBarThickness: @5,
+        kSettingsCommunityProfileBrightness: @82,
+        kSettingsCommunityChargeThickness: @5,
+        kSettingsCommunityHUDYOffset: @58,
+        kSettingsCommunityLastLookAlpha: @92,
 
         kSettingsGravityLiteEnabled: @NO,
         kSettingsGravityLiteDockEnabled: @YES,
@@ -8781,6 +8892,15 @@ void settings_register_defaults(void)
             kSettingsPullOverEnabled,
             kSettingsAlkalineEnabled,
             kSettingsTweakLoaderEnabled,
+            kSettingsScrollingDockEnabled,
+            kSettingsNiuBiBarEnabled,
+            kSettingsVolSkipEnabled,
+            kSettingsFlowLiteEnabled,
+            kSettingsAppProfilesEnabled,
+            kSettingsChargeFXEnabled,
+            kSettingsRotateProEnabled,
+            kSettingsKeepEyeEnabled,
+            kSettingsLastLookEnabled,
         ];
         for (NSString *key in privateKeys) {
             if ([defaults boolForKey:key]) {
@@ -8992,12 +9112,13 @@ static void settings_run_actions_internal(BOOL pendingOnly)
             BOOL runGravityLite = settings_enabled_tweak_should_run(d, kSettingsGravityLiteEnabled, springBoardPendingOnly);
             BOOL runQuickLoader = settings_enabled_tweak_should_run(d, kSettingsQuickLoaderEnabled, springBoardPendingOnly);
             BOOL runRepoTweaks = settings_enabled_tweak_should_run(d, kSettingsRepoTweaksEnabled, springBoardPendingOnly);
+            BOOL runCommunityPorts = settings_community_ports_should_run(d, springBoardPendingOnly);
             BOOL stagePausesThemerLive = settings_themer_dynamic_updates_blocked_by_stage(d);
             if (stagePausesThemerLive) {
                 settings_note_themer_stage_conflict(YES);
             }
             BOOL cleanupDisabledSpringBoardTweaks = settings_disabled_applied_springboard_cleanup_needed(d);
-            BOOL needsSpringBoardWork = runSBC || runDarkTweaks || runStatBar || runNSBar || runNiceBarLite || runRSSI || runAxonLite || runGravityLite || runLayoutExtras || runTypeBanner || runNotificationIsland || runVelvet || runCleanNC || runUnderTime || runZeppelinLite || runCleanHomeScreen || runRealCC || runCleanCC || runFUGap || runModuleSpacing || runSugarCane || runBetterCCXI || runMagma || runBetterCCIcons || runCCNoPlatterDim || runCCStatus || runHapticCC || runSecureCC || runHideLabels || runFakeClockUp || runPancake || runCylinderLite || runBarmoji || runRoundedIcons || runWatchLayout || runAppLibraryStudio || runLockCustomizer || runFreePlacement || runBlurryBadges || runSnapper || runPullOver || runAlkaline || runTweakLoader || runAppSwitcherGrid || runThemer || runSnowBoardLite || runLiveWP || runStageStrip || runFastLockXLite || runQuickLoader || runRepoTweaks || cleanupDisabledSpringBoardTweaks;
+            BOOL needsSpringBoardWork = runSBC || runDarkTweaks || runStatBar || runNSBar || runNiceBarLite || runRSSI || runAxonLite || runGravityLite || runLayoutExtras || runTypeBanner || runNotificationIsland || runVelvet || runCleanNC || runUnderTime || runZeppelinLite || runCleanHomeScreen || runRealCC || runCleanCC || runFUGap || runModuleSpacing || runSugarCane || runBetterCCXI || runMagma || runBetterCCIcons || runCCNoPlatterDim || runCCStatus || runHapticCC || runSecureCC || runHideLabels || runFakeClockUp || runPancake || runCylinderLite || runBarmoji || runRoundedIcons || runWatchLayout || runAppLibraryStudio || runLockCustomizer || runFreePlacement || runBlurryBadges || runSnapper || runPullOver || runAlkaline || runTweakLoader || runAppSwitcherGrid || runThemer || runSnowBoardLite || runLiveWP || runStageStrip || runFastLockXLite || runQuickLoader || runRepoTweaks || runCommunityPorts || cleanupDisabledSpringBoardTweaks;
             BOOL runSandboxEscape = [d boolForKey:kSettingsRunSandboxEscape] && (!pendingOnly || needsSpringBoardWork);
             // TypeBanner prewarms its hidden SpringBoard window during Apply
             // and reuses the open SpringBoard session for text-only updates.
@@ -9066,6 +9187,7 @@ static void settings_run_actions_internal(BOOL pendingOnly)
             if (runFastLockXLite) total++;
             if (runQuickLoader) total++;
             if (runRepoTweaks) total++;
+            if (runCommunityPorts) total++;
             if (cleanupDisabledSpringBoardTweaks) total++;
             NSUInteger step = 0;
             BOOL startStageStripControlLoopAfterInstall = NO;
@@ -9124,6 +9246,7 @@ static void settings_run_actions_internal(BOOL pendingOnly)
             if (runStageStrip) [enabledTweaks addObject:@"stagestrip"];
             if (runQuickLoader) [enabledTweaks addObject:@"quickloader"];
             if (runRepoTweaks) [enabledTweaks addObject:@"repotweaks"];
+            if (runCommunityPorts) [enabledTweaks addObject:@"community-ports"];
             if (cleanupDisabledSpringBoardTweaks) [enabledTweaks addObject:@"cleanup"];
             if (forceSpringBoardRefresh) [enabledTweaks addObject:@"springboard-refresh"];
             log_user("[PLAN] %lu stages: %s\n",
@@ -9767,6 +9890,14 @@ static void settings_run_actions_internal(BOOL pendingOnly)
                         cyanide_upload_log_milestone(ok ? @"pullover-applied" : @"pullover-failed");
                     }
 
+                    if (runCommunityPorts) {
+                        settings_progress(&step, total, "Applying Community Ports");
+                        bool ok = settings_apply_community_ports(d);
+                        printf("[SETTINGS] Community Ports result=%d\n", ok);
+                        log_user("%s Community Ports batch %s.\n", ok ? "[OK]" : "[WARN]", ok ? "applied enabled ports" : "found no applicable enabled port");
+                        cyanide_upload_log_milestone(ok ? @"community-ports-applied" : @"community-ports-warning");
+                    }
+
                     if (runAlkaline) {
                         settings_progress(&step, total, "Applying Alkaline");
                         settings_log_split_tweak_config(kSettingsAlkalineEnabled, d, "RUN");
@@ -10062,6 +10193,7 @@ typedef NS_ENUM(NSInteger, SettingsSection) {
     SectionFreePlacement,
     SectionCopypastaLite,
     SectionAppLibraryStudio,
+    SectionCommunityPorts,
     SectionCount,
 };
 
@@ -11399,6 +11531,8 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
 {
     return @[
         @{ @"kind": @"toggle", @"key": kSettingsSnapperEnabled, @"title": @"Enable Snapper" },
+        @{ @"kind": @"button", @"action": @"snapper-capture", @"title": @"Capture and Pin Selection", @"subtitle": @"Freezes the selected SpringBoard region as a touch-through pinned snapshot." },
+        @{ @"kind": @"button", @"action": @"snapper-clear", @"title": @"Clear Pinned Captures" },
         @{ @"kind": @"slider", @"key": kSettingsSnapperX, @"title": @"Frame X", @"min": @0, @"max": @220, @"step": @2, @"default": @44, @"unit": @"pt" },
         @{ @"kind": @"slider", @"key": kSettingsSnapperY, @"title": @"Frame Y", @"min": @40, @"max": @520, @"step": @4, @"default": @160, @"unit": @"pt" },
         @{ @"kind": @"slider", @"key": kSettingsSnapperWidth, @"title": @"Frame width", @"min": @80, @"max": @390, @"step": @5, @"default": @300, @"unit": @"pt" },
@@ -11417,6 +11551,83 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
         @{ @"kind": @"slider", @"key": kSettingsPullOverMaxHeight, @"title": @"Max height", @"min": @220, @"max": @720, @"step": @10, @"default": @420, @"unit": @"pt" },
         @{ @"kind": @"slider", @"key": kSettingsPullOverCornerRadius, @"title": @"Corner radius", @"min": @0, @"max": @40, @"step": @1, @"default": @20, @"unit": @"pt" },
         @{ @"kind": @"slider", @"key": kSettingsPullOverBackgroundAlphaPct, @"title": @"Background alpha", @"min": @20, @"max": @100, @"step": @1, @"default": @88, @"unit": @"%" },
+    ];
+}
+
+typedef struct {
+    __unsafe_unretained NSString *key;
+    CommunityPort port;
+    const char *name;
+} SettingsCommunityPortEntry;
+
+static void settings_each_community_port(void (^block)(const SettingsCommunityPortEntry *entry))
+{
+    if (!block) return;
+    const SettingsCommunityPortEntry entries[] = {
+        { kSettingsScrollingDockEnabled, CommunityPortScrollingDock, "Scrolling Dock Lite" },
+        { kSettingsNiuBiBarEnabled, CommunityPortNiuBiBar, "NiuBiBar Lite" },
+        { kSettingsVolSkipEnabled, CommunityPortVolSkip, "VolSkip Lite" },
+        { kSettingsFlowLiteEnabled, CommunityPortFlow, "Flow Lite" },
+        { kSettingsAppProfilesEnabled, CommunityPortAppProfiles, "App Profiles Lite" },
+        { kSettingsChargeFXEnabled, CommunityPortChargeFX, "ChargeFX Lite" },
+        { kSettingsRotateProEnabled, CommunityPortRotatePro, "RotatePro Lite" },
+        { kSettingsKeepEyeEnabled, CommunityPortKeepEye, "KeepEye HUD" },
+        { kSettingsLastLookEnabled, CommunityPortLastLook, "LastLook Lite" },
+    };
+    for (size_t i = 0; i < sizeof(entries) / sizeof(entries[0]); i++) block(&entries[i]);
+}
+
+static BOOL settings_community_ports_should_run(NSUserDefaults *d, BOOL pendingOnly)
+{
+    __block BOOL shouldRun = NO;
+    settings_each_community_port(^(const SettingsCommunityPortEntry *entry) {
+        if (!shouldRun && settings_enabled_tweak_should_run(d, entry->key, pendingOnly)) shouldRun = YES;
+    });
+    return shouldRun;
+}
+
+static bool settings_apply_community_ports(NSUserDefaults *d)
+{
+    if ([d boolForKey:kSettingsScrollingDockEnabled] &&
+        [d boolForKey:kSettingsGravityLiteDockEnabled]) {
+        [d setBool:NO forKey:kSettingsGravityLiteDockEnabled];
+        [d synchronize];
+        log_user("[COMPAT] Gravity Lite dock physics disabled because Scrolling Dock Lite owns the same live dock icon views. Home-screen page physics remains available.\n");
+    }
+    settings_configure_control_center_tweaks(d);
+    __block int enabled = 0, applied = 0, failed = 0;
+    settings_each_community_port(^(const SettingsCommunityPortEntry *entry) {
+        BOOL on = [d boolForKey:entry->key];
+        bool ok = on ? communityports_apply(entry->port) : communityports_stop(entry->port);
+        settings_mark_tweak_applied(entry->key, ok && on);
+        if (on) { enabled++; if (ok) applied++; else failed++; }
+        log_user("[COMMUNITYPORTS][%s] enabled=%d result=%s.\n", entry->name, on, ok ? "success" : "failed");
+    });
+    log_user("[COMMUNITYPORTS][SUMMARY] enabled=%d applied=%d failed=%d.\n", enabled, applied, failed);
+    return enabled > 0 && applied > 0;
+}
+
+- (NSArray<NSDictionary *> *)communityPortsRows
+{
+    return @[
+        @{ @"kind": @"info", @"title": @"Community Ports", @"subtitle": @"Nine independent live-session ports plus the completed Snapper package. Every port restores owned views during cleanup and reports exact matches/actions in the activity log." },
+        @{ @"kind": @"toggle", @"key": kSettingsScrollingDockEnabled, @"title": @"Scrolling Dock Lite" },
+        @{ @"kind": @"stepper", @"key": kSettingsCommunityDockVisible, @"title": @"Visible dock icons", @"min": @3, @"max": @8, @"default": @5 },
+        @{ @"kind": @"toggle", @"key": kSettingsNiuBiBarEnabled, @"title": @"NiuBiBar Lite" },
+        @{ @"kind": @"slider", @"key": kSettingsCommunityBarThickness, @"title": @"Home-bar border thickness", @"min": @1, @"max": @10, @"step": @1, @"default": @5, @"unit": @"pt" },
+        @{ @"kind": @"toggle", @"key": kSettingsVolSkipEnabled, @"title": @"VolSkip Lite media palette" },
+        @{ @"kind": @"toggle", @"key": kSettingsFlowLiteEnabled, @"title": @"Flow Lite music canvas" },
+        @{ @"kind": @"toggle", @"key": kSettingsAppProfilesEnabled, @"title": @"App Profiles Lite" },
+        @{ @"kind": @"slider", @"key": kSettingsCommunityProfileBrightness, @"title": @"Default profile brightness", @"min": @20, @"max": @100, @"step": @1, @"default": @82, @"unit": @"%" },
+        @{ @"kind": @"toggle", @"key": kSettingsChargeFXEnabled, @"title": @"ChargeFX Lite" },
+        @{ @"kind": @"slider", @"key": kSettingsCommunityChargeThickness, @"title": @"Charging edge thickness", @"min": @1, @"max": @14, @"step": @1, @"default": @5, @"unit": @"pt" },
+        @{ @"kind": @"toggle", @"key": kSettingsRotateProEnabled, @"title": @"RotatePro Lite" },
+        @{ @"kind": @"toggle", @"key": kSettingsKeepEyeEnabled, @"title": @"KeepEye HUD" },
+        @{ @"kind": @"slider", @"key": kSettingsCommunityHUDYOffset, @"title": @"KeepEye Y position", @"min": @28, @"max": @220, @"step": @2, @"default": @58, @"unit": @"pt" },
+        @{ @"kind": @"toggle", @"key": kSettingsLastLookEnabled, @"title": @"LastLook Lite" },
+        @{ @"kind": @"slider", @"key": kSettingsCommunityLastLookAlpha, @"title": @"Notification preview opacity", @"min": @20, @"max": @100, @"step": @1, @"default": @92, @"unit": @"%" },
+        @{ @"kind": @"info", @"title": @"Capability boundary", @"subtitle": @"VolSkip uses a pressable media palette because hardware-button interception needs injection. PullOver hosts pressable icons; Dynamic Stage remains the app-scene host." },
+        @{ @"kind": @"button", @"title": @"View Detailed Activity Log", @"action": @"view-log" },
     ];
 }
 
@@ -12078,6 +12289,7 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
         case SectionFreePlacement: return cyanide_experimental_tweaks_available() ? self.freePlacementRows : @[];
         case SectionCopypastaLite: return self.copypastaLiteRows;
         case SectionAppLibraryStudio: return cyanide_experimental_tweaks_available() ? self.appLibraryStudioRows : @[];
+        case SectionCommunityPorts: return cyanide_experimental_tweaks_available() ? self.communityPortsRows : @[];
         default: return @[];
     }
 }
@@ -12153,6 +12365,7 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
         @{ @"title": @"Free Placement Lite", @"icon": @"move.3d", @"color": [UIColor systemPinkColor], @"section": @(SectionFreePlacement), @"experimental": @YES },
         @{ @"title": @"Copypasta Lite", @"icon": @"doc.on.clipboard", @"color": [UIColor systemTealColor], @"section": @(SectionCopypastaLite) },
         @{ @"title": @"App Library Studio", @"icon": @"square.grid.3x3.square", @"color": [UIColor systemBlueColor], @"section": @(SectionAppLibraryStudio), @"experimental": @YES },
+        @{ @"title": @"Community Ports", @"icon": @"sparkles", @"color": [UIColor systemOrangeColor], @"section": @(SectionCommunityPorts), @"experimental": @YES },
     ];
 }
 
@@ -12473,10 +12686,10 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
         return @"Badge Studio combines configurable BlurryBadges tinting with Growing Badges+ scaling based on each live notification count.";
     }
     if (s == SectionSnapper) {
-        return @"Shows a first-pass crop frame overlay for Snapper-style pinned screenshots.";
+        return @"Selects, captures, and pins up to eight touch-through SpringBoard regions. Capture and Clear actions are available above the geometry controls.";
     }
     if (s == SectionPullOver) {
-        return @"Shows a first-pass slide-over tray shell for future pinned app/widget hosting.";
+        return @"Hosts pressable live icon views in a slide-over launcher and restores each icon to its exact original list and frame during cleanup.";
     }
     if (s == SectionAlkaline) {
         return @"Applies an Alkaline-style tint pass to visible battery views.";
@@ -15976,6 +16189,7 @@ void cyanide_present_contact(UIViewController *host)
         [d synchronize];
         log_user("[COPYPASTA] Captured UIPasteboard text into snippet %ld; characters=%lu.\n",
                  (long)index, (unsigned long)clipboard.length);
+        if ([d boolForKey:kSettingsBarmojiEnabled]) settings_schedule_live_apply_for_key(kSettingsBarmojiEnabled);
         [self.tableView reloadData];
         return;
     }
@@ -15994,6 +16208,7 @@ void cyanide_present_contact(UIViewController *host)
         [d setObject:value forKey:key];
         [d synchronize];
         log_user("[COPYPASTA] Updated snippet %ld; characters=%lu.\n", (long)index, (unsigned long)value.length);
+        if ([d boolForKey:kSettingsBarmojiEnabled]) settings_schedule_live_apply_for_key(kSettingsBarmojiEnabled);
         [weakSelf.tableView reloadData];
     }]];
     settings_present_controller(editor, self);
@@ -16118,6 +16333,24 @@ void cyanide_present_contact(UIViewController *host)
         NSString *action = selectedRows[indexPath.row][@"action"];
         if ([action hasPrefix:@"copypasta-"]) {
             [self runCopypastaAction:action];
+            return;
+        }
+    }
+
+    if (indexPath.section == SectionSnapper && indexPath.row < (NSInteger)selectedRows.count) {
+        NSString *action = selectedRows[indexPath.row][@"action"];
+        if ([action hasPrefix:@"snapper-"]) {
+            if (!g_springboard_rc_ready) {
+                log_user("[SNAPPER][ACTION] %s rejected: no active SpringBoard session. Run enabled tweaks first.\n", action.UTF8String);
+                return;
+            }
+            dispatch_async(dispatch_get_global_queue(0, 0), ^{
+                @synchronized (settings_rc_lock()) {
+                    bool ok = [action isEqualToString:@"snapper-capture"]
+                        ? snapper_capture_in_session() : snapper_clear_pins_in_session();
+                    log_user("[SNAPPER][ACTION] %s result=%s.\n", action.UTF8String, ok ? "success" : "failed");
+                }
+            });
             return;
         }
     }

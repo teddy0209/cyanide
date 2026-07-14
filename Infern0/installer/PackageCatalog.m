@@ -164,7 +164,29 @@ static const NSInteger kSecLockCustomizer   = 59;
 static const NSInteger kSecFreePlacement    = 60;
 static const NSInteger kSecCopypastaLite    = 61;
 static const NSInteger kSecAppLibraryStudio = 62;
+static const NSInteger kSecCommunityPorts   = 63;
 static const NSInteger kSecDarkSwordTweaks  = 13;
+
+static Package *catalog_community_port(NSString *identifier, NSString *name,
+                                       NSString *summary, NSString *details,
+                                       NSString *symbol, NSString *key,
+                                       NSString *category, NSString *version)
+{
+    Package *package = [[Package alloc] initWithIdentifier:identifier
+                                                      name:name
+                                          shortDescription:summary
+                                           longDescription:details
+                                                   version:version
+                                                    author:@"Nnnnnnn274"
+                                                  category:category
+                                                symbolName:symbol
+                                                      kind:PackageInstallKindToggle
+                                                enabledKey:key
+                                                     isNew:YES];
+    package.settingsSection = kSecCommunityPorts;
+    package.unstableWarning = @"Live-session port: cleanup, respring, reboot, or closing infern0 removes the active runtime changes.";
+    return package;
+}
 
 + (NSArray<Package *> *)allPackages
 {
@@ -283,7 +305,7 @@ static const NSInteger kSecDarkSwordTweaks  = 13;
                                      enabledKey:kSettingsAxonLiteEnabled
                                           isNew:NO];
         axon.settingsSection = kSecAxonLite;
-        axon.unstableWarning = @"⚠️ Experimental: work-in-progress. Expect SpringBoard crashes, dropped notifications, layout glitches, and breakage between infern0 builds. Don't rely on it for anything important.";
+        axon.unstableWarning = @"Beta: the live loop pauses while the screen is unavailable, serializes RemoteCall access, and stops after three consecutive failures. Notification internals still vary by iOS build, so review the detailed Axon log after first apply.";
 
 #if CYANIDE_EXPERIMENTAL_TWEAKS_AVAILABLE
         Package *typeBanner = [[Package alloc] initWithIdentifier:@"com.darksword.typebanner"
@@ -341,8 +363,8 @@ static const NSInteger kSecDarkSwordTweaks  = 13;
             @"• X in the top-left of a window closes it.\n"
             @"• Gear in the picker tray jumps back to infern0 settings.\n\n"
             @"First Run is slow. The picker has to enumerate every installed app over RemoteCall and build a tile per app — expect 1-2 minutes on a fresh install. Re-Runs reuse the cache and are fast.\n\n"
-            @"Rough edges:\n"
-            @"• Touch routing into hosted apps isn't wired — windows are for viewing/switching, not scrolling or typing.\n"
+            @"Interaction notes:\n"
+            @"• Hosted scenes opt into hit testing, disable touch pass-through, and reserve only the title strip and corner handles for window gestures. Some app scenes may still reject remote hosting on particular iOS builds.\n"
             @"• Auto-close on full-screen launch is not yet hooked up; close manually with the X.\n"
             @"• Gestures may stutter while the App Library is still filling in."
                                         version:version
@@ -353,7 +375,7 @@ static const NSInteger kSecDarkSwordTweaks  = 13;
                                      enabledKey:kSettingsStageStripEnabled
                                           isNew:NO];
         stageStrip.settingsSection = kSecStageStrip;
-        stageStrip.unstableWarning = @"Beta / unstable: First Run takes 1-2 minutes because the picker enumerates every installed app and builds a tile per app. Re-Runs are fast. Touch routing into hosted windows isn't wired yet, so scrolling/typing inside a floating window may not work.";
+        stageStrip.unstableWarning = @"Beta / unstable: First Run takes 1-2 minutes while the picker is built. Touch routing is enabled on scene hosts, but individual apps or iOS builds may still reject scrolling, keyboard focus, or remote scene interaction.";
 #endif
 
         Package *locationSim = [[Package alloc] initWithIdentifier:@"com.darksword.locationsim"
@@ -862,8 +884,8 @@ static const NSInteger kSecDarkSwordTweaks  = 13;
 
         Package *snapper = [[Package alloc] initWithIdentifier:@"com.darksword.snapper"
                                            name:@"Snapper"
-                               shortDescription:@"Crop frame overlay"
-                                longDescription:@"First-pass Snapper-style overlay. Shows a crop frame on SpringBoard while infern0 is active.\n\nActual screenshot capture, pinning, and drag handles are planned next."
+                               shortDescription:@"Capture and pin cropped screen regions"
+                                longDescription:@"Shows a configurable crop frame, captures the selected live SpringBoard region, and pins up to eight touch-through snapshots above the current interface. Capture and Clear controls live in Settings. Cleanup removes every selection and pin with detailed activity logs."
                                         version:version
                                          author:@"Nnnnnnn274"
                                        category:@"SpringBoard"
@@ -872,12 +894,12 @@ static const NSInteger kSecDarkSwordTweaks  = 13;
                                      enabledKey:kSettingsSnapperEnabled
                                           isNew:YES];
         snapper.settingsSection = kSecSnapper;
-        snapper.unstableWarning = @"Prototype: frame overlay only. Capture/pin workflow is not implemented yet.";
+        snapper.unstableWarning = @"Session implementation: pinned captures live in SpringBoard memory and disappear on cleanup, respring, or reboot.";
 
         Package *pullOver = [[Package alloc] initWithIdentifier:@"com.darksword.pullover"
                                            name:@"PullOver"
-                               shortDescription:@"Pinned slide-over tray"
-                                longDescription:@"First-pass PullOver Pro-style tray. Adds a pinned slide-over shell on SpringBoard while infern0 is active.\n\nApp/widget hosting is planned; this version establishes the stable tray surface."
+                               shortDescription:@"Live-icon slide-over launcher"
+                                longDescription:@"Adds a configurable slide-over launcher populated with live SpringBoard icon views. Borrowed icons stay pressable and are returned to their exact original parents and frames during reapply or cleanup. If no eligible icons are visible, the tray remains available and reports the fallback in the detailed log."
                                         version:version
                                          author:@"Nnnnnnn274"
                                        category:@"SpringBoard"
@@ -886,7 +908,7 @@ static const NSInteger kSecDarkSwordTweaks  = 13;
                                      enabledKey:kSettingsPullOverEnabled
                                           isNew:YES];
         pullOver.settingsSection = kSecPullOver;
-        pullOver.unstableWarning = @"Prototype: tray shell only. App/widget hosting is not implemented yet.";
+        pullOver.unstableWarning = @"Session launcher: this safely hosts live icons, not arbitrary third-party app scenes. Use Dynamic Stage for floating application scenes.";
 
         Package *alkaline = [[Package alloc] initWithIdentifier:@"com.darksword.alkaline"
                                            name:@"Alkaline"
@@ -913,6 +935,16 @@ static const NSInteger kSecDarkSwordTweaks  = 13;
                                      enabledKey:kSettingsTweakLoaderEnabled
                                           isNew:NO];
         tweakLoader.settingsSection = kSecTweakLoader;
+
+        Package *scrollingDock = catalog_community_port(@"com.darksword.scrollingdock", @"Scrolling Dock Lite", @"Scrollable pressable dock icons", @"Moves live dock icon views into a horizontal UIScrollView, preserves taps, exposes three to eight visible slots, and restores every icon to its original parent and frame during cleanup.", @"dock.rectangle", kSettingsScrollingDockEnabled, @"Home Screen", version);
+        Package *niuBiBar = catalog_community_port(@"com.darksword.niubibarlite", @"NiuBiBar Lite", @"Pressable home-bar actions", @"Adds a compact home-indicator palette with native Lock and Spotlight actions when their SpringBoard selectors are available. Unsupported actions are logged instead of silently failing.", @"line.3.horizontal", kSettingsNiuBiBarEnabled, @"SpringBoard", version);
+        Package *volSkip = catalog_community_port(@"com.darksword.volskiplite", @"VolSkip Lite", @"Floating media skip palette", @"Provides pressable previous, play, and next controls backed by the system music player. Hardware-volume interception is intentionally not claimed because that requires process injection.", @"forward.end.fill", kSettingsVolSkipEnabled, @"Utilities", version);
+        Package *flowLite = catalog_community_port(@"com.darksword.flowlite", @"Flow Lite", @"Lock-screen music canvas", @"Finds live Now Playing, MediaControls, and artwork views, then applies a larger rounded music-canvas treatment with reversible geometry and detailed match logs.", @"music.note.list", kSettingsFlowLiteEnabled, @"Lock Screen", version);
+        Package *appProfiles = catalog_community_port(@"com.darksword.appprofileslite", @"App Profiles Lite", @"Foreground-aware brightness profiles", @"Reads SpringBoard's frontmost application and applies category profiles: full brightness for Camera, a navigation profile for Maps, and a configurable default for other apps.", @"slider.horizontal.3", kSettingsAppProfilesEnabled, @"Utilities", version);
+        Package *chargeFX = catalog_community_port(@"com.darksword.chargefxlite", @"ChargeFX Lite", @"Charging edge animation surface", @"Shows a touch-through green edge treatment while UIDevice reports charging or full state. Thickness is configurable and every battery-state decision is logged.", @"bolt.circle.fill", kSettingsChargeFXEnabled, @"Lock Screen", version);
+        Package *rotatePro = catalog_community_port(@"com.darksword.rotateprolite", @"RotatePro Lite", @"Floating orientation control", @"Adds a floating Rotate button that requests landscape orientation through UIDevice's live orientation selector when the running iOS build exposes it.", @"rotate.right.fill", kSettingsRotateProEnabled, @"Utilities", version);
+        Package *keepEye = catalog_community_port(@"com.darksword.keepeyelite", @"KeepEye HUD", @"CPU and battery-state HUD", @"Displays active CPU count, charging state, and RemoteCall session state in a compact touch-through HUD refreshed by infern0's visual loop.", @"gauge.with.dots.needle.67percent", kSettingsKeepEyeEnabled, @"Status Bar", version);
+        Package *lastLook = catalog_community_port(@"com.darksword.lastlooklite", @"LastLook Lite", @"OLED notification preview styling", @"Styles visible Notification, ShortLook, and platter views with compact scaling, rounded borders, and configurable opacity, then restores identity geometry during cleanup.", @"bell.and.waves.left.and.right", kSettingsLastLookEnabled, @"Lock Screen", version);
 #endif
 
         Package *nanoRegistry = [[Package alloc] initWithIdentifier:@"com.darksword.nanoregistry"
@@ -1107,6 +1139,15 @@ static const NSInteger kSecDarkSwordTweaks  = 13;
             pullOver,
             alkaline,
             tweakLoader,
+            scrollingDock,
+            niuBiBar,
+            volSkip,
+            flowLite,
+            appProfiles,
+            chargeFX,
+            rotatePro,
+            keepEye,
+            lastLook,
 #endif
             locationSim,
             snowboardLite,

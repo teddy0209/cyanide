@@ -2,8 +2,10 @@
 #import "../remote_objc.h"
 #import "../sb_walk.h"
 #import "../../TaskRop/RemoteCall.h"
+#import "../../LogTextView.h"
 
 #import <Foundation/Foundation.h>
+#import <string.h>
 
 typedef struct {
     double x;
@@ -13,6 +15,8 @@ typedef struct {
 } SnapperRect;
 
 static uint64_t gSnapperView = 0;
+static uint64_t gSnapperPins[8] = {0};
+static int gSnapperPinCount = 0;
 static int gSnapperX = 44;
 static int gSnapperY = 160;
 static int gSnapperWidth = 300;
@@ -99,7 +103,10 @@ bool snapper_apply_in_session(void)
         gSnapperView = 0;
     }
     uint64_t win = sb_frontmost_window();
-    if (!r_is_objc_ptr(win)) return false;
+    if (!r_is_objc_ptr(win)) {
+        log_user("[SNAPPER][APPLY] failed: no frontmost SpringBoard window.\n");
+        return false;
+    }
     uint64_t frame = snapper_alloc_view((double)gSnapperX,
                                         (double)gSnapperY,
                                         (double)gSnapperWidth,
@@ -125,6 +132,75 @@ bool snapper_apply_in_session(void)
     if (r_is_objc_ptr(label)) r_msg2_main(frame, "addSubview:", label, 0, 0, 0);
     r_msg2_main(win, "addSubview:", frame, 0, 0, 0);
     gSnapperView = frame;
+    log_user("[SNAPPER][APPLY] selection=%d,%d %dx%d border=%d radius=%d existingPins=%d result=ready-to-capture.\n",
+             gSnapperX, gSnapperY, gSnapperWidth, gSnapperHeight,
+             gSnapperBorderWidth, gSnapperCornerRadius, gSnapperPinCount);
+    return true;
+}
+
+bool snapper_capture_in_session(void)
+{
+    uint64_t win = sb_frontmost_window();
+    if (!r_is_objc_ptr(win) || !r_responds_main(win, "snapshotViewAfterScreenUpdates:")) {
+        log_user("[SNAPPER][CAPTURE] failed: active window does not support snapshot capture.\n");
+        return false;
+    }
+    if (gSnapperPinCount >= 8) {
+        log_user("[SNAPPER][CAPTURE] pin limit reached (8); clear pins before capturing again.\n");
+        return false;
+    }
+
+    if (r_is_objc_ptr(gSnapperView)) r_msg2_main(gSnapperView, "setHidden:", 1, 0, 0, 0);
+    uint64_t snapshot = r_msg2_main(win, "snapshotViewAfterScreenUpdates:", 1, 0, 0, 0);
+    if (r_is_objc_ptr(gSnapperView)) r_msg2_main(gSnapperView, "setHidden:", 0, 0, 0, 0);
+    if (!r_is_objc_ptr(snapshot)) {
+        log_user("[SNAPPER][CAPTURE] failed: UIKit returned no snapshot view.\n");
+        return false;
+    }
+
+    uint64_t pin = snapper_alloc_view((double)gSnapperX, (double)gSnapperY,
+                                      (double)gSnapperWidth, (double)gSnapperHeight);
+    if (!r_is_objc_ptr(pin)) return false;
+    r_msg2_main(pin, "setClipsToBounds:", 1, 0, 0, 0);
+    r_msg2_main(pin, "setUserInteractionEnabled:", 0, 0, 0, 0);
+
+    SnapperRect windowBounds = {0, 0, 390, 844};
+    r_msg2_main_struct_ret(win, "bounds", &windowBounds, sizeof(windowBounds),
+                           NULL, 0, NULL, 0, NULL, 0, NULL, 0);
+    SnapperRect snapshotFrame = { -(double)gSnapperX, -(double)gSnapperY,
+                                  windowBounds.width, windowBounds.height };
+    r_msg2_main_raw(snapshot, "setFrame:", &snapshotFrame, sizeof(snapshotFrame),
+                    NULL, 0, NULL, 0, NULL, 0);
+    r_msg2_main(pin, "addSubview:", snapshot, 0, 0, 0);
+
+    uint64_t layer = r_msg2_main(pin, "layer", 0, 0, 0, 0);
+    if (r_is_objc_ptr(layer)) {
+        double radius = (double)gSnapperCornerRadius;
+        double borderWidth = 1.0;
+        r_msg2_main_raw(layer, "setCornerRadius:", &radius, sizeof(radius), NULL, 0, NULL, 0, NULL, 0);
+        r_msg2_main_raw(layer, "setBorderWidth:", &borderWidth, sizeof(borderWidth), NULL, 0, NULL, 0, NULL, 0);
+        r_msg2_main(layer, "setMasksToBounds:", 1, 0, 0, 0);
+    }
+    r_msg2_main(win, "addSubview:", pin, 0, 0, 0);
+    if (r_is_objc_ptr(gSnapperView)) r_msg2_main(win, "bringSubviewToFront:", gSnapperView, 0, 0, 0);
+    gSnapperPins[gSnapperPinCount++] = pin;
+    log_user("[SNAPPER][CAPTURE] pinned crop=%d,%d %dx%d pinIndex=%d sourceWindow=0x%llx interactionPassthrough=1.\n",
+             gSnapperX, gSnapperY, gSnapperWidth, gSnapperHeight,
+             gSnapperPinCount, win);
+    return true;
+}
+
+bool snapper_clear_pins_in_session(void)
+{
+    int cleared = 0;
+    for (int i = 0; i < gSnapperPinCount; i++) {
+        if (!r_is_objc_ptr(gSnapperPins[i])) continue;
+        r_msg2_main(gSnapperPins[i], "removeFromSuperview", 0, 0, 0, 0);
+        cleared++;
+    }
+    memset(gSnapperPins, 0, sizeof(gSnapperPins));
+    gSnapperPinCount = 0;
+    log_user("[SNAPPER][CLEAR] removed %d pinned capture(s).\n", cleared);
     return true;
 }
 
@@ -133,6 +209,8 @@ bool snapper_stop_in_session(void)
     printf("[SNAPPER] stop\n");
     if (r_is_objc_ptr(gSnapperView)) r_msg2_main(gSnapperView, "removeFromSuperview", 0, 0, 0, 0);
     gSnapperView = 0;
+    snapper_clear_pins_in_session();
+    log_user("[SNAPPER][STOP] selection and pinned snapshot views removed.\n");
     return true;
 }
 
@@ -152,4 +230,9 @@ void snapper_configure(int x, int y, int width, int height, int borderWidth, int
     gSnapperCornerRadius = cornerRadius;
 }
 
-void snapper_forget_remote_state(void) { gSnapperView = 0; }
+void snapper_forget_remote_state(void)
+{
+    gSnapperView = 0;
+    memset(gSnapperPins, 0, sizeof(gSnapperPins));
+    gSnapperPinCount = 0;
+}

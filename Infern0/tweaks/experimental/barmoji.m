@@ -2,8 +2,11 @@
 #import "../remote_objc.h"
 #import "../sb_walk.h"
 #import "../../TaskRop/RemoteCall.h"
+#import "../../LogTextView.h"
 
 #import <Foundation/Foundation.h>
+#import <stdio.h>
+#import <string.h>
 
 typedef struct {
     double x;
@@ -18,6 +21,39 @@ static int gBarmojiYOffset = 92;
 static int gBarmojiWidthPercent = 92;
 static int gBarmojiFontSize = 21;
 static int gBarmojiBackgroundAlphaPercent = 86;
+static char gBarmojiSnippets[3][192] = { "Thanks!", "I'll get back to you shortly.", "Sent from infern0" };
+
+static uint64_t barmoji_copy_invocation(const char *text)
+{
+    if (!text || !text[0]) return 0;
+    uint64_t UIPasteboard = r_class("UIPasteboard");
+    uint64_t pasteboard = r_is_objc_ptr(UIPasteboard)
+        ? r_msg2_main(UIPasteboard, "generalPasteboard", 0, 0, 0, 0) : 0;
+    uint64_t selector = r_sel("setString:");
+    uint64_t signature = r_is_objc_ptr(pasteboard) && selector
+        ? r_msg2_main(pasteboard, "methodSignatureForSelector:", selector, 0, 0, 0) : 0;
+    uint64_t NSInvocation = r_class("NSInvocation");
+    uint64_t invocation = r_is_objc_ptr(NSInvocation) && r_is_objc_ptr(signature)
+        ? r_msg2_main(NSInvocation, "invocationWithMethodSignature:", signature, 0, 0, 0) : 0;
+    uint64_t string = r_nsstr_retained(text);
+    if (!r_is_objc_ptr(invocation) || !r_is_objc_ptr(string)) {
+        if (r_is_objc_ptr(string)) r_msg2_main(string, "release", 0, 0, 0, 0);
+        return 0;
+    }
+    r_msg2_main(invocation, "setTarget:", pasteboard, 0, 0, 0);
+    r_msg2_main(invocation, "setSelector:", selector, 0, 0, 0);
+    uint64_t arg = r_dlsym_call(R_TIMEOUT, "malloc", sizeof(string), 0, 0, 0, 0, 0, 0, 0);
+    if (!arg || !remote_write(arg, &string, sizeof(string))) {
+        if (arg) r_free(arg);
+        r_msg2_main(string, "release", 0, 0, 0, 0);
+        return 0;
+    }
+    r_msg2_main(invocation, "setArgument:atIndex:", arg, 2, 0, 0);
+    r_free(arg);
+    r_msg2_main(invocation, "retainArguments", 0, 0, 0, 0);
+    r_msg2_main(string, "release", 0, 0, 0, 0);
+    return invocation;
+}
 
 static uint64_t barmoji_color(double red, double green, double blue, double alpha)
 {
@@ -82,6 +118,14 @@ static uint64_t barmoji_alloc_button(const char *emoji, double x, double y,
         r_msg2_main(button, "addTarget:action:forControlEvents:",
                     gBarmojiFeedback, r_sel("selectionChanged"), 1ULL << 6, 0);
     }
+    uint64_t copyInvocation = barmoji_copy_invocation(emoji);
+    if (r_is_objc_ptr(copyInvocation)) {
+        r_msg2_main(button, "addTarget:action:forControlEvents:",
+                    copyInvocation, r_sel("invoke"), 1ULL << 6, 0);
+        uint64_t key = r_sel("infern0BarmojiCopyInvocation");
+        if (key) r_dlsym_call(R_TIMEOUT, "objc_setAssociatedObject",
+                              button, key, copyInvocation, 1, 0, 0, 0, 0);
+    }
     return button;
 }
 
@@ -101,7 +145,7 @@ bool barmoji_apply_in_session(void)
     if (barWidth < 260.0) barWidth = 260.0;
     double barX = (bounds.width - barWidth) / 2.0;
     double barY = bounds.height - (double)gBarmojiYOffset;
-    uint64_t bar = barmoji_alloc_view(barX, barY, barWidth, 38);
+    uint64_t bar = barmoji_alloc_view(barX, barY - 38.0, barWidth, 76);
     if (!r_is_objc_ptr(bar)) return false;
     r_msg2_main(bar, "setUserInteractionEnabled:", 1, 0, 0, 0);
 
@@ -143,10 +187,27 @@ bool barmoji_apply_in_session(void)
         buttonCount++;
     }
 
+    double snippetWidth = (barWidth - 16.0) / 3.0;
+    for (int i = 0; i < 3; i++) {
+        char title[16] = {0};
+        snprintf(title, sizeof(title), "Clip %d", i + 1);
+        uint64_t button = barmoji_alloc_button(gBarmojiSnippets[i], 5.0 + snippetWidth * i,
+                                               39.0, snippetWidth - 2.0, 32.0, 12.0);
+        if (!r_is_objc_ptr(button)) continue;
+        uint64_t shortTitle = r_nsstr_retained(title);
+        if (r_is_objc_ptr(shortTitle)) {
+            r_msg2_main(button, "setTitle:forState:", shortTitle, 0, 0, 0);
+            r_msg2_main(shortTitle, "release", 0, 0, 0, 0);
+        }
+        r_msg2_main(bar, "addSubview:", button, 0, 0, 0);
+        buttonCount++;
+    }
+
     r_msg2_main(win, "addSubview:", bar, 0, 0, 0);
     gBarmojiView = bar;
     printf("[BARMOJI] interactive buttons=%d window=0x%llx\n", buttonCount, win);
-    return buttonCount == 8;
+    log_user("[BARMOJI][APPLY] emojiButtons=8 sharedClipboardButtons=3 total=%d action=copy-to-UIPasteboard pressFeedback=1.\n", buttonCount);
+    return buttonCount == 11;
 }
 
 bool barmoji_stop_in_session(void)
@@ -173,6 +234,18 @@ void barmoji_configure(int yOffset, int widthPercent, int fontSize, int backgrou
     gBarmojiWidthPercent = widthPercent;
     gBarmojiFontSize = fontSize;
     gBarmojiBackgroundAlphaPercent = backgroundAlphaPercent;
+}
+
+void barmoji_configure_shared_snippets(const char *snippet1, const char *snippet2, const char *snippet3)
+{
+    const char *values[3] = { snippet1, snippet2, snippet3 };
+    for (int i = 0; i < 3; i++) {
+        if (!values[i]) continue;
+        strncpy(gBarmojiSnippets[i], values[i], sizeof(gBarmojiSnippets[i]) - 1);
+        gBarmojiSnippets[i][sizeof(gBarmojiSnippets[i]) - 1] = '\0';
+    }
+    log_user("[BARMOJI][CONFIG] shared Copypasta slots loaded lengths=%lu/%lu/%lu.\n",
+             strlen(gBarmojiSnippets[0]), strlen(gBarmojiSnippets[1]), strlen(gBarmojiSnippets[2]));
 }
 
 void barmoji_forget_remote_state(void) { gBarmojiView = 0; gBarmojiFeedback = 0; }

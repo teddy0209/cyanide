@@ -2454,6 +2454,10 @@ static uint64_t stagestrip_make_scene_layer_host_view(uint64_t scene,
     if (r_responds(host, "setPassesTouchesThrough:"))
         r_msg2_main(host, "setPassesTouchesThrough:", 0, 0, 0, 0);
     stagestrip_enable_interaction_tree(host, 4);
+    log_user("[MILKYWAY][TOUCH] sceneHost=0x%llx bundle=%s hitTesting=%d passThrough=%d interactionDepth=4 moveHandle=title-only resizeHandles=corners.\n",
+             host, bid ? bid : "unknown",
+             r_responds(host, "setAllowsHitTesting:") ? 1 : 0,
+             r_responds(host, "setPassesTouchesThrough:") ? 0 : -1);
     return host;
 }
 

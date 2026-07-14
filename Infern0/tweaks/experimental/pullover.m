@@ -2,8 +2,10 @@
 #import "../remote_objc.h"
 #import "../sb_walk.h"
 #import "../../TaskRop/RemoteCall.h"
+#import "../../LogTextView.h"
 
 #import <Foundation/Foundation.h>
+#import <string.h>
 
 typedef struct {
     double x;
@@ -13,6 +15,10 @@ typedef struct {
 } PullOverRect;
 
 static uint64_t gPullOverView = 0;
+static uint64_t gPullOverIcons[4] = {0};
+static uint64_t gPullOverIconParents[4] = {0};
+static PullOverRect gPullOverIconFrames[4] = {{0}};
+static int gPullOverIconCount = 0;
 static int gPullOverWidth = 76;
 static int gPullOverYOffset = 130;
 static int gPullOverMaxHeight = 420;
@@ -103,6 +109,24 @@ static void pullover_add_grabber(uint64_t tray, double trayWidth)
     r_msg2_main(tray, "addSubview:", grabber, 0, 0, 0);
 }
 
+static void pullover_restore_icons(void)
+{
+    int restored = 0;
+    for (int i = 0; i < gPullOverIconCount; i++) {
+        if (!r_is_objc_ptr(gPullOverIcons[i]) || !r_is_objc_ptr(gPullOverIconParents[i])) continue;
+        r_msg2_main(gPullOverIconParents[i], "addSubview:", gPullOverIcons[i], 0, 0, 0);
+        r_msg2_main_raw(gPullOverIcons[i], "setFrame:", &gPullOverIconFrames[i], sizeof(PullOverRect),
+                        NULL, 0, NULL, 0, NULL, 0);
+        r_msg2_main(gPullOverIcons[i], "setUserInteractionEnabled:", 1, 0, 0, 0);
+        restored++;
+    }
+    memset(gPullOverIcons, 0, sizeof(gPullOverIcons));
+    memset(gPullOverIconParents, 0, sizeof(gPullOverIconParents));
+    memset(gPullOverIconFrames, 0, sizeof(gPullOverIconFrames));
+    gPullOverIconCount = 0;
+    if (restored) log_user("[PULLOVER][RESTORE] returned %d live icon(s) to their original lists and frames.\n", restored);
+}
+
 static void pullover_add_icon_slot(uint64_t tray, double x, double y, double side)
 {
     uint64_t slot = pullover_alloc_view(x, y, side, side);
@@ -118,10 +142,68 @@ static void pullover_add_icon_slot(uint64_t tray, double x, double y, double sid
     r_msg2_main(tray, "addSubview:", slot, 0, 0, 0);
 }
 
+static bool pullover_is_excluded_icon(uint64_t view)
+{
+    for (int depth = 0; r_is_objc_ptr(view) && depth < 12; depth++) {
+        uint64_t cls = r_dlsym_call(R_TIMEOUT, "object_getClass", view, 0, 0, 0, 0, 0, 0, 0);
+        uint64_t name = r_is_objc_ptr(cls)
+            ? r_dlsym_call(R_TIMEOUT, "class_getName", cls, 0, 0, 0, 0, 0, 0, 0) : 0;
+        uint64_t len = name ? r_dlsym_call(R_TIMEOUT, "strlen", name, 0, 0, 0, 0, 0, 0, 0) : 0;
+        char buffer[160] = {0};
+        if (len) {
+            if (len > sizeof(buffer) - 1) len = sizeof(buffer) - 1;
+            uint64_t copy = r_dlsym_call(R_TIMEOUT, "strdup", name, 0, 0, 0, 0, 0, 0, 0);
+            if (copy) { remote_read(copy, buffer, len); r_free(copy); buffer[len] = '\0'; }
+        }
+        if (strstr(buffer, "Dock") || strstr(buffer, "Library") || strstr(buffer, "Folder")) return true;
+        view = r_msg2_main(view, "superview", 0, 0, 0, 0);
+    }
+    return false;
+}
+
+static int pullover_attach_live_icons(uint64_t tray, double trayWidth, double trayHeight)
+{
+    uint64_t iconClass = r_class("SBIconView");
+    uint64_t icons[512] = {0};
+    int discovered = r_is_objc_ptr(iconClass)
+        ? sb_collect_views_in_windows(iconClass, icons, 512) : 0;
+    double side = trayWidth - 24.0;
+    if (side < 36.0) side = 36.0;
+    if (side > 64.0) side = 64.0;
+    double y = 76.0;
+
+    for (int i = 0; i < discovered && gPullOverIconCount < 4; i++) {
+        uint64_t icon = icons[i];
+        if (pullover_is_excluded_icon(icon)) continue;
+        uint64_t parent = r_is_objc_ptr(icon) ? r_msg2_main(icon, "superview", 0, 0, 0, 0) : 0;
+        PullOverRect frame = {0};
+        if (!r_is_objc_ptr(parent) ||
+            !r_msg2_main_struct_ret(icon, "frame", &frame, sizeof(frame),
+                                    NULL, 0, NULL, 0, NULL, 0, NULL, 0) ||
+            frame.width <= 20.0 || frame.height <= 20.0) continue;
+        if (y + side > trayHeight - 20.0) break;
+
+        int slot = gPullOverIconCount++;
+        gPullOverIcons[slot] = icon;
+        gPullOverIconParents[slot] = parent;
+        gPullOverIconFrames[slot] = frame;
+        r_msg2_main(tray, "addSubview:", icon, 0, 0, 0);
+        PullOverRect trayFrame = { (trayWidth - side) * 0.5, y, side, side };
+        r_msg2_main_raw(icon, "setFrame:", &trayFrame, sizeof(trayFrame),
+                        NULL, 0, NULL, 0, NULL, 0);
+        r_msg2_main(icon, "setUserInteractionEnabled:", 1, 0, 0, 0);
+        y += side + 14.0;
+    }
+    log_user("[PULLOVER][ICONS] discovered=%d attached=%d capacity=4 tapsPreserved=1.\n",
+             discovered, gPullOverIconCount);
+    return gPullOverIconCount;
+}
+
 bool pullover_apply_in_session(void)
 {
     printf("[PULLOVER] apply\n");
     if (r_is_objc_ptr(gPullOverView)) {
+        pullover_restore_icons();
         r_msg2_main(gPullOverView, "removeFromSuperview", 0, 0, 0, 0);
         gPullOverView = 0;
     }
@@ -148,20 +230,30 @@ bool pullover_apply_in_session(void)
     double iconSide = (double)gPullOverWidth - 24.0;
     if (iconSide < 32.0) iconSide = 32.0;
     if (iconSide > 64.0) iconSide = 64.0;
-    pullover_add_icon_slot(tray, ((double)gPullOverWidth - iconSide) / 2.0, 88.0, iconSide);
-    pullover_add_icon_slot(tray, ((double)gPullOverWidth - iconSide) / 2.0, 156.0, iconSide);
-    uint64_t label = pullover_alloc_label();
-    if (r_is_objc_ptr(label)) r_msg2_main(tray, "addSubview:", label, 0, 0, 0);
     r_msg2_main(win, "addSubview:", tray, 0, 0, 0);
+    int attached = pullover_attach_live_icons(tray, (double)gPullOverWidth, trayHeight);
+    if (attached == 0) {
+        pullover_add_icon_slot(tray, ((double)gPullOverWidth - iconSide) / 2.0, 88.0, iconSide);
+        pullover_add_icon_slot(tray, ((double)gPullOverWidth - iconSide) / 2.0, 156.0, iconSide);
+        uint64_t label = pullover_alloc_label();
+        if (r_is_objc_ptr(label)) r_msg2_main(tray, "addSubview:", label, 0, 0, 0);
+    }
     gPullOverView = tray;
+    log_user("[PULLOVER][APPLY] frameX=%.1f y=%d width=%d height=%.1f radius=%d alpha=%d%% liveIcons=%d result=%s.\n",
+             bounds.width - (double)gPullOverWidth - 8.0, gPullOverYOffset,
+             gPullOverWidth, trayHeight, gPullOverCornerRadius,
+             gPullOverBackgroundAlphaPercent, attached,
+             attached > 0 ? "interactive launcher ready" : "tray ready; no eligible icons yet");
     return true;
 }
 
 bool pullover_stop_in_session(void)
 {
     printf("[PULLOVER] stop\n");
+    pullover_restore_icons();
     if (r_is_objc_ptr(gPullOverView)) r_msg2_main(gPullOverView, "removeFromSuperview", 0, 0, 0, 0);
     gPullOverView = 0;
+    log_user("[PULLOVER][STOP] tray removed and all borrowed live icons restored.\n");
     return true;
 }
 
@@ -179,4 +271,11 @@ void pullover_configure(int width, int yOffset, int maxHeight, int cornerRadius,
     gPullOverBackgroundAlphaPercent = backgroundAlphaPercent;
 }
 
-void pullover_forget_remote_state(void) { gPullOverView = 0; }
+void pullover_forget_remote_state(void)
+{
+    gPullOverView = 0;
+    memset(gPullOverIcons, 0, sizeof(gPullOverIcons));
+    memset(gPullOverIconParents, 0, sizeof(gPullOverIconParents));
+    memset(gPullOverIconFrames, 0, sizeof(gPullOverIconFrames));
+    gPullOverIconCount = 0;
+}

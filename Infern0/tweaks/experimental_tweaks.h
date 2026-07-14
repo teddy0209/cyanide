@@ -49,6 +49,7 @@
 #import "experimental/pullover.h"
 #import "experimental/alkaline.h"
 #import "experimental/tweakloader.h"
+#import "experimental/communityports.h"
 #import "amfi_bypass.h"
 #import "kpac_bypass.h"
 #import "msm_trustcache.h"

@@ -1,0 +1,43 @@
+name: Tweak vote proposal
+description: Suggest a tweak for the Infern0 community roadmap
+title: "[Tweak Vote] "
+labels:
+  - community-vote
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Suggest one tweak per issue. Community members vote with the 👍 reaction on the issue itself.
+
+  - type: input
+    id: tweak
+    attributes:
+      label: Tweak name
+      description: Name the jailbreak tweak or feature you want Infern0 to investigate.
+      placeholder: Example — Zenith Lite
+    validations:
+      required: true
+
+  - type: textarea
+    id: behavior
+    attributes:
+      label: What should the port do?
+      description: Describe the important interactions and settings, not only its appearance.
+    validations:
+      required: true
+
+  - type: textarea
+    id: fit
+    attributes:
+      label: Why does it fit Infern0?
+      description: Explain how it could work safely with live-session or persistent tooling.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: limitations
+    attributes:
+      label: Expectations
+      options:
+        - label: I understand a non-jailbroken port may not reproduce hooks that require injection into every app.
+          required: true

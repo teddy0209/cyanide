@@ -1090,7 +1090,19 @@ static bool gl_build_group_ios26_per_icon(uint64_t groups,
 {
     enum { ICON_CAP = 256 };
     uint64_t iconViews[ICON_CAP] = {0};
-    int iconCount = sb_collect_views(listView, iconViewCls, iconViews, ICON_CAP);
+    // Home Screen pages on iOS 26 often vend their icon views through
+    // -visibleIconViews/-iconViews or -iconViewForIcon: without keeping those
+    // views as direct descendants of SBIconListView. The dock does keep them
+    // in its raw subview tree, which made the old lookup appear dock-only.
+    int iconCount = gl_icon_views_from_list(listView, iconViewCls,
+                                            iconViews, ICON_CAP);
+    const char *lookupPath = "page-icon-api";
+    if (iconCount <= 0) {
+        iconCount = sb_collect_views(listView, iconViewCls, iconViews, ICON_CAP);
+        lookupPath = "subview-tree-fallback";
+    }
+    log_user("[GRAVITY][GROUP-DISCOVERY] type=%s list=0x%llx lookup=%s icons=%d.\n",
+             isDock ? "dock" : "home-page", listView, lookupPath, iconCount);
     if (iconCount <= 0) return false;
 
     uint64_t icons = gl_new_remote("NSMutableArray");

@@ -1299,6 +1299,9 @@ static bool nbl_create_or_fetch_window(void)
 
     r_dlsym_call(R_TIMEOUT, "objc_setAssociatedObject", app, assocKey, win, 1, 0, 0, 0, 0);
     gNBLWindow = win;
+    // The associated object is the single durable owner. Balance alloc here
+    // so reconnecting to the same SpringBoard process cannot strand a window.
+    nbl_release_remote_obj(win);
     nbl_purge_legacy_window_views();
     return true;
 }
@@ -1328,6 +1331,9 @@ static uint64_t nbl_ensure_label(NiceBarLiteSlot slot)
     r_msg2_main(label, "setHidden:", 1, 0, 0, 0);
     nbl_apply_label_style(label, slot);
     r_msg2_main(gNBLWindow, "addSubview:", label, 0, 0, 0);
+    // The window owns the label; unlike the window itself, labels are never
+    // used after their host is torn down.
+    nbl_release_remote_obj(label);
 
     gNBLLabels[slot] = label;
     gNBLHasLastLayout[slot] = NO;
@@ -1660,10 +1666,11 @@ bool nicebarlite_stop_in_session(void)
     if (!assocKey) return false;
     uint64_t win = r_dlsym_call(R_TIMEOUT, "objc_getAssociatedObject",
                                 app, assocKey, 0, 0, 0, 0, 0, 0);
+    if (!r_is_objc_ptr(win)) win = gNBLWindow;
     if (r_is_objc_ptr(win)) {
         r_msg2_main(win, "setHidden:", 1, 0, 0, 0);
-        r_dlsym_call(R_TIMEOUT, "objc_setAssociatedObject", app, assocKey, 0, 1, 0, 0, 0, 0);
     }
+    r_dlsym_call(R_TIMEOUT, "objc_setAssociatedObject", app, assocKey, 0, 1, 0, 0, 0, 0);
     nicebarlite_forget_remote_state();
     printf("[NICEBARLITE] stopped\n");
     return true;

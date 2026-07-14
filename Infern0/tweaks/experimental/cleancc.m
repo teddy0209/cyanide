@@ -54,10 +54,10 @@ static void cleancc_scan(uint64_t parent, uint64_t color, double alpha,
                        strstr(cls, "Background") || strstr(cls, "VisualEffect"));
     if (ccMaterial) {
         if (r_is_objc_ptr(color) && r_responds_main(parent, "setBackgroundColor:")) {
-            r_msg2_main(parent, "setBackgroundColor:", color, 0, 0, 0);
+            sb_cc_override_object("cleancc", parent, "backgroundColor", "setBackgroundColor:", color);
         }
         if (r_responds_main(parent, "setAlpha:")) {
-            r_msg2_main_raw(parent, "setAlpha:", &alpha, sizeof(alpha), NULL, 0, NULL, 0, NULL, 0);
+            sb_cc_override_bytes("cleancc", parent, "alpha", "setAlpha:", &alpha, sizeof(alpha));
         }
         if (hits) (*hits)++;
     }
@@ -90,12 +90,10 @@ bool cleancc_apply_in_session(void)
 bool cleancc_stop_in_session(void)
 {
     printf("[CLEANCC] stop\n");
-    uint64_t win = sb_control_center_window();
-    uint64_t clear = cleancc_color(0, 0, 0, 0);
-    int hits = 0;
-    if (r_is_objc_ptr(win)) cleancc_scan(win, clear, 1.0, false, 0, &hits);
+    int hits = sb_cc_restore_owner("cleancc");
     gCleanCCTint = 0;
-    return true;
+    log_user("[CLEANCC][RESTORE] exactProperties=%d result=%s.\n", hits, hits > 0 ? "restored" : "nothing-owned");
+    return hits > 0;
 }
 
 void cleancc_configure(int materialAlphaPercent, int glassTintPercent)
@@ -108,4 +106,4 @@ void cleancc_configure(int materialAlphaPercent, int glassTintPercent)
     gCleanCCGlassTintPercent = glassTintPercent;
 }
 
-void cleancc_forget_remote_state(void) { gCleanCCTint = 0; }
+void cleancc_forget_remote_state(void) { gCleanCCTint = 0; sb_cc_forget_owner("cleancc"); }

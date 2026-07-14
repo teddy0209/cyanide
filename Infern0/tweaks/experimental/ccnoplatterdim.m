@@ -40,7 +40,7 @@ static void ccnoplatterdim_scan(uint64_t parent, double alpha, int depth, int *h
     bool dimTarget = strstr(cls, "Dimming") || strstr(cls, "PlatterOverlay") ||
                      strstr(cls, "ExpandedPlatterTransition");
     if (dimTarget) {
-        r_msg2_main_raw(parent, "setAlpha:", &alpha, sizeof(alpha), NULL, 0, NULL, 0, NULL, 0);
+        sb_cc_override_bytes("ccnoplatterdim", parent, "alpha", "setAlpha:", &alpha, sizeof(alpha));
         if (hits) (*hits)++;
     }
     uint64_t subviews = r_msg2_main(parent, "subviews", 0, 0, 0, 0);
@@ -64,11 +64,9 @@ bool ccnoplatterdim_apply_in_session(void)
 bool ccnoplatterdim_stop_in_session(void)
 {
     printf("[CCNOPLATTERDIM] stop\n");
-    uint64_t win = sb_control_center_window();
-    int hits = 0;
-    if (r_is_objc_ptr(win)) ccnoplatterdim_scan(win, 1.0, 0, &hits);
+    int hits = sb_cc_restore_owner("ccnoplatterdim");
     gCCNoPlatterDimApplied = false;
-    return true;
+    return hits > 0;
 }
 
 void ccnoplatterdim_configure(int visibleAlphaPercent)
@@ -78,4 +76,4 @@ void ccnoplatterdim_configure(int visibleAlphaPercent)
     gCCNoPlatterDimVisibleAlphaPercent = visibleAlphaPercent;
 }
 
-void ccnoplatterdim_forget_remote_state(void) { gCCNoPlatterDimApplied = false; }
+void ccnoplatterdim_forget_remote_state(void) { gCCNoPlatterDimApplied = false; sb_cc_forget_owner("ccnoplatterdim"); }

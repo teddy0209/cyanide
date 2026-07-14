@@ -228,6 +228,8 @@ bool quickloader_refresh_active_repo_tweak(void) {
 // ==========================================
 static JSContext *g_quickloader_context = nil;
 static NSMutableDictionary *g_quickloader_timers = nil;
+static NSMutableSet<NSNumber *> *g_quickloader_allocated_objects = nil;
+static NSMutableSet<NSNumber *> *g_quickloader_owned_views = nil;
 static int g_quickloader_timer_id = 0;
 
 static int g_quickloader_shutting_down = 0;
@@ -235,6 +237,56 @@ static char g_quickloader_queue_key;
 static pthread_mutex_t g_quickloader_queue_lock = PTHREAD_MUTEX_INITIALIZER;
 static dispatch_queue_t g_quickloader_queue = nil;
 static uint64_t g_quickloader_generation = 1;
+
+static BOOL quickloader_selector_requires_main(NSString *selector) {
+    if (![selector isKindOfClass:NSString.class]) return NO;
+    static NSArray<NSString *> *exact;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        exact = @[@"addSubview:", @"bringSubviewToFront:", @"sendSubviewToBack:",
+                  @"addSublayer:", @"removeFromSuperlayer", @"removeAllAnimations",
+                  @"removeFromSuperview", @"setFrame:", @"setBounds:", @"setCenter:",
+                  @"setTransform:", @"setAlpha:", @"setHidden:", @"setText:",
+                  @"setTextColor:", @"setBackgroundColor:", @"setImage:",
+                  @"setNeedsLayout", @"layoutIfNeeded", @"setNeedsDisplay"];
+    });
+    if ([exact containsObject:selector] || [selector isEqualToString:@"alloc"] ||
+        [selector isEqualToString:@"new"] || [selector hasPrefix:@"init"]) return YES;
+    return [selector hasPrefix:@"set"] || [selector hasPrefix:@"insertSubview:"] ||
+           [selector hasPrefix:@"insertSublayer:"] || [selector hasPrefix:@"addAnimation:"] ||
+           [selector hasPrefix:@"removeAnimation"];
+}
+
+static void quickloader_track_remote_call(uint64_t target, NSString *selector, uint64_t firstArg, uint64_t result) {
+    if (!g_quickloader_allocated_objects) g_quickloader_allocated_objects = [NSMutableSet set];
+    if (!g_quickloader_owned_views) g_quickloader_owned_views = [NSMutableSet set];
+    if (([selector isEqualToString:@"alloc"] || [selector isEqualToString:@"new"]) && result) {
+        [g_quickloader_allocated_objects addObject:@(result)];
+    } else if ([selector hasPrefix:@"init"] &&
+               [g_quickloader_allocated_objects containsObject:@(target)] && result) {
+        [g_quickloader_allocated_objects addObject:@(result)];
+    }
+    if (([selector isEqualToString:@"addSubview:"] || [selector hasPrefix:@"insertSubview:"]) &&
+        firstArg && [g_quickloader_allocated_objects containsObject:@(firstArg)]) {
+        [g_quickloader_owned_views addObject:@(firstArg)];
+    } else if ([selector isEqualToString:@"removeFromSuperview"] && target) {
+        [g_quickloader_owned_views removeObject:@(target)];
+    }
+}
+
+static void quickloader_remove_owned_views_locked(const char *reason) {
+    NSArray<NSNumber *> *views = g_quickloader_owned_views.allObjects;
+    for (NSNumber *pointer in [views reverseObjectEnumerator]) {
+        uint64_t view = pointer.unsignedLongLongValue;
+        if (view) r_msg2_main(view, "removeFromSuperview", 0, 0, 0, 0);
+    }
+    if (views.count > 0) {
+        log_user("[QuickLoader][OVERLAY] Removed %lu stale script-owned view%s before %s.\n",
+                 (unsigned long)views.count, views.count == 1 ? "" : "s", reason ?: "cleanup");
+    }
+    [g_quickloader_owned_views removeAllObjects];
+    [g_quickloader_allocated_objects removeAllObjects];
+}
 
 static dispatch_queue_t quickloader_create_js_queue_locked(void) {
     NSString *label = [NSString stringWithFormat:@"com.zeroxjf.cyanide.quickloader.js.%llu",
@@ -416,6 +468,7 @@ bool quickloader_run_js_string(NSString *jsCode) {
     bool completed = quickloader_perform_sync_timeout(^{
         if (!quickloader_generation_is_current(runGeneration)) return;
         log_user("[JS Engine] Initializing long-living environment...\n");
+        quickloader_remove_owned_views_locked("rerun");
 
         if (g_quickloader_timers == nil) {
             g_quickloader_timers = [[NSMutableDictionary alloc] init];
@@ -576,7 +629,11 @@ bool quickloader_run_js_string(NSString *jsCode) {
             uint64_t a3 = args.count > 4 ? js_to_uint64(args[4]) : 0;
             uint64_t a4 = args.count > 5 ? js_to_uint64(args[5]) : 0;
 
-            uint64_t res = r_msg2(target, [selector UTF8String], a1, a2, a3, a4);
+            BOOL onMain = quickloader_selector_requires_main(selector);
+            uint64_t res = onMain
+                ? r_msg2_main(target, [selector UTF8String], a1, a2, a3, a4)
+                : r_msg2(target, [selector UTF8String], a1, a2, a3, a4);
+            quickloader_track_remote_call(target, selector, a1, res);
             return uint64_to_js(res);
         };
 
@@ -593,7 +650,26 @@ bool quickloader_run_js_string(NSString *jsCode) {
             uint64_t a4 = args.count > 5 ? js_to_uint64(args[5]) : 0;
 
             uint64_t res = r_msg2_main(target, [selector UTF8String], a1, a2, a3, a4);
+            quickloader_track_remote_call(target, selector, a1, res);
             return uint64_to_js(res);
+        };
+
+        context[@"r_overlay_claim"] = ^NSNumber*(JSValue *viewValue) {
+            uint64_t view = js_to_uint64(viewValue);
+            if (!view || !quickloader_generation_is_active(runGeneration)) return @(NO);
+            if (!g_quickloader_owned_views) g_quickloader_owned_views = [NSMutableSet set];
+            [g_quickloader_owned_views addObject:@(view)];
+            log_user("[QuickLoader][OVERLAY] Claimed remote view 0x%llx.\n", (unsigned long long)view);
+            return @(YES);
+        };
+
+        context[@"r_overlay_release"] = ^NSNumber*(JSValue *viewValue) {
+            uint64_t view = js_to_uint64(viewValue);
+            if (!view || !quickloader_generation_is_active(runGeneration)) return @(NO);
+            r_msg2_main(view, "removeFromSuperview", 0, 0, 0, 0);
+            [g_quickloader_owned_views removeObject:@(view)];
+            log_user("[QuickLoader][OVERLAY] Released remote view 0x%llx.\n", (unsigned long long)view);
+            return @(YES);
         };
 
         context[@"r_nsstr"] = ^NSString*(NSString *str) {
@@ -641,6 +717,8 @@ bool quickloader_stop_in_session(void) {
             }
             [g_quickloader_timers removeAllObjects];
         }
+
+        quickloader_remove_owned_views_locked("cleanup");
 
         g_quickloader_context = nil;
     }, 2 * NSEC_PER_SEC);

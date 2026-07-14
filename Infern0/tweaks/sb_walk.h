@@ -8,6 +8,8 @@
 #define sb_walk_h
 
 #import <stdint.h>
+#import <stdbool.h>
+#import <stddef.h>
 
 // BFS from `root` collecting subviews that are instances of `klass`.
 // Matched views are NOT recursed into. Returns the count written to `out`,
@@ -35,5 +37,19 @@ uint64_t sb_frontmost_window(void);
 // window merely because it is frontmost.
 int sb_collect_control_center_windows(uint64_t *out, int cap);
 uint64_t sb_control_center_window(void);
+
+// Shared live-property coordinator for Control Center tweaks. Each property is
+// captured once, can have multiple named owners, and is restored to the next
+// active owner's value (or the exact captured value) when an owner stops.
+bool sb_cc_override_object(const char *owner, uint64_t object,
+                           const char *getter, const char *setter, uint64_t value);
+bool sb_cc_override_bytes(const char *owner, uint64_t object,
+                          const char *getter, const char *setter,
+                          const void *value, size_t valueSize);
+bool sb_cc_override_bool(const char *owner, uint64_t object,
+                         const char *getter, const char *setter, bool value);
+int sb_cc_restore_owner(const char *owner);
+void sb_cc_forget_owner(const char *owner);
+void sb_cc_forget_all_overrides(void);
 
 #endif /* sb_walk_h */

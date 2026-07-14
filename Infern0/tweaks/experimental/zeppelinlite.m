@@ -1,5 +1,6 @@
 #import "zeppelinlite.h"
 #import "../remote_objc.h"
+#import "../sb_walk.h"
 #import "../../TaskRop/RemoteCall.h"
 #import "../../LogTextView.h"
 
@@ -35,7 +36,7 @@ bool zeppelinlite_apply_in_session(const char *carrierText)
         uint64_t nsStr = r_msg2_main(r_class("NSString"), "stringWithUTF8String:", textStr, 0, 0, 0);
         r_free(textStr);
         if (!r_is_objc_ptr(nsStr)) return false;
-        r_msg2_main(carrierItem, "setText:", nsStr, 0, 0, 0);
+        if (!sb_cc_override_object("zeppelinlite", carrierItem, "text", "setText:", nsStr)) return false;
         printf("[ZEPPELIN] set carrier text\n");
     }
 
@@ -46,11 +47,14 @@ bool zeppelinlite_apply_in_session(const char *carrierText)
 bool zeppelinlite_stop_in_session(void)
 {
     printf("[ZEPPELIN] stop\n");
+    int restored = sb_cc_restore_owner("zeppelinlite");
     gZepApplied = false;
-    return true;
+    log_user("[ZEPPELIN][RESTORE] exactCarrierTextProperties=%d.\n", restored);
+    return restored > 0;
 }
 
 void zeppelinlite_forget_remote_state(void)
 {
     gZepApplied = false;
+    sb_cc_forget_owner("zeppelinlite");
 }

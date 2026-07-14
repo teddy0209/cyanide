@@ -1,5 +1,6 @@
 #import "cleannc.h"
 #import "../remote_objc.h"
+#import "../sb_walk.h"
 #import "../../TaskRop/RemoteCall.h"
 #import "../../LogTextView.h"
 
@@ -7,10 +8,12 @@
 #import <math.h>
 
 static bool gCleanncApplied = false;
+static int gCleanncChanged = 0;
 
 bool cleannc_apply_in_session(void)
 {
     printf("[CLEANNC] apply\n");
+    gCleanncChanged = 0;
 
     uint64_t UIApplication = r_class("UIApplication");
     if (!r_is_objc_ptr(UIApplication)) return false;
@@ -66,35 +69,38 @@ bool cleannc_apply_in_session(void)
                 }
 
                 if (strstr(svCls, "Search") || strstr(svCls, "search")) {
-                    r_msg2_main(sv, "setHidden:", 1, 0, 0, 0);
-                    printf("[CLEANNC] hid search bar: 0x%llx\n", sv);
+                    if (sb_cc_override_bool("cleannc", sv, "isHidden", "setHidden:", true)) gCleanncChanged++;
                 }
                 if (strstr(svCls, "NoNotifications") || strstr(svCls, "no_notifications")) {
-                    r_msg2_main(sv, "setHidden:", 1, 0, 0, 0);
-                    printf("[CLEANNC] hid 'No Older Notifications': 0x%llx\n", sv);
+                    if (sb_cc_override_bool("cleannc", sv, "isHidden", "setHidden:", true)) gCleanncChanged++;
                 }
             }
 
             uint64_t bgView = r_ivar_value(root, "_backgroundView");
             if (r_is_objc_ptr(bgView)) {
-                r_msg2_main(bgView, "setHidden:", 1, 0, 0, 0);
-                printf("[CLEANNC] hid grid background: 0x%llx\n", bgView);
+                if (sb_cc_override_bool("cleannc", bgView, "isHidden", "setHidden:", true)) gCleanncChanged++;
             }
         }
     }
 
-    gCleanncApplied = true;
-    return true;
+    gCleanncApplied = gCleanncChanged > 0;
+    log_user("[CLEANNC][APPLY] exactOverrides=%d result=%s.\n",
+             gCleanncChanged, gCleanncApplied ? "active" : "no-supported-views");
+    return gCleanncApplied;
 }
 
 bool cleannc_stop_in_session(void)
 {
     printf("[CLEANNC] stop\n");
+    int restored = sb_cc_restore_owner("cleannc");
     gCleanncApplied = false;
-    return true;
+    log_user("[CLEANNC][RESTORE] exactProperties=%d.\n", restored);
+    return restored > 0;
 }
 
 void cleannc_forget_remote_state(void)
 {
     gCleanncApplied = false;
+    gCleanncChanged = 0;
+    sb_cc_forget_owner("cleannc");
 }

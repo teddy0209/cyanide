@@ -47,12 +47,12 @@ static void betterccxi_scan(uint64_t parent, double scale, int depth, int *hits)
     uint64_t layer = target ? r_msg2_main(parent, "layer", 0, 0, 0, 0) : 0;
     if (r_is_objc_ptr(layer)) {
         double z = (double)gBetterCCXIZLift;
-        r_msg2_main_raw(layer, "setZPosition:", &z, sizeof(z), NULL, 0, NULL, 0, NULL, 0);
+        sb_cc_override_bytes("betterccxi", layer, "zPosition", "setZPosition:", &z, sizeof(z));
         if (hits) (*hits)++;
     }
     if (scaleTarget && r_responds_main(parent, "setTransform:")) {
         BetterCCXIAffine transform = { scale, 0, 0, scale, 0, 0 };
-        r_msg2_main_raw(parent, "setTransform:", &transform, sizeof(transform), NULL, 0, NULL, 0, NULL, 0);
+        sb_cc_override_bytes("betterccxi", parent, "transform", "setTransform:", &transform, sizeof(transform));
     }
     uint64_t subviews = r_msg2_main(parent, "subviews", 0, 0, 0, 0);
     if (!r_is_objc_ptr(subviews)) return;
@@ -78,14 +78,10 @@ bool betterccxi_apply_in_session(void)
 bool betterccxi_stop_in_session(void)
 {
     printf("[BETTERCCXI] stop\n");
-    uint64_t win = sb_control_center_window();
-    int hits = 0;
-    int old = gBetterCCXIZLift;
-    gBetterCCXIZLift = 0;
-    if (r_is_objc_ptr(win)) betterccxi_scan(win, 1.0, 0, &hits);
-    gBetterCCXIZLift = old;
+    int hits = sb_cc_restore_owner("betterccxi");
     gBetterCCXIApplied = false;
-    return true;
+    log_user("[BETTERCCXI][RESTORE] exactProperties=%d.\n", hits);
+    return hits > 0;
 }
 
 void betterccxi_configure(int zLift, int depthLimit, int moduleScalePercent)
@@ -101,4 +97,4 @@ void betterccxi_configure(int zLift, int depthLimit, int moduleScalePercent)
     gBetterCCXIModuleScalePercent = moduleScalePercent;
 }
 
-void betterccxi_forget_remote_state(void) { gBetterCCXIApplied = false; }
+void betterccxi_forget_remote_state(void) { gBetterCCXIApplied = false; sb_cc_forget_owner("betterccxi"); }

@@ -65,6 +65,7 @@ static void sugarcane_remove_labels(void)
     for (int i = 0; i < gSugarCaneLabelCount && i < 8; i++) {
         if (r_is_objc_ptr(gSugarCaneLabels[i])) {
             r_msg2_main(gSugarCaneLabels[i], "removeFromSuperview", 0, 0, 0, 0);
+            r_msg2_main(gSugarCaneLabels[i], "release", 0, 0, 0, 0);
         }
         gSugarCaneLabels[i] = 0;
         gSugarCaneHosts[i] = 0;

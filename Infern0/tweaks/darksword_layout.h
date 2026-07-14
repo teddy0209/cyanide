@@ -37,5 +37,7 @@ bool darksword_layout_apply_in_session(double extraLeft,
                                        double extraDockHorizontal,
                                        double homeScale,
                                        double dockScale);
+bool darksword_layout_stop_in_session(void);
+void darksword_layout_forget_remote_state(void);
 
 #endif

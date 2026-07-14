@@ -12,6 +12,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface MainTabBarController : UITabBarController
 - (void)showRefreshBanner;
+- (void)showQueueReview;
 @end
 
 NS_ASSUME_NONNULL_END

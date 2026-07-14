@@ -89,6 +89,7 @@ static UILabel *packages_stat_label(void)
 @property (nonatomic, strong) UILabel *librarySubtitleLabel;
 @property (nonatomic, copy) NSArray<UILabel *> *statLabels;
 @property (nonatomic, strong) UISegmentedControl *scopeControl;
+@property (nonatomic, strong) UIButton *applyNavigationButton;
 @end
 
 @implementation PackagesViewController
@@ -103,12 +104,30 @@ static UILabel *packages_stat_label(void)
     self.navigationItem.largeTitleDisplayMode = UINavigationItemLargeTitleDisplayModeAlways;
     self.navigationController.navigationBar.prefersLargeTitles = YES;
     UIBarButtonItem *votesItem = [[UIBarButtonItem alloc]
-        initWithTitle:@"Vote"
+        initWithImage:[UIImage systemImageNamed:@"person.3.fill"]
         style:UIBarButtonItemStylePlain
         target:self
         action:@selector(openCommunityVotes)];
-    votesItem.accessibilityLabel = @"Community Votes";
-    self.navigationItem.rightBarButtonItem = votesItem;
+    votesItem.accessibilityLabel = @"Community votes";
+
+    UIButtonConfiguration *applyConfig = [UIButtonConfiguration filledButtonConfiguration];
+    applyConfig.title = @"Apply";
+    applyConfig.image = [UIImage systemImageNamed:@"arrow.down.circle.fill"];
+    applyConfig.imagePadding = 5.0;
+    applyConfig.cornerStyle = UIButtonConfigurationCornerStyleCapsule;
+    applyConfig.baseBackgroundColor = CYAccentColor();
+    applyConfig.contentInsets = NSDirectionalEdgeInsetsMake(6.0, 11.0, 6.0, 11.0);
+    applyConfig.titleTextAttributesTransformer = ^NSDictionary<NSAttributedStringKey,id> *(NSDictionary<NSAttributedStringKey,id> *incoming) {
+        NSMutableDictionary *attributes = [incoming mutableCopy];
+        attributes[NSFontAttributeName] = [UIFont systemFontOfSize:14.0 weight:UIFontWeightBold];
+        return attributes;
+    };
+    self.applyNavigationButton = [UIButton buttonWithConfiguration:applyConfig primaryAction:nil];
+    [self.applyNavigationButton addTarget:self action:@selector(openApplyQueue) forControlEvents:UIControlEventTouchUpInside];
+    self.applyNavigationButton.accessibilityLabel = @"Review and apply pending changes";
+    CYPolishButton(self.applyNavigationButton);
+    UIBarButtonItem *applyItem = [[UIBarButtonItem alloc] initWithCustomView:self.applyNavigationButton];
+    self.navigationItem.rightBarButtonItems = @[votesItem, applyItem];
     self.searchText = @"";
     self.scope = PackagesScopeAll;
 
@@ -161,6 +180,7 @@ static UILabel *packages_stat_label(void)
     [super viewWillAppear:animated];
     [self refreshCatalog];
     [self.tableView reloadData];
+    [self updateApplyNavigationButton];
 }
 
 #pragma mark - Library header
@@ -191,7 +211,7 @@ static UILabel *packages_stat_label(void)
         [stats addObject:label];
     }
 
-    UISegmentedControl *scope = [[UISegmentedControl alloc] initWithItems:@[@"All", @"Active", @"Updates", @"New"]];
+    UISegmentedControl *scope = [[UISegmentedControl alloc] initWithItems:@[@"Library", @"Active", @"Updates", @"New"]];
     scope.selectedSegmentIndex = PackagesScopeAll;
     scope.selectedSegmentTintColor = CYAccentColor();
     [scope setTitleTextAttributes:@{NSForegroundColorAttributeName: UIColor.whiteColor,
@@ -241,9 +261,17 @@ static UILabel *packages_stat_label(void)
         if (package_has_repo_update(pkg)) updates++;
     }
     NSInteger queued = [PackageQueue sharedQueue].pendingCount;
-    self.librarySubtitleLabel.text = queued > 0
-        ? [NSString stringWithFormat:@"%ld pending change%@ ready to review", (long)queued, queued == 1 ? @"" : @"s"]
-        : @"Browse, activate, and manage every tweak";
+    if (queued > 0) {
+        self.librarySubtitleLabel.text = [NSString stringWithFormat:@"%ld pending change%@ ready to review", (long)queued, queued == 1 ? @"" : @"s"];
+    } else {
+        NSArray<NSString *> *scopeDescriptions = @[
+            @"Organized by status, tools, and category",
+            @"Installed tweaks grouped by category",
+            @"Packages with newer versions available",
+            @"Packages discovered in the last 14 days",
+        ];
+        self.librarySubtitleLabel.text = scopeDescriptions[self.scope];
+    }
 
     NSArray<NSString *> *values = @[
         [NSString stringWithFormat:@"%ld\nTotal", (long)self.allPackagesSorted.count],
@@ -259,6 +287,21 @@ static UILabel *packages_stat_label(void)
         label.font = [UIFont systemFontOfSize:13.0 weight:UIFontWeightBold];
         label.textColor = colors[i];
     }
+}
+
+- (void)updateApplyNavigationButton
+{
+    NSInteger pending = [PackageQueue sharedQueue].pendingCount;
+    UIButtonConfiguration *config = self.applyNavigationButton.configuration;
+    config.title = pending > 0
+        ? [NSString stringWithFormat:@"Apply %ld", (long)pending]
+        : @"Apply";
+    self.applyNavigationButton.configuration = config;
+    self.applyNavigationButton.enabled = pending > 0;
+    self.applyNavigationButton.alpha = pending > 0 ? 1.0 : 0.48;
+    self.applyNavigationButton.accessibilityValue = pending > 0
+        ? [NSString stringWithFormat:@"%ld pending", (long)pending]
+        : @"No pending changes";
 }
 
 #pragma mark - Catalog and filtering
@@ -291,6 +334,7 @@ static UILabel *packages_stat_label(void)
     [self rebuildDisplayedSections];
     [self rebuildSearchResults];
     [self updateLibraryHeader];
+    [self updateApplyNavigationButton];
     [self updateEmptyState];
 }
 
@@ -309,11 +353,19 @@ static UILabel *packages_stat_label(void)
     [self.navigationController pushViewController:votes animated:YES];
 }
 
+- (void)openApplyQueue
+{
+    if ([PackageQueue sharedQueue].pendingCount <= 0) return;
+    MainTabBarController *tab = (MainTabBarController *)self.tabBarController;
+    [tab showQueueReview];
+}
+
 - (void)scopeDidChange:(UISegmentedControl *)sender
 {
     self.scope = (PackagesScope)sender.selectedSegmentIndex;
     [self rebuildDisplayedSections];
     [self rebuildSearchResults];
+    [self updateLibraryHeader];
     [self updateEmptyState];
     [self.tableView reloadData];
     if (self.tableView.numberOfSections > 0 && [self.tableView numberOfRowsInSection:0] > 0) {
@@ -351,39 +403,77 @@ static UILabel *packages_stat_label(void)
     NSMutableArray<NSArray<Package *> *> *sections = [NSMutableArray array];
     NSMutableArray<NSString *> *titles = [NSMutableArray array];
 
+    void (^appendSection)(NSString *, NSArray<Package *> *) = ^(NSString *title, NSArray<Package *> *packages) {
+        if (packages.count == 0) return;
+        [sections addObject:packages];
+        [titles addObject:[NSString stringWithFormat:@"%@ · %lu", title, (unsigned long)packages.count]];
+    };
+
+    NSArray<NSString *> *preferredCategories = @[
+        @"Home Screen", @"Lock Screen", @"Control Center", @"Status Bar",
+        @"SpringBoard", @"Theming", @"Productivity", @"JavaScript Tweaks",
+        @"System", @"Beta", @"Experimental", @"In Development",
+    ];
+
+    void (^appendCategoryBuckets)(NSArray<Package *> *) = ^(NSArray<Package *> *packages) {
+        NSMutableDictionary<NSString *, NSMutableArray<Package *> *> *byCategory = [NSMutableDictionary dictionary];
+        for (Package *pkg in packages) {
+            NSString *category = pkg.category.length ? pkg.category : @"Other";
+            if (!byCategory[category]) byCategory[category] = [NSMutableArray array];
+            [byCategory[category] addObject:pkg];
+        }
+        NSMutableArray<NSString *> *ordered = [preferredCategories mutableCopy];
+        NSArray<NSString *> *unknown = [[byCategory.allKeys filteredArrayUsingPredicate:
+            [NSPredicate predicateWithBlock:^BOOL(NSString *category, NSDictionary *bindings) {
+                (void)bindings;
+                return ![ordered containsObject:category];
+            }]] sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)];
+        [ordered addObjectsFromArray:unknown];
+        for (NSString *category in ordered) appendSection(category, byCategory[category]);
+    };
+
     if (self.scope != PackagesScopeAll) {
         NSArray<Package *> *packages = [self packagesForCurrentScope];
-        if (packages.count > 0) {
-            [sections addObject:packages];
-            NSArray<NSString *> *scopeTitles = @[@"All Packages", @"Active Tweaks", @"Available Updates", @"Recently Added"];
-            [titles addObject:scopeTitles[self.scope]];
-        }
+        if (self.scope == PackagesScopeActive) appendCategoryBuckets(packages);
+        else if (self.scope == PackagesScopeUpdates) appendSection(@"Available Updates", packages);
+        else appendSection(@"Recently Added", packages);
         self.displayedSections = sections;
         self.displayedSectionTitles = titles;
         return;
     }
 
-    NSMutableArray<Package *> *attention = [NSMutableArray array];
+    NSMutableArray<Package *> *pending = [NSMutableArray array];
+    NSMutableArray<Package *> *updates = [NSMutableArray array];
     NSMutableArray<Package *> *active = [NSMutableArray array];
     NSMutableArray<Package *> *recent = [NSMutableArray array];
-    NSMutableArray<Package *> *available = [NSMutableArray array];
+    NSMutableArray<Package *> *tools = [NSMutableArray array];
+    NSMutableArray<Package *> *persistent = [NSMutableArray array];
+    NSMutableArray<Package *> *unavailable = [NSMutableArray array];
+    NSMutableArray<Package *> *regular = [NSMutableArray array];
     PackageQueue *queue = [PackageQueue sharedQueue];
 
     for (Package *pkg in self.allPackagesSorted) {
-        BOOL needsAttention = package_has_repo_update(pkg) || [queue intentForPackage:pkg] != PackageQueueIntentNone;
-        if (needsAttention) [attention addObject:pkg];
+        if ([queue intentForPackage:pkg] != PackageQueueIntentNone) [pending addObject:pkg];
+        else if (package_has_repo_update(pkg)) [updates addObject:pkg];
         else if (pkg.isInstalled) [active addObject:pkg];
+        else if (pkg.isInstallDisabled) [unavailable addObject:pkg];
+        else if (pkg.kind == PackageInstallKindDirectTool) [tools addObject:pkg];
+        else if (pkg.kind == PackageInstallKindOTA ||
+                 pkg.kind == PackageInstallKindNanoRegistry ||
+                 pkg.kind == PackageInstallKindCallRecordingSound ||
+                 pkg.kind == PackageInstallKindHideHomeBar) [persistent addObject:pkg];
         else if (package_is_recent(pkg)) [recent addObject:pkg];
-        else [available addObject:pkg];
+        else [regular addObject:pkg];
     }
 
-    NSArray<NSArray<Package *> *> *buckets = @[attention, active, recent, available];
-    NSArray<NSString *> *bucketTitles = @[@"Needs Attention", @"Active", @"Recently Added", @"Available"];
-    for (NSInteger i = 0; i < (NSInteger)buckets.count; i++) {
-        if (buckets[i].count == 0) continue;
-        [sections addObject:buckets[i]];
-        [titles addObject:bucketTitles[i]];
-    }
+    appendSection(@"Pending Changes", pending);
+    appendSection(@"Updates", updates);
+    appendSection(@"Installed", active);
+    appendSection(@"Recently Added", recent);
+    appendSection(@"Direct Tools", tools);
+    appendSection(@"Persistent & System Changes", persistent);
+    appendCategoryBuckets(regular);
+    appendSection(@"Unavailable & In Development", unavailable);
     self.displayedSections = sections;
     self.displayedSectionTitles = titles;
 }

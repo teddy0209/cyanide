@@ -40,8 +40,8 @@ static void modulespacing_scan(uint64_t parent, double radius, int depth, int *h
     if (strstr(cls, "CCUIModuleContainer") || strstr(cls, "CCUIContentModuleContainer")) {
         uint64_t layer = r_msg2_main(parent, "layer", 0, 0, 0, 0);
         if (r_is_objc_ptr(layer)) {
-            r_msg2_main_raw(layer, "setCornerRadius:", &radius, sizeof(radius), NULL, 0, NULL, 0, NULL, 0);
-            r_msg2_main(layer, "setMasksToBounds:", 1, 0, 0, 0);
+            sb_cc_override_bytes("modulespacing", layer, "cornerRadius", "setCornerRadius:", &radius, sizeof(radius));
+            sb_cc_override_bool("modulespacing", layer, "masksToBounds", "setMasksToBounds:", true);
             if (hits) (*hits)++;
         }
     }
@@ -68,11 +68,9 @@ bool modulespacing_apply_in_session(void)
 bool modulespacing_stop_in_session(void)
 {
     printf("[MODULESPACING] stop\n");
-    uint64_t win = sb_control_center_window();
-    int hits = 0;
-    if (r_is_objc_ptr(win)) modulespacing_scan(win, 18.0, 0, &hits);
+    int hits = sb_cc_restore_owner("modulespacing");
     gModuleSpacingApplied = false;
-    return true;
+    return hits > 0;
 }
 
 void modulespacing_configure(int cornerRadius)
@@ -82,4 +80,4 @@ void modulespacing_configure(int cornerRadius)
     gModuleSpacingCornerRadius = cornerRadius;
 }
 
-void modulespacing_forget_remote_state(void) { gModuleSpacingApplied = false; }
+void modulespacing_forget_remote_state(void) { gModuleSpacingApplied = false; sb_cc_forget_owner("modulespacing"); }

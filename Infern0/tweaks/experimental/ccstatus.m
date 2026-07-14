@@ -2,6 +2,7 @@
 #import "../remote_objc.h"
 #import "../sb_walk.h"
 #import "../../TaskRop/RemoteCall.h"
+#import "../../LogTextView.h"
 
 #import <Foundation/Foundation.h>
 
@@ -34,6 +35,7 @@ bool ccstatus_apply_in_session(void)
     printf("[CCSTATUS] apply\n");
     if (r_is_objc_ptr(gCCStatusLabel)) {
         r_msg2_main(gCCStatusLabel, "removeFromSuperview", 0, 0, 0, 0);
+        r_msg2_main(gCCStatusLabel, "release", 0, 0, 0, 0);
         gCCStatusLabel = 0;
     }
     uint64_t win = sb_control_center_window();
@@ -74,14 +76,21 @@ bool ccstatus_apply_in_session(void)
     }
     r_msg2_main(win, "addSubview:", label, 0, 0, 0);
     gCCStatusLabel = label;
+    log_user("[CCSTATUS][APPLY] wifi=%d ip=%d y=%d overlayInstalled=1.\n",
+             gCCStatusShowWifi, gCCStatusShowIP, gCCStatusYOffset);
     return true;
 }
 
 bool ccstatus_stop_in_session(void)
 {
     printf("[CCSTATUS] stop\n");
-    if (r_is_objc_ptr(gCCStatusLabel)) r_msg2_main(gCCStatusLabel, "removeFromSuperview", 0, 0, 0, 0);
+    bool removed = r_is_objc_ptr(gCCStatusLabel);
+    if (removed) {
+        r_msg2_main(gCCStatusLabel, "removeFromSuperview", 0, 0, 0, 0);
+        r_msg2_main(gCCStatusLabel, "release", 0, 0, 0, 0);
+    }
     gCCStatusLabel = 0;
+    log_user("[CCSTATUS][STOP] overlayRemoved=%d.\n", removed);
     return true;
 }
 

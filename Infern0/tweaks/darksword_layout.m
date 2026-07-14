@@ -644,18 +644,16 @@ static bool darksword_layout_apply_in_session_ios26(double exL, double exR, doub
                 // CGAffineTransform: { a, b, c, d, tx, ty } — 6 doubles, 48 bytes.
                 // Pure scale: { sx, 0, 0, sy, 0, 0 }.
                 double xf[6] = { scaleX, 0.0, 0.0, scaleY, 0.0, 0.0 };
-                r_msg2_main_raw(lv, "setTransform:",
-                                xf, sizeof(xf),
-                                NULL, 0, NULL, 0, NULL, 0);
+                sb_cc_override_bytes("layoutextras", lv, "transform", "setTransform:",
+                                     xf, sizeof(xf));
                 printf("[LAYOUT26]   %s transform scale=(%.3f,%.3f) frameWxH=%.1fx%.1f\n",
                        isDock ? "dock" : "home", scaleX, scaleY, w, h);
                 anyOk = true;
             } else {
                 // Reset to identity in case a prior Run left a transform.
                 double identity[6] = { 1.0, 0.0, 0.0, 1.0, 0.0, 0.0 };
-                r_msg2_main_raw(lv, "setTransform:",
-                                identity, sizeof(identity),
-                                NULL, 0, NULL, 0, NULL, 0);
+                sb_cc_override_bytes("layoutextras", lv, "transform", "setTransform:",
+                                     identity, sizeof(identity));
                 anyOk = true;
             }
         }
@@ -676,4 +674,21 @@ bool darksword_layout_apply_in_session(double exL, double exR, double exT, doubl
     if (homeScale > 0.0) ok &= darksword_layout_home_scale_in_session(homeScale);
     if (dockScale > 0.0) ok &= darksword_layout_dock_scale_in_session(dockScale);
     return ok;
+}
+
+bool darksword_layout_stop_in_session(void)
+{
+    if (ds_layout_ios_major() >= 26) {
+        int restored = sb_cc_restore_owner("layoutextras");
+        log_user("[LAYOUT26][RESTORE] exactListTransforms=%d.\n", restored);
+        return restored > 0;
+    }
+    bool restored = darksword_layout_apply_in_session(0, 0, 0, 0, 0, 1.0, 1.0);
+    log_user("[LAYOUT][RESTORE] legacyConfigurationReset=%d.\n", restored);
+    return restored;
+}
+
+void darksword_layout_forget_remote_state(void)
+{
+    sb_cc_forget_owner("layoutextras");
 }

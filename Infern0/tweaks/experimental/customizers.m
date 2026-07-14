@@ -17,6 +17,10 @@ static bool gHomeHideDots = false;
 static bool gHomeHideFolderBackground = false;
 static bool gHomeHideDockBackground = false;
 static int gHomeIconAlpha = 100;
+static bool gHomeHasAppliedConfig = false;
+static bool gHomeAppliedHideBadges = false, gHomeAppliedHideDots = false;
+static bool gHomeAppliedHideFolderBackground = false, gHomeAppliedHideDockBackground = false;
+static int gHomeAppliedIconAlpha = 100;
 
 static int gFreeHorizontalStep = 8;
 static int gFreeVerticalStep = 5;
@@ -128,19 +132,21 @@ static void homecustom_scan(uint64_t view, int depth, int *changed)
     bool touched = false;
 
     if ((cus_contains(cls, "IconBadge") || cus_contains(cls, "SBIconBadge")) && !cus_contains(cls, "Label")) {
-        cus_set_alpha(view, gHomeHideBadges ? 0.0 : 1.0); touched = true;
+        if (gHomeHideBadges) { double alpha = 0.0; touched = sb_cc_override_bytes("homecustom", view, "alpha", "setAlpha:", &alpha, sizeof(alpha)); }
     } else if ((cus_contains(cls, "PageControl") || cus_contains(cls, "PageIndicator") || cus_contains(cls, "PageDot")) &&
                (cus_contains(cls, "SBIcon") || cus_contains(cls, "HomeScreen") || cus_contains(cls, "RootFolder"))) {
-        cus_set_alpha(view, gHomeHideDots ? 0.0 : 1.0); touched = true;
+        if (gHomeHideDots) { double alpha = 0.0; touched = sb_cc_override_bytes("homecustom", view, "alpha", "setAlpha:", &alpha, sizeof(alpha)); }
     } else if (cus_contains(cls, "FolderIconBackground") || cus_contains(cls, "FolderBackground")) {
-        cus_set_alpha(view, gHomeHideFolderBackground ? 0.0 : 1.0); touched = true;
+        if (gHomeHideFolderBackground) { double alpha = 0.0; touched = sb_cc_override_bytes("homecustom", view, "alpha", "setAlpha:", &alpha, sizeof(alpha)); }
     } else if (cus_contains(cls, "DockBackground") || cus_contains(cls, "DockPlatter") ||
                cus_contains(cls, "DockMaterial") || cus_contains(cls, "DockEffect")) {
-        cus_set_alpha(view, gHomeHideDockBackground ? 0.0 : 1.0); touched = true;
+        if (gHomeHideDockBackground) { double alpha = 0.0; touched = sb_cc_override_bytes("homecustom", view, "alpha", "setAlpha:", &alpha, sizeof(alpha)); }
     } else if (cus_contains(cls, "SBIconView")) {
-        cus_set_alpha(view, (double)gHomeIconAlpha / 100.0);
-        r_msg2_main(view, "setUserInteractionEnabled:", 1, 0, 0, 0);
-        touched = true;
+        if (gHomeIconAlpha != 100) {
+            double alpha = (double)gHomeIconAlpha / 100.0;
+            touched = sb_cc_override_bytes("homecustom", view, "alpha", "setAlpha:", &alpha, sizeof(alpha));
+            r_msg2_main(view, "setUserInteractionEnabled:", 1, 0, 0, 0);
+        }
     }
     if (touched && changed) (*changed)++;
 
@@ -168,9 +174,21 @@ void homecustom_configure(bool hideBadges, bool hidePageDots, bool hideFolderBac
 
 bool homecustom_apply_in_session(void)
 {
+    bool configChanged = gHomeHasAppliedConfig &&
+        (gHomeAppliedHideBadges != gHomeHideBadges || gHomeAppliedHideDots != gHomeHideDots ||
+         gHomeAppliedHideFolderBackground != gHomeHideFolderBackground ||
+         gHomeAppliedHideDockBackground != gHomeHideDockBackground ||
+         gHomeAppliedIconAlpha != gHomeIconAlpha);
+    if (configChanged) sb_cc_restore_owner("homecustom");
     uint64_t windows[64] = {0};
     int windowCount = sb_collect_windows(windows, 64), changed = 0;
     for (int i = 0; i < windowCount; i++) homecustom_scan(windows[i], 0, &changed);
+    gHomeHasAppliedConfig = true;
+    gHomeAppliedHideBadges = gHomeHideBadges;
+    gHomeAppliedHideDots = gHomeHideDots;
+    gHomeAppliedHideFolderBackground = gHomeHideFolderBackground;
+    gHomeAppliedHideDockBackground = gHomeHideDockBackground;
+    gHomeAppliedIconAlpha = gHomeIconAlpha;
     printf("[HOMECUSTOM] badges=%d dots=%d folders=%d dock=%d iconAlpha=%d changed=%d windows=%d\n",
            gHomeHideBadges, gHomeHideDots, gHomeHideFolderBackground,
            gHomeHideDockBackground, gHomeIconAlpha, changed, windowCount);
@@ -183,19 +201,15 @@ bool homecustom_apply_in_session(void)
 
 bool homecustom_stop_in_session(void)
 {
-    bool oldBadges = gHomeHideBadges, oldDots = gHomeHideDots;
-    bool oldFolders = gHomeHideFolderBackground, oldDock = gHomeHideDockBackground;
-    int oldAlpha = gHomeIconAlpha;
-    homecustom_configure(false, false, false, false, 100);
-    bool ok = homecustom_apply_in_session();
-    homecustom_configure(oldBadges, oldDots, oldFolders, oldDock, oldAlpha);
-    printf("[HOMECUSTOM] restored stock visibility\n");
-    log_user("[HOMECUSTOM][RESTORE] requested stock visibility and alpha; result=%s.\n",
-             ok ? "matched supported views" : "no supported views were visible");
-    return ok;
+    int restored = sb_cc_restore_owner("homecustom");
+    gHomeHasAppliedConfig = false;
+    printf("[HOMECUSTOM] exactPropertiesRestored=%d\n", restored);
+    log_user("[HOMECUSTOM][RESTORE] exactProperties=%d result=%s.\n",
+             restored, restored > 0 ? "restored" : "nothing-owned");
+    return restored > 0;
 }
 
-void homecustom_forget_remote_state(void) {}
+void homecustom_forget_remote_state(void) { gHomeHasAppliedConfig = false; sb_cc_forget_owner("homecustom"); }
 
 static int free_saved_index(uint64_t icon)
 {
@@ -226,13 +240,15 @@ bool freeplacement_apply_in_session(void)
 
     uint64_t lists[64] = {0};
     int listCount = sb_collect_views_in_windows(listClass, lists, 64);
-    int discovered = 0, moved = 0, pageCount = 0, skipped = 0;
+    int discovered = 0, moved = 0, pageCount = 0, skipped = 0, clamped = 0;
     for (int page = 0; page < listCount; page++) {
         if (cus_is_inside_app_library(lists[page]) || cus_is_inside_dock(lists[page])) {
             skipped++;
             continue;
         }
         uint64_t icons[256] = {0};
+        CUSRect pageBounds = {0};
+        cus_get_rect(lists[page], "bounds", &pageBounds);
         int pageIconCount = sb_collect_views(lists[page], iconClass, icons, 256);
         int pageMoved = 0;
         discovered += pageIconCount;
@@ -253,6 +269,15 @@ bool freeplacement_apply_in_session(void)
             double stagger = (ordinal & 1) ? (double)gFreeStaggerPercent / 100.0 : 0.0;
             frame.x += (double)columnPhase * gFreeHorizontalStep + stagger * gFreeHorizontalStep;
             frame.y += (double)rowPhase * gFreeVerticalStep;
+            if (pageBounds.width > 0 && pageBounds.height > 0) {
+                double minX = pageBounds.x + 2.0, minY = pageBounds.y + 2.0;
+                double maxX = pageBounds.x + pageBounds.width - frame.width - 2.0;
+                double maxY = pageBounds.y + pageBounds.height - frame.height - 2.0;
+                double oldX = frame.x, oldY = frame.y;
+                if (maxX >= minX) frame.x = fmax(minX, fmin(maxX, frame.x));
+                if (maxY >= minY) frame.y = fmax(minY, fmin(maxY, frame.y));
+                if (frame.x != oldX || frame.y != oldY) clamped++;
+            }
             cus_set_rect(icon, frame);
             r_msg2_main(icon, "setUserInteractionEnabled:", 1, 0, 0, 0);
             moved++;
@@ -267,9 +292,9 @@ bool freeplacement_apply_in_session(void)
     printf("[FREEPLACEMENT] horizontalStep=%d verticalStep=%d stagger=%d%% pages=%d moved=%d saved=%d taps=preserved\n",
            gFreeHorizontalStep, gFreeVerticalStep, gFreeStaggerPercent,
            pageCount, moved, gFreeIconCount);
-    log_user("[FREEPLACEMENT][APPLY] discoveredLists=%d activePages=%d skippedDockLibraryLists=%d discoveredIcons=%d moved=%d savedStockFrames=%d horizontalStep=%dpt verticalStep=%dpt stagger=%d%% ordering=page-local tapsPreserved=1 result=%s.\n",
-             listCount, pageCount, skipped, discovered, moved, gFreeIconCount,
-             gFreeHorizontalStep, gFreeVerticalStep, gFreeStaggerPercent,
+    log_user("[FREEPLACEMENT][APPLY] discoveredLists=%d activePages=%d skippedDockLibraryLists=%d discoveredIcons=%d moved=%d clampedOnScreen=%d savedStockFrames=%d horizontalStep=%dpt verticalStep=%dpt stagger=%d%% ordering=page-local tapsPreserved=1 result=%s.\n",
+             listCount, pageCount, skipped, discovered, moved, clamped,
+             gFreeIconCount, gFreeHorizontalStep, gFreeVerticalStep, gFreeStaggerPercent,
              moved > 0 ? "active" : "no eligible home-page icons");
     return moved > 0;
 }
@@ -287,7 +312,7 @@ bool freeplacement_stop_in_session(void)
     gFreeIconCount = 0;
     printf("[FREEPLACEMENT] restored=%d\n", restored);
     log_user("[FREEPLACEMENT][RESTORE] restoredFrames=%d cacheCleared=1.\n", restored);
-    return true;
+    return restored > 0;
 }
 
 void freeplacement_forget_remote_state(void)
@@ -353,7 +378,9 @@ static void applibrarystudio_scan(uint64_t view, int depth, bool libraryContext,
     } else if (libraryContext && (cus_contains(cls, "IconLabel") || cus_contains(cls, "TitleLabel"))) {
         if (!applibrary_label_is_saved(view) && gAppLibraryLabelCount < 512)
             gAppLibraryLabels[gAppLibraryLabelCount++] = view;
-        cus_set_alpha(view, gAppLibraryHideLabels ? 0.0 : 1.0);
+        double alpha = gAppLibraryHideLabels ? 0.0 : 1.0;
+        sb_cc_override_bytes("applibrarystudio", view, "alpha", "setAlpha:",
+                             &alpha, sizeof(alpha));
         if (labelsChanged) (*labelsChanged)++;
     }
 
@@ -387,6 +414,7 @@ void applibrarystudio_configure(int iconScalePercent, int horizontalSpacing,
 
 bool applibrarystudio_apply_in_session(void)
 {
+    if (!gAppLibraryHideLabels) sb_cc_restore_owner("applibrarystudio");
     uint64_t windows[64] = {0};
     int windowCount = sb_collect_windows(windows, 64);
     int ordinal = 0, iconsChanged = 0, labelsChanged = 0;
@@ -397,6 +425,12 @@ bool applibrarystudio_apply_in_session(void)
         todayOK = darksword_tweak_disable_today_view_in_session();
         if (todayOK) gAppLibraryTodayRemoved = true;
     }
+    bool layoutRequested = gAppLibraryScale != 100 || gAppLibraryHorizontalSpacing != 0 ||
+                           gAppLibraryVerticalSpacing != 0 || gAppLibraryHideLabels;
+    bool layoutOK = !layoutRequested || iconsChanged > 0 || labelsChanged > 0;
+    bool todayRequested = gAppLibraryDisableTodayView;
+    bool todayApplied = !todayRequested || gAppLibraryTodayRemoved;
+    bool applied = todayOK && todayApplied && layoutOK;
     printf("[APPLIBRARY] scale=%d%% spacing=%d/%d labelsHidden=%d disableToday=%d todayResult=%d todayRemoved=%d icons=%d labels=%d saved=%d windows=%d taps=preserved\n",
            gAppLibraryScale, gAppLibraryHorizontalSpacing, gAppLibraryVerticalSpacing,
            gAppLibraryHideLabels, gAppLibraryDisableTodayView, todayOK,
@@ -406,8 +440,8 @@ bool applibrarystudio_apply_in_session(void)
              gAppLibraryScale, gAppLibraryHorizontalSpacing, gAppLibraryVerticalSpacing,
              gAppLibraryHideLabels, gAppLibraryDisableTodayView, todayOK,
              gAppLibraryTodayRemoved,
-             todayOK && (iconsChanged > 0 || gAppLibraryDisableTodayView) ? "active" : "incomplete");
-    return todayOK && (iconsChanged > 0 || gAppLibraryDisableTodayView);
+             applied ? "active" : "incomplete");
+    return applied;
 }
 
 bool applibrarystudio_stop_in_session(void)
@@ -418,8 +452,7 @@ bool applibrarystudio_stop_in_session(void)
         cus_set_rect(gAppLibraryIcons[i], gAppLibraryFrames[i]);
         restored++;
     }
-    for (int i = 0; i < gAppLibraryLabelCount; i++)
-        if (r_is_objc_ptr(gAppLibraryLabels[i])) cus_set_alpha(gAppLibraryLabels[i], 1.0);
+    int labelProperties = sb_cc_restore_owner("applibrarystudio");
     int labels = gAppLibraryLabelCount;
     bool todayNeedsRespring = gAppLibraryTodayRemoved;
     applibrarystudio_forget_remote_state();
@@ -427,7 +460,7 @@ bool applibrarystudio_stop_in_session(void)
            restored, labels, todayNeedsRespring ? "respring-required" : "not-needed");
     log_user("[APPLIBRARY][RESTORE] restoredIcons=%d restoredLabels=%d todayViewRestore=%s cacheCleared=1.\n",
              restored, labels, todayNeedsRespring ? "respring-required" : "not-needed");
-    return true;
+    return !todayNeedsRespring && (restored > 0 || labelProperties > 0 || labels == 0);
 }
 
 void applibrarystudio_forget_remote_state(void)
@@ -438,6 +471,7 @@ void applibrarystudio_forget_remote_state(void)
     gAppLibraryIconCount = 0;
     gAppLibraryLabelCount = 0;
     gAppLibraryTodayRemoved = false;
+    sb_cc_forget_owner("applibrarystudio");
 }
 
 static void lockcustomizer_scan(uint64_t view, int depth, bool lockContext, bool restore, int *changed)
@@ -458,22 +492,26 @@ static void lockcustomizer_scan(uint64_t view, int depth, bool lockContext, bool
     if (isClock && lockContext) {
         double scale = restore ? 1.0 : (double)gLockClockScale / 100.0;
         CUSAffine t = {scale, 0, 0, scale, restore ? 0.0 : gLockXOffset, restore ? 0.0 : gLockYOffset};
-        cus_set_transform(view, t);
-        cus_set_alpha(view, restore ? 1.0 : (double)gLockContentAlpha / 100.0);
+        sb_cc_override_bytes("lockcustomizer", view, "transform", "setTransform:", &t, sizeof(t));
+        double alpha = (double)gLockContentAlpha / 100.0;
+        sb_cc_override_bytes("lockcustomizer", view, "alpha", "setAlpha:", &alpha, sizeof(alpha));
         if (changed) (*changed)++;
     } else if (isQuick && lockContext) {
-        cus_set_alpha(view, (!restore && gLockHideQuickActions) ? 0.0 : 1.0);
+        double alpha = gLockHideQuickActions ? 0.0 : 1.0;
+        sb_cc_override_bytes("lockcustomizer", view, "alpha", "setAlpha:", &alpha, sizeof(alpha));
         if (changed) (*changed)++;
     } else if (isDots && lockContext) {
-        cus_set_alpha(view, (!restore && gLockHideDots) ? 0.0 : 1.0);
+        double alpha = gLockHideDots ? 0.0 : 1.0;
+        sb_cc_override_bytes("lockcustomizer", view, "alpha", "setAlpha:", &alpha, sizeof(alpha));
         if (changed) (*changed)++;
     } else if (isArtwork && lockContext) {
-        cus_set_alpha(view, (!restore && gLockHideMediaArtwork) ? 0.0 : 1.0);
+        double alpha = gLockHideMediaArtwork ? 0.0 : 1.0;
+        sb_cc_override_bytes("lockcustomizer", view, "alpha", "setAlpha:", &alpha, sizeof(alpha));
         if (changed) (*changed)++;
     } else if (isMedia && lockContext) {
         double scale = restore ? 1.0 : (double)gLockMediaScale / 100.0;
         CUSAffine t = { scale, 0, 0, scale, 0, 0 };
-        cus_set_transform(view, t);
+        sb_cc_override_bytes("lockcustomizer", view, "transform", "setTransform:", &t, sizeof(t));
         if (changed) (*changed)++;
     }
     uint64_t subs = r_msg2_main(view, "subviews", 0, 0, 0, 0);
@@ -536,9 +574,11 @@ static bool metal_lock_light_apply(void)
         bool removed = r_is_objc_ptr(gMetalLockLightOverlay);
         if (removed)
             r_msg2_main(gMetalLockLightOverlay, "removeFromSuperview", 0, 0, 0, 0);
+        if (removed)
+            r_msg2_main(gMetalLockLightOverlay, "release", 0, 0, 0, 0);
         gMetalLockLightOverlay = 0;
         log_user("[METALLOCK][DISABLED] overlayRemoved=%d result=stock-edge-light.\n", removed);
-        return true;
+        return false;
     }
     uint64_t windows[64] = {0}, lockWindow = 0;
     int count = sb_collect_windows(windows, 64);
@@ -564,6 +604,10 @@ static bool metal_lock_light_apply(void)
         if (!r_is_objc_ptr(gMetalLockLightOverlay)) return false;
         r_msg2_main(gMetalLockLightOverlay, "setUserInteractionEnabled:", 0, 0, 0, 0);
         r_msg2_main(lockWindow, "addSubview:", gMetalLockLightOverlay, 0, 0, 0);
+    } else {
+        uint64_t parent = r_msg2_main(gMetalLockLightOverlay, "superview", 0, 0, 0, 0);
+        if (parent != lockWindow)
+            r_msg2_main(lockWindow, "addSubview:", gMetalLockLightOverlay, 0, 0, 0);
     }
     cus_set_rect(gMetalLockLightOverlay, bounds);
     cus_set_alpha(gMetalLockLightOverlay, (double)gMetalLockLightIntensity / 100.0);
@@ -590,14 +634,22 @@ static bool metal_lock_light_apply(void)
 
 static bool lockcustomizer_run(bool restore)
 {
+    if (restore) {
+        int restored = sb_cc_restore_owner("lockcustomizer");
+        bool overlayRemoved = r_is_objc_ptr(gMetalLockLightOverlay);
+        if (overlayRemoved) {
+            r_msg2_main(gMetalLockLightOverlay, "removeFromSuperview", 0, 0, 0, 0);
+            r_msg2_main(gMetalLockLightOverlay, "release", 0, 0, 0, 0);
+        }
+        gMetalLockLightOverlay = 0;
+        log_user("[LOCKCUSTOM][RESTORE] exactProperties=%d metalOverlayRemoved=%d result=%s.\n",
+                 restored, overlayRemoved, (restored > 0 || overlayRemoved) ? "success" : "nothing-owned");
+        return restored > 0 || overlayRemoved;
+    }
     uint64_t windows[64] = {0};
     int windowCount = sb_collect_windows(windows, 64), changed = 0;
     for (int i = 0; i < windowCount; i++) lockcustomizer_scan(windows[i], 0, false, restore, &changed);
-    bool metalOK = restore ? true : metal_lock_light_apply();
-    if (restore && r_is_objc_ptr(gMetalLockLightOverlay)) {
-        r_msg2_main(gMetalLockLightOverlay, "removeFromSuperview", 0, 0, 0, 0);
-        gMetalLockLightOverlay = 0;
-    }
+    bool metalOK = metal_lock_light_apply();
     printf("[LOCKCUSTOM] restore=%d scale=%d%% x=%d y=%d quick=%d dots=%d alpha=%d%% mediaScale=%d%% hideArtwork=%d metal=%d metalOK=%d changed=%d\n",
            restore, gLockClockScale, gLockXOffset, gLockYOffset,
            gLockHideQuickActions, gLockHideDots, gLockContentAlpha,
@@ -612,10 +664,11 @@ static bool lockcustomizer_run(bool restore)
 }
 
 bool lockcustomizer_apply_in_session(void) { return lockcustomizer_run(false); }
-bool lockcustomizer_stop_in_session(void) { lockcustomizer_run(true); return true; }
+bool lockcustomizer_stop_in_session(void) { return lockcustomizer_run(true); }
 void lockcustomizer_forget_remote_state(void)
 {
     bool hadOverlay = r_is_objc_ptr(gMetalLockLightOverlay);
     gMetalLockLightOverlay = 0;
+    sb_cc_forget_owner("lockcustomizer");
     log_user("[LOCKCUSTOM][FORGET] cleared remote state; hadMetalOverlay=%d.\n", hadOverlay);
 }

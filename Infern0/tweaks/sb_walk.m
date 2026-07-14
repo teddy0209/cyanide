@@ -9,12 +9,248 @@
 #import "remote_objc.h"
 #import "../TaskRop/RemoteCall.h"
 #import "../VPhoneDebug.h"
+#import "../LogTextView.h"
 
 #import <sys/socket.h>
 #import <sys/un.h>
 #import <unistd.h>
 #import <errno.h>
 #import <string.h>
+
+#define SB_CC_PROPERTY_CAP 2048
+#define SB_CC_OWNER_CAP 8
+#define SB_CC_VALUE_CAP 128
+
+typedef enum { SBCCValueBytes = 1, SBCCValueObject = 2, SBCCValueBool = 3 } SBCCValueType;
+typedef struct {
+    bool active;
+    char owner[40];
+    uint64_t sequence;
+    uint64_t objectValue;
+    uint8_t bytes[SB_CC_VALUE_CAP];
+} SBCCOwnerValue;
+typedef struct {
+    bool active;
+    uint64_t object;
+    char getter[64];
+    char setter[64];
+    SBCCValueType type;
+    size_t valueSize;
+    uint64_t originalObject;
+    uint8_t originalBytes[SB_CC_VALUE_CAP];
+    SBCCOwnerValue owners[SB_CC_OWNER_CAP];
+} SBCCProperty;
+
+static SBCCProperty gSBCCProperties[SB_CC_PROPERTY_CAP];
+static uint64_t gSBCCSequence = 1;
+static int gSBCCFailureLogs = 0;
+
+static void sb_cc_apply_property(SBCCProperty *property)
+{
+    if (!property || !property->active || !r_is_objc_ptr(property->object)) return;
+    SBCCOwnerValue *winner = NULL;
+    for (int i = 0; i < SB_CC_OWNER_CAP; i++)
+        if (property->owners[i].active && (!winner || property->owners[i].sequence > winner->sequence))
+            winner = &property->owners[i];
+    if (property->type == SBCCValueObject) {
+        uint64_t value = winner ? winner->objectValue : property->originalObject;
+        r_msg2_main(property->object, property->setter, value, 0, 0, 0);
+    } else if (property->type == SBCCValueBool) {
+        uint64_t value = winner ? winner->objectValue : property->originalObject;
+        r_msg2_main(property->object, property->setter, value ? 1 : 0, 0, 0, 0);
+    } else {
+        const void *value = winner ? winner->bytes : property->originalBytes;
+        r_msg2_main_raw(property->object, property->setter,
+                        value, property->valueSize, NULL, 0, NULL, 0, NULL, 0);
+    }
+}
+
+static SBCCProperty *sb_cc_property(const char *owner, uint64_t object,
+                                    const char *getter, const char *setter,
+                                    SBCCValueType type, size_t valueSize)
+{
+    if (!owner || !owner[0] || !r_is_objc_ptr(object) || !getter || !setter ||
+        valueSize > SB_CC_VALUE_CAP) return NULL;
+    SBCCProperty *freeSlot = NULL;
+    for (int i = 0; i < SB_CC_PROPERTY_CAP; i++) {
+        SBCCProperty *p = &gSBCCProperties[i];
+        if (!p->active) { if (!freeSlot) freeSlot = p; continue; }
+        if (p->object == object && p->type == type && strcmp(p->setter, setter) == 0) {
+            if (p->valueSize == valueSize && strcmp(p->getter, getter) == 0) return p;
+            if (gSBCCFailureLogs++ < 12)
+                log_user("[PROPERTY-COORDINATOR][SIGNATURE-MISMATCH] owner=%s object=0x%llx setter=%s existingGetter=%s requestedGetter=%s existingBytes=%lu requestedBytes=%lu result=rejected.\n",
+                         owner, object, setter, p->getter, getter,
+                         (unsigned long)p->valueSize, (unsigned long)valueSize);
+            return NULL;
+        }
+    }
+    if (!freeSlot) {
+        if (gSBCCFailureLogs++ < 12)
+            log_user("[PROPERTY-COORDINATOR][CAPACITY] owner=%s object=0x%llx setter=%s cap=%d result=rejected.\n",
+                     owner, object, setter, SB_CC_PROPERTY_CAP);
+        return NULL;
+    }
+    memset(freeSlot, 0, sizeof(*freeSlot));
+    freeSlot->active = true;
+    freeSlot->object = object;
+    // Keep the mutation target alive while any tweak owns an override. UIKit
+    // can otherwise tear down a page/window and leave a cached remote pointer
+    // that still looks address-like but is no longer safe to message.
+    r_msg2_main(object, "retain", 0, 0, 0, 0);
+    freeSlot->type = type;
+    freeSlot->valueSize = valueSize;
+    strlcpy(freeSlot->getter, getter, sizeof(freeSlot->getter));
+    strlcpy(freeSlot->setter, setter, sizeof(freeSlot->setter));
+    if (type == SBCCValueObject) {
+        freeSlot->originalObject = r_msg2_main(object, getter, 0, 0, 0, 0);
+        if (r_is_objc_ptr(freeSlot->originalObject))
+            r_msg2_main(freeSlot->originalObject, "retain", 0, 0, 0, 0);
+    } else if (type == SBCCValueBool) {
+        freeSlot->originalObject = r_msg2_main(object, getter, 0, 0, 0, 0) ? 1 : 0;
+    } else if (!r_msg2_main_struct_ret(object, getter, freeSlot->originalBytes, valueSize,
+                                       NULL, 0, NULL, 0, NULL, 0, NULL, 0)) {
+        r_msg2_main(object, "release", 0, 0, 0, 0);
+        memset(freeSlot, 0, sizeof(*freeSlot));
+        if (gSBCCFailureLogs++ < 12)
+            log_user("[PROPERTY-COORDINATOR][CAPTURE-FAIL] owner=%s object=0x%llx getter=%s setter=%s bytes=%lu.\n",
+                     owner, object, getter, setter, (unsigned long)valueSize);
+        return NULL;
+    }
+    return freeSlot;
+}
+
+static SBCCOwnerValue *sb_cc_owner_slot(SBCCProperty *property, const char *owner)
+{
+    SBCCOwnerValue *freeSlot = NULL;
+    for (int i = 0; i < SB_CC_OWNER_CAP; i++) {
+        SBCCOwnerValue *slot = &property->owners[i];
+        if (slot->active && strcmp(slot->owner, owner) == 0) return slot;
+        if (!slot->active && !freeSlot) freeSlot = slot;
+    }
+    if (!freeSlot) {
+        if (gSBCCFailureLogs++ < 12)
+            log_user("[PROPERTY-COORDINATOR][OWNER-CAPACITY] owner=%s object=0x%llx setter=%s ownerCap=%d.\n",
+                     owner, property->object, property->setter, SB_CC_OWNER_CAP);
+        return NULL;
+    }
+    memset(freeSlot, 0, sizeof(*freeSlot));
+    freeSlot->active = true;
+    strlcpy(freeSlot->owner, owner, sizeof(freeSlot->owner));
+    return freeSlot;
+}
+
+bool sb_cc_override_object(const char *owner, uint64_t object,
+                           const char *getter, const char *setter, uint64_t value)
+{
+    SBCCProperty *p = sb_cc_property(owner, object, getter, setter, SBCCValueObject, sizeof(uint64_t));
+    SBCCOwnerValue *slot = p ? sb_cc_owner_slot(p, owner) : NULL;
+    if (!slot) return false;
+    if (slot->objectValue != value) {
+        if (r_is_objc_ptr(value)) r_msg2_main(value, "retain", 0, 0, 0, 0);
+        if (r_is_objc_ptr(slot->objectValue)) r_msg2_main(slot->objectValue, "release", 0, 0, 0, 0);
+    }
+    slot->objectValue = value;
+    slot->sequence = gSBCCSequence++;
+    sb_cc_apply_property(p);
+    return true;
+}
+
+bool sb_cc_override_bytes(const char *owner, uint64_t object,
+                          const char *getter, const char *setter,
+                          const void *value, size_t valueSize)
+{
+    if (!value || valueSize == 0) return false;
+    SBCCProperty *p = sb_cc_property(owner, object, getter, setter, SBCCValueBytes, valueSize);
+    SBCCOwnerValue *slot = p ? sb_cc_owner_slot(p, owner) : NULL;
+    if (!slot) return false;
+    memcpy(slot->bytes, value, valueSize);
+    slot->sequence = gSBCCSequence++;
+    sb_cc_apply_property(p);
+    return true;
+}
+
+bool sb_cc_override_bool(const char *owner, uint64_t object,
+                         const char *getter, const char *setter, bool value)
+{
+    SBCCProperty *p = sb_cc_property(owner, object, getter, setter, SBCCValueBool, sizeof(uint64_t));
+    SBCCOwnerValue *slot = p ? sb_cc_owner_slot(p, owner) : NULL;
+    if (!slot) return false;
+    slot->objectValue = value ? 1 : 0;
+    slot->sequence = gSBCCSequence++;
+    sb_cc_apply_property(p);
+    return true;
+}
+
+int sb_cc_restore_owner(const char *owner)
+{
+    if (!owner || !owner[0]) return 0;
+    int restored = 0;
+    for (int i = 0; i < SB_CC_PROPERTY_CAP; i++) {
+        SBCCProperty *p = &gSBCCProperties[i];
+        if (!p->active) continue;
+        bool removed = false, hasOwners = false;
+        uint64_t removedObject = 0;
+        for (int j = 0; j < SB_CC_OWNER_CAP; j++) {
+            SBCCOwnerValue *slot = &p->owners[j];
+            if (slot->active && strcmp(slot->owner, owner) == 0) {
+                removedObject = slot->objectValue;
+                memset(slot, 0, sizeof(*slot));
+                removed = true;
+            }
+            if (slot->active) hasOwners = true;
+        }
+        if (!removed) continue;
+        sb_cc_apply_property(p);
+        if (p->type == SBCCValueObject && r_is_objc_ptr(removedObject))
+            r_msg2_main(removedObject, "release", 0, 0, 0, 0);
+        restored++;
+        if (!hasOwners) {
+            if (p->type == SBCCValueObject && r_is_objc_ptr(p->originalObject))
+                r_msg2_main(p->originalObject, "release", 0, 0, 0, 0);
+            r_msg2_main(p->object, "release", 0, 0, 0, 0);
+            memset(p, 0, sizeof(*p));
+        }
+    }
+    if (restored > 0)
+        log_user("[PROPERTY-COORDINATOR][RESTORE] owner=%s exactProperties=%d remainingOwnersPreserved=1.\n",
+                 owner, restored);
+    return restored;
+}
+
+void sb_cc_forget_owner(const char *owner)
+{
+    if (!owner || !owner[0]) return;
+    int forgotten = 0;
+    for (int i = 0; i < SB_CC_PROPERTY_CAP; i++) {
+        SBCCProperty *p = &gSBCCProperties[i];
+        if (!p->active) continue;
+        bool hadOwner = false, hasOwners = false;
+        for (int j = 0; j < SB_CC_OWNER_CAP; j++) {
+            SBCCOwnerValue *slot = &p->owners[j];
+            if (slot->active && strcmp(slot->owner, owner) == 0) {
+                memset(slot, 0, sizeof(*slot));
+                hadOwner = true;
+                forgotten++;
+            }
+            if (slot->active) hasOwners = true;
+        }
+        // Forget is used when the remote session may already be invalid. Do
+        // not message or release stale remote objects here.
+        if (hadOwner && !hasOwners) memset(p, 0, sizeof(*p));
+    }
+    if (forgotten > 0)
+        log_user("[PROPERTY-COORDINATOR][FORGET] owner=%s staleProperties=%d remoteCalls=0.\n",
+                 owner, forgotten);
+}
+
+void sb_cc_forget_all_overrides(void)
+{
+    // Used after a RemoteCall session disappears. Do not message or release
+    // objects in the old process; all of those pointers are stale by design.
+    memset(gSBCCProperties, 0, sizeof(gSBCCProperties));
+    gSBCCSequence = 1;
+    gSBCCFailureLogs = 0;
+}
 
 static uint64_t sw_safe_msg(uint64_t obj, const char *selname,
                             uint64_t a, uint64_t b, uint64_t c, uint64_t d)

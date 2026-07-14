@@ -55,9 +55,9 @@ static void alkaline_scan_and_tint(uint64_t parent, uint64_t color, int depth, i
     char cls[128] = {0};
     alkaline_class_name(parent, cls, sizeof(cls));
     if (strstr(cls, "Battery")) {
-        r_msg2_main(parent, "setTintColor:", color, 0, 0, 0);
-        if (r_responds_main(parent, "setTextColor:")) r_msg2_main(parent, "setTextColor:", color, 0, 0, 0);
-        if (r_responds_main(parent, "setBackgroundColor:")) r_msg2_main(parent, "setBackgroundColor:", color, 0, 0, 0);
+        sb_cc_override_object("alkaline", parent, "tintColor", "setTintColor:", color);
+        if (r_responds_main(parent, "setTextColor:")) sb_cc_override_object("alkaline", parent, "textColor", "setTextColor:", color);
+        if (r_responds_main(parent, "setBackgroundColor:")) sb_cc_override_object("alkaline", parent, "backgroundColor", "setBackgroundColor:", color);
         if (hits) (*hits)++;
     }
 
@@ -89,12 +89,9 @@ bool alkaline_apply_in_session(void)
 bool alkaline_stop_in_session(void)
 {
     printf("[ALKALINE] stop\n");
-    uint64_t win = sb_frontmost_window();
-    uint64_t white = alkaline_color(1, 1, 1, 1);
-    int hits = 0;
-    if (r_is_objc_ptr(win)) alkaline_scan_and_tint(win, white, 0, &hits);
+    int hits = sb_cc_restore_owner("alkaline");
     gAlkalineTint = 0;
-    return true;
+    return hits > 0;
 }
 
 void alkaline_configure(int red, int green, int blue, int alphaPercent)
@@ -109,4 +106,4 @@ void alkaline_configure(int red, int green, int blue, int alphaPercent)
     gAlkalineAlphaPercent = alphaPercent;
 }
 
-void alkaline_forget_remote_state(void) { gAlkalineTint = 0; }
+void alkaline_forget_remote_state(void) { gAlkalineTint = 0; sb_cc_forget_owner("alkaline"); }

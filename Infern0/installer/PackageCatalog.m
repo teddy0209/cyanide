@@ -423,7 +423,7 @@ static Package *catalog_community_port(NSString *identifier, NSString *name,
         Package *layoutExtras = [[Package alloc] initWithIdentifier:@"com.darksword.layoutextras"
                                            name:@"Home Layout Extras"
                                shortDescription:@"Extra home/dock padding and per-icon scaling"
-                                longDescription:@"Adds extra padding around the home grid and the dock, and scales icons up or down. Stacks on top of SBCustomizer.\n\nDial in left/right/top/bottom padding for the home screen, horizontal padding for the dock, and home/dock icon scale in the Settings tab. Defaults match stock (zero padding, 100% scale).\n\nApplied at Run; not persisted across respring.\n\niOS 18: mutates the SBIconController layout configuration directly (upstream kolbicz path).\niOS 26: walks the live SBIconListView/SBIconView hierarchy and adjusts frames + iconImageInfo per icon (the iOS 26 layout class is read-only). One-shot at Run on iOS 26 — rotation/page swipe may force iOS 26's auto-layout to re-fit, so re-Run if that happens."
+                                longDescription:@"Adds extra padding around the home grid and the dock, and scales icons up or down. Stacks on top of SBCustomizer.\n\nDial in left/right/top/bottom padding for the home screen, horizontal padding for the dock, and home/dock icon scale in the Settings tab. Defaults match stock (zero padding, 100% scale).\n\nApplied at Run; not persisted across respring.\n\niOS 18: mutates the SBIconController layout configuration directly using the upstream kolbicz path. iOS 26: applies captured live SBIconListView transforms, discovers pages loaded during swipes, and restores their exact original transforms during cleanup. App Library and Today View grids remain excluded."
                                         version:version
                                          author:@"kolbicz"
                                       category:@"Home Screen"
@@ -435,14 +435,14 @@ static Package *catalog_community_port(NSString *identifier, NSString *name,
         NSInteger iosMajor = [[NSProcessInfo processInfo] operatingSystemVersion].majorVersion;
         if (iosMajor >= 26) {
             layoutExtras.knownIssues = @[
-                @"iOS 26: layout may reset after rotation or page swipe. Re-run to reapply.",
+                @"Major SpringBoard relayouts can briefly reset a page before the live refresh pass reapplies its captured transform.",
             ];
         }
 
         Package *gravityLite = [[Package alloc] initWithIdentifier:@"com.darksword.gravitylite"
                                            name:@"Gravity Lite"
                                shortDescription:@"Make home-screen icons fall with physics"
-                                longDescription:@"Core RemoteCall-only port of Julio Verne's classic Gravity tweak for iOS 26. Every Home Screen page now owns a separate overlay, animator, collision boundary, and saved icon layout, so icons remain attached to their original page instead of merging or disappearing during page swipes. The dock uses its own optional simulation. Live icons remain pressable while gravity, bounce, friction, resistance, accelerometer steering, shake pulses, restore, and explosion pulses are active.\n\nThis is not a full Substrate-style port. Activator/Home-button hooks, drag gestures, and preference-daemon notifications are intentionally left out. Use Settings to tune the core physics and the Restore button to reset every page to its saved layout."
+                                longDescription:@"Core RemoteCall-only port of Julio Verne's classic Gravity tweak for iOS 26. Every Home Screen page owns a separate overlay, animator, collision boundary, and saved icon layout, so icons remain attached to their original page instead of merging or disappearing during page swipes. Lazy pages are detected while swiping, and the App Library receives its own isolated physics group when SpringBoard loads it. The dock uses its own optional simulation. Live icons remain pressable while gravity, bounce, friction, resistance, accelerometer steering, shake pulses, restore, and explosion pulses are active.\n\nThis is not a full Substrate-style port. Activator/Home-button hooks, drag gestures, and preference-daemon notifications are intentionally left out. Use Settings to tune the core physics and the Restore button to reset every captured page and App Library item to its saved layout."
                                         version:version
                                          author:@"Julio Verne / zeroxjf"
                                        category:@"Home Screen"
@@ -453,10 +453,10 @@ static Package *catalog_community_port(NSString *identifier, NSString *name,
         gravityLite.settingsSection = kSecGravityLite;
         gravityLite.unstableWarning = @"Beta: each page is isolated during normal page swipes, but larger SpringBoard relayouts such as rotation, folder transitions, or resprings can still reset live RemoteCall physics. Use Restore Icon Layout if icons stay displaced.";
         gravityLite.knownIssues = @[
-            @"To disable, use the App Switcher to return to infern0 and deactivate Gravity Lite. There is no other way to stop it right now.",
+            @"Use Restore Icon Layout or disable Gravity Lite from Settings to stop every active page, Dock, and App Library physics group cleanly.",
             @"The iOS 26 per-icon path reparents live icon views and keeps them interactive. Older fallback paths still animate snapshots, so displaced snapshot icons cannot receive taps.",
-            @"Install is slow as hell. WIP. infern0 has to capture every visible icon and widget before physics start.",
-            @"Rotation, folder transitions, or a SpringBoard relayout may stop the effect. Normal Home Screen page swipes keep each page in its own simulation.",
+            @"The first run can take a moment because infern0 captures each loaded icon group before starting physics; lazy pages attach later in the background.",
+            @"Rotation, folder transitions, or a SpringBoard relayout may stop the effect. Home pages and App Library views created during a swipe are attached by the live refresh scan.",
         ];
 
         Package *appSwitcherGrid = [[Package alloc] initWithIdentifier:@"com.darksword.appswitchergrid"
@@ -752,8 +752,8 @@ static Package *catalog_community_port(NSString *identifier, NSString *name,
 
         Package *fakeClockUp = [[Package alloc] initWithIdentifier:@"com.darksword.fakeclockup"
                                            name:@"FakeClockUp"
-                               shortDescription:@"Speed up or slow down clock animations"
-                                longDescription:@"Writes a speed multiplier into CALayer's animation duration, making clock hand animations faster or slower based on the value set in Settings."
+                               shortDescription:@"Tune live SpringBoard window animation speed"
+                                longDescription:@"Applies a configurable CALayer speed multiplier to active SpringBoard window layers. It captures every original layer speed and restores it exactly when disabled; it does not patch the Clock app or write persistent system files."
                                         version:version
                                          author:@"zeroxjf"
                                        category:@"SpringBoard"
@@ -765,8 +765,8 @@ static Package *catalog_community_port(NSString *identifier, NSString *name,
 
         Package *pancake = [[Package alloc] initWithIdentifier:@"com.darksword.pancake"
                                            name:@"Pancake"
-                               shortDescription:@"Left-hand gesture hint for the home screen"
-                                longDescription:@"Adds a UIScreenEdgePanGestureRecognizer to the key window that triggers on all edges, providing a left-hand navigation hint."
+                               shortDescription:@"Reliable native edge-back gesture controls"
+                                longDescription:@"Configures the active navigation controller's native interactive-pop gesture instead of attaching a synthetic gesture to every window. Touch limits and cancellation behavior are configurable, and all native values are restored exactly when disabled."
                                         version:version
                                          author:@"Nnnnnnn274"
                                        category:@"Home Screen"
@@ -778,8 +778,8 @@ static Package *catalog_community_port(NSString *identifier, NSString *name,
 
         Package *cylinderLite = [[Package alloc] initWithIdentifier:@"com.darksword.cylinderlite"
                                            name:@"Cylinder Lite"
-                               shortDescription:@"Perspective icon animations"
-                                longDescription:@"Adds perspective-based depth transforms to home screen icons by setting negative zPosition on icon layers and applying perspective transforms on the icon list view."
+                               shortDescription:@"Live cylindrical page-swipe animations"
+                                longDescription:@"Tracks each loaded Home Screen page in its window coordinate space and continuously updates pressable live icon layers while you swipe. Centered pages settle at their captured stock transforms; incoming and outgoing pages rotate around a configurable cylindrical perspective. Newly loaded pages are discovered by the visual refresh loop, while Dock and App Library lists remain untouched."
                                         version:version
                                          author:@"zeroxjf"
                                        category:@"Home Screen"
@@ -845,7 +845,7 @@ static Package *catalog_community_port(NSString *identifier, NSString *name,
         Package *freePlacement = [[Package alloc] initWithIdentifier:@"com.darksword.freeplacementlite"
                                            name:@"Free Placement Lite"
                                shortDescription:@"Configurable free-form icon offsets"
-                                longDescription:@"Creates a configurable staggered, free-form layout across every discovered live Home Screen icon while keeping icons pressable. This first RemoteCall port provides global placement controls and clean frame restoration; per-icon dragging is not included yet."
+                                longDescription:@"Creates a configurable staggered, free-form layout across every discovered live Home Screen icon while keeping icons pressable. Page-local offsets are clamped to visible bounds so icons cannot disappear, newly loaded pages are picked up by the live refresh loop, and cleanup restores every captured frame. This RemoteCall port provides global placement controls; per-icon dragging is not included yet."
                                         version:version
                                          author:@"Nnnnnnn274"
                                        category:@"Home Screen"

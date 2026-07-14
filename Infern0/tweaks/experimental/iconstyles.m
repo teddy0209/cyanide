@@ -118,19 +118,15 @@ static uint64_t is_icon_image_view(uint64_t icon)
     return icon;
 }
 
-static void is_round_view(uint64_t view, double radius)
+static bool is_round_view(uint64_t view, double radius, const char *owner)
 {
     uint64_t layer = r_is_objc_ptr(view) ? r_msg2_main(view, "layer", 0, 0, 0, 0) : 0;
-    if (!r_is_objc_ptr(layer)) return;
-    r_msg2_main_raw(layer, "setCornerRadius:", &radius, sizeof(radius), NULL, 0, NULL, 0, NULL, 0);
-    r_msg2_main(layer, "setMasksToBounds:", radius > 0.0, 0, 0, 0);
-    if (r_responds_main(layer, "setCornerCurve:")) {
-        uint64_t curve = r_nsstr_retained("continuous");
-        if (r_is_objc_ptr(curve)) {
-            r_msg2_main(layer, "setCornerCurve:", curve, 0, 0, 0);
-            r_msg2_main(curve, "release", 0, 0, 0, 0);
-        }
-    }
+    if (!r_is_objc_ptr(layer)) return false;
+    bool radiusOK = sb_cc_override_bytes(owner, layer, "cornerRadius", "setCornerRadius:",
+                                         &radius, sizeof(radius));
+    bool maskOK = sb_cc_override_bool(owner, layer, "masksToBounds", "setMasksToBounds:",
+                                      radius > 0.0);
+    return radiusOK && maskOK;
 }
 
 void roundedicons_configure(int cornerRadius)
@@ -152,7 +148,7 @@ bool roundedicons_apply_in_session(void)
         uint64_t icon = icons[i];
         uint64_t image = is_icon_image_view(icon);
         if (!r_is_objc_ptr(image)) continue;
-        is_round_view(image, (double)gRoundedRadius);
+        if (!is_round_view(image, (double)gRoundedRadius, "roundedicons")) continue;
         r_msg2_main(icon, "setUserInteractionEnabled:", 1, 0, 0, 0);
         rounded++;
     }
@@ -165,17 +161,15 @@ bool roundedicons_apply_in_session(void)
 
 bool roundedicons_stop_in_session(void)
 {
-    uint64_t iconClass = r_class("SBIconView");
-    uint64_t icons[512] = {0};
-    int count = r_is_objc_ptr(iconClass) ? sb_collect_views_in_windows(iconClass, icons, 512) : 0;
-    for (int i = 0; i < count; i++) is_round_view(is_icon_image_view(icons[i]), 0.0);
-    printf("[ROUNDEDICONS] restored=%d\n", count);
-    log_user("[ROUNDEDICONS][RESTORE] removed custom corner masks from %d discovered icon(s).\n", count);
-    return true;
+    int count = sb_cc_restore_owner("roundedicons");
+    printf("[ROUNDEDICONS] restoredProperties=%d\n", count);
+    log_user("[ROUNDEDICONS][RESTORE] exactOriginalProperties=%d.\n", count);
+    return count > 0;
 }
 
 void roundedicons_forget_remote_state(void)
 {
+    sb_cc_forget_owner("roundedicons");
     log_user("[ROUNDEDICONS][FORGET] no retained remote icon cache; session references are clear.\n");
 }
 
@@ -321,15 +315,23 @@ bool watchlayout_apply_in_session(void)
                 ISRect frame = original[idx];
                 frame.x = firstX + c * hStep - frame.width * 0.5;
                 frame.y = firstY + r * vStep - frame.height * 0.5;
+                if (parentBounds.width > 0 && parentBounds.height > 0) {
+                    double minX = parentBounds.x + 2.0, minY = parentBounds.y + 2.0;
+                    double maxX = parentBounds.x + parentBounds.width - frame.width - 2.0;
+                    double maxY = parentBounds.y + parentBounds.height - frame.height - 2.0;
+                    if (maxX >= minX) frame.x = fmax(minX, fmin(maxX, frame.x));
+                    if (maxY >= minY) frame.y = fmax(minY, fmin(maxY, frame.y));
+                }
                 is_set_rect(validIcons[idx], "setFrame:", frame);
                 if (r_responds_main(validIcons[idx], "setTransform:"))
-                    r_msg2_main_raw(validIcons[idx], "setTransform:", &transform, sizeof(transform), NULL, 0, NULL, 0, NULL, 0);
+                    sb_cc_override_bytes("watchlayout", validIcons[idx], "transform", "setTransform:",
+                                         &transform, sizeof(transform));
                 uint64_t image = is_icon_image_view(validIcons[idx]);
                 ISRect imageBounds;
                 double radius = 30.0 * scale;
                 if (is_get_rect(image, "bounds", &imageBounds) && imageBounds.width > 0 && imageBounds.height > 0)
                     radius = fmin(imageBounds.width, imageBounds.height) * 0.5;
-                is_round_view(image, radius);
+                is_round_view(image, radius, "watchlayout");
                 r_msg2_main(validIcons[idx], "setUserInteractionEnabled:", 1, 0, 0, 0);
                 changed++;
             }
@@ -349,24 +351,21 @@ bool watchlayout_apply_in_session(void)
 
 bool watchlayout_stop_in_session(void)
 {
-    ISAffineTransform identity = {1, 0, 0, 1, 0, 0};
     int restored = 0;
     for (int i = 0; i < gWatchIconCount; i++) {
         uint64_t icon = gWatchIcons[i];
         if (!r_is_objc_ptr(icon)) continue;
         is_set_rect(icon, "setFrame:", gWatchFrames[i]);
-        if (r_responds_main(icon, "setTransform:"))
-            r_msg2_main_raw(icon, "setTransform:", &identity, sizeof(identity), NULL, 0, NULL, 0, NULL, 0);
-        is_round_view(is_icon_image_view(icon), 0.0);
         restored++;
     }
+    int properties = sb_cc_restore_owner("watchlayout");
     memset(gWatchIcons, 0, sizeof(gWatchIcons));
     memset(gWatchFrames, 0, sizeof(gWatchFrames));
     gWatchIconCount = 0;
     printf("[WATCHLAYOUT] restored=%d\n", restored);
     log_user("[WATCHLAYOUT][RESTORE] restoredFrames=%d removedCircularMasks=%d resetTransforms=%d cacheCleared=1.\n",
-             restored, restored, restored);
-    return true;
+             restored, properties / 2, properties);
+    return restored > 0 || properties > 0;
 }
 
 void watchlayout_forget_remote_state(void)
@@ -375,5 +374,6 @@ void watchlayout_forget_remote_state(void)
     memset(gWatchIcons, 0, sizeof(gWatchIcons));
     memset(gWatchFrames, 0, sizeof(gWatchFrames));
     gWatchIconCount = 0;
+    sb_cc_forget_owner("watchlayout");
     log_user("[WATCHLAYOUT][FORGET] cleared %d cached icon reference(s) after session teardown.\n", forgotten);
 }

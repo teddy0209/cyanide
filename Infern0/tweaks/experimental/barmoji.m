@@ -134,6 +134,7 @@ bool barmoji_apply_in_session(void)
     printf("[BARMOJI] apply\n");
     if (r_is_objc_ptr(gBarmojiView)) {
         r_msg2_main(gBarmojiView, "removeFromSuperview", 0, 0, 0, 0);
+        r_msg2_main(gBarmojiView, "release", 0, 0, 0, 0);
         gBarmojiView = 0;
     }
 
@@ -213,10 +214,15 @@ bool barmoji_apply_in_session(void)
 bool barmoji_stop_in_session(void)
 {
     printf("[BARMOJI] stop\n");
-    if (r_is_objc_ptr(gBarmojiView)) r_msg2_main(gBarmojiView, "removeFromSuperview", 0, 0, 0, 0);
+    bool removed = r_is_objc_ptr(gBarmojiView);
+    if (removed) {
+        r_msg2_main(gBarmojiView, "removeFromSuperview", 0, 0, 0, 0);
+        r_msg2_main(gBarmojiView, "release", 0, 0, 0, 0);
+    }
     gBarmojiView = 0;
     if (r_is_objc_ptr(gBarmojiFeedback)) r_msg2_main(gBarmojiFeedback, "release", 0, 0, 0, 0);
     gBarmojiFeedback = 0;
+    log_user("[BARMOJI][STOP] overlayRemoved=%d feedbackGeneratorReleased=1.\n", removed);
     return true;
 }
 

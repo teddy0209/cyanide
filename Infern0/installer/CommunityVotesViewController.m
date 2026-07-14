@@ -48,6 +48,9 @@ static NSString *community_issue_summary(NSString *body)
 @property (nonatomic, strong) UIRefreshControl *voteRefreshControl;
 @property (nonatomic, strong) UIView *introHeader;
 @property (nonatomic, strong) UILabel *statusLabel;
+@property (nonatomic, strong) UILabel *candidateStatLabel;
+@property (nonatomic, strong) UILabel *voteStatLabel;
+@property (nonatomic, strong) UILabel *pickedStatLabel;
 @property (nonatomic, assign) BOOL loading;
 @property (nonatomic, assign) BOOL showingRemoteResults;
 @end
@@ -62,7 +65,8 @@ static NSString *community_issue_summary(NSString *body)
     CYConfigureTableView(self.tableView);
     CYApplyNavigationStyle(self.navigationController);
     self.tableView.rowHeight = UITableViewAutomaticDimension;
-    self.tableView.estimatedRowHeight = 94.0;
+    self.tableView.estimatedRowHeight = 108.0;
+    self.tableView.separatorInset = UIEdgeInsetsMake(0.0, 66.0, 0.0, 18.0);
 
     NSArray *saved = [[NSUserDefaults standardUserDefaults] arrayForKey:kLocalVotesDefaultsKey];
     self.localSelections = [NSMutableSet setWithArray:[saved isKindOfClass:NSArray.class] ? saved : @[]];
@@ -74,11 +78,13 @@ static NSString *community_issue_summary(NSString *body)
     [self.voteRefreshControl addTarget:self action:@selector(refreshCommunityResults) forControlEvents:UIControlEventValueChanged];
     self.refreshControl = self.voteRefreshControl;
 
-    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc]
-        initWithTitle:@"Suggest"
+    UIBarButtonItem *suggest = [[UIBarButtonItem alloc]
+        initWithImage:[UIImage systemImageNamed:@"lightbulb.max.fill"]
         style:UIBarButtonItemStylePlain
         target:self
         action:@selector(suggestTweak)];
+    suggest.accessibilityLabel = @"Suggest a tweak";
+    self.navigationItem.rightBarButtonItem = suggest;
 
     [self refreshCommunityResults];
 }
@@ -124,7 +130,7 @@ static NSString *community_issue_summary(NSString *body)
 
 - (void)buildIntroHeader
 {
-    UIView *header = [[UIView alloc] initWithFrame:CGRectMake(0, 0, self.tableView.bounds.size.width, 184.0)];
+    UIView *header = [[UIView alloc] initWithFrame:CGRectMake(0, 0, self.tableView.bounds.size.width, 254.0)];
     UIView *card = [[UIView alloc] initWithFrame:CGRectZero];
     card.tag = 101;
     CYApplyCardStyle(card, 22.0);
@@ -139,13 +145,13 @@ static NSString *community_issue_summary(NSString *body)
 
     UILabel *title = [[UILabel alloc] initWithFrame:CGRectZero];
     title.tag = 103;
-    title.text = @"What should Infern0 port next?";
-    title.font = [UIFont systemFontOfSize:20.0 weight:UIFontWeightBold];
+    title.text = @"Choose what comes next";
+    title.font = [UIFont systemFontOfSize:22.0 weight:UIFontWeightBold];
     [card addSubview:title];
 
     UILabel *body = [[UILabel alloc] initWithFrame:CGRectZero];
     body.tag = 104;
-    body.text = @"Pick ideas locally, then confirm on GitHub so the community total cannot be faked by the app.";
+    body.text = @"Build a private shortlist here, then use GitHub to add a verified thumbs-up to the public roadmap.";
     body.font = [UIFont systemFontOfSize:13.0 weight:UIFontWeightRegular];
     body.textColor = UIColor.secondaryLabelColor;
     body.numberOfLines = 2;
@@ -158,44 +164,77 @@ static NSString *community_issue_summary(NSString *body)
     status.numberOfLines = 2;
     [card addSubview:status];
 
-    UIButton *hub = [UIButton buttonWithType:UIButtonTypeSystem];
+    NSArray<NSString *> *statTitles = @[@"Candidates", @"Thumbs up", @"Shortlisted"];
+    NSMutableArray<UILabel *> *statLabels = [NSMutableArray arrayWithCapacity:3];
+    for (NSString *statTitle in statTitles) {
+        UILabel *stat = [[UILabel alloc] initWithFrame:CGRectZero];
+        stat.font = [UIFont systemFontOfSize:12.0 weight:UIFontWeightBold];
+        stat.textColor = UIColor.secondaryLabelColor;
+        stat.textAlignment = NSTextAlignmentCenter;
+        stat.numberOfLines = 2;
+        stat.accessibilityLabel = statTitle;
+        [card addSubview:stat];
+        [statLabels addObject:stat];
+    }
+    statLabels[0].tag = 107;
+    statLabels[1].tag = 108;
+    statLabels[2].tag = 109;
+
+    UIButtonConfiguration *hubConfig = [UIButtonConfiguration filledButtonConfiguration];
+    hubConfig.title = @"Open verified ballot";
+    hubConfig.image = [UIImage systemImageNamed:@"hand.thumbsup.fill"];
+    hubConfig.imagePadding = 7.0;
+    hubConfig.cornerStyle = UIButtonConfigurationCornerStyleLarge;
+    hubConfig.baseBackgroundColor = CYAccentColor();
+    UIButton *hub = [UIButton buttonWithConfiguration:hubConfig primaryAction:nil];
     hub.tag = 106;
-    [hub setTitle:@"Open Voting Hub" forState:UIControlStateNormal];
-    hub.titleLabel.font = [UIFont systemFontOfSize:13.0 weight:UIFontWeightBold];
+    hub.titleLabel.font = [UIFont systemFontOfSize:14.0 weight:UIFontWeightBold];
     [hub addTarget:self action:@selector(openVotingHub) forControlEvents:UIControlEventTouchUpInside];
     CYPolishButton(hub);
     [card addSubview:hub];
 
     self.introHeader = header;
     self.statusLabel = status;
+    self.candidateStatLabel = statLabels[0];
+    self.voteStatLabel = statLabels[1];
+    self.pickedStatLabel = statLabels[2];
     self.tableView.tableHeaderView = header;
     [self layoutIntroHeader];
     [self updateStatusText];
+    CYAnimateEntrance(card);
 }
 
 - (void)layoutIntroHeader
 {
     UIView *card = [self.introHeader viewWithTag:101];
     CGFloat width = self.introHeader.bounds.size.width;
-    card.frame = CGRectMake(16.0, 8.0, width - 32.0, 164.0);
+    card.frame = CGRectMake(16.0, 8.0, width - 32.0, 234.0);
     [card viewWithTag:102].frame = CGRectMake(18.0, 14.0, card.bounds.size.width - 36.0, 17.0);
     [card viewWithTag:103].frame = CGRectMake(18.0, 34.0, card.bounds.size.width - 36.0, 28.0);
     [card viewWithTag:104].frame = CGRectMake(18.0, 65.0, card.bounds.size.width - 36.0, 38.0);
-    [card viewWithTag:105].frame = CGRectMake(18.0, 109.0, card.bounds.size.width - 145.0, 40.0);
-    [card viewWithTag:106].frame = CGRectMake(card.bounds.size.width - 132.0, 113.0, 116.0, 34.0);
+    [card viewWithTag:105].frame = CGRectMake(18.0, 105.0, card.bounds.size.width - 36.0, 20.0);
+    CGFloat statWidth = (card.bounds.size.width - 36.0) / 3.0;
+    for (NSInteger i = 0; i < 3; i++) {
+        [card viewWithTag:107 + i].frame = CGRectMake(18.0 + statWidth * i, 132.0, statWidth, 42.0);
+    }
+    [card viewWithTag:106].frame = CGRectMake(18.0, 184.0, card.bounds.size.width - 36.0, 40.0);
 }
 
 - (void)updateStatusText
 {
+    NSInteger totalVotes = 0;
+    for (CYCommunityVoteProposal *proposal in self.proposals) totalVotes += proposal.voteCount;
+    self.candidateStatLabel.text = [NSString stringWithFormat:@"%ld\nCandidates", (long)self.proposals.count];
+    self.voteStatLabel.text = [NSString stringWithFormat:@"%ld\nThumbs up", (long)totalVotes];
+    self.pickedStatLabel.text = [NSString stringWithFormat:@"%ld\nShortlisted", (long)self.localSelections.count];
     if (self.loading) {
         self.statusLabel.text = @"Refreshing verified totals…";
         self.statusLabel.textColor = UIColor.secondaryLabelColor;
     } else if (self.showingRemoteResults) {
-        self.statusLabel.text = [NSString stringWithFormat:@"Live GitHub results • %ld candidate%@",
-                                 (long)self.proposals.count, self.proposals.count == 1 ? @"" : @"s"];
+        self.statusLabel.text = @"Verified GitHub ranking is live";
         self.statusLabel.textColor = UIColor.systemGreenColor;
     } else {
-        self.statusLabel.text = @"Offline ballot • selections stay on this device";
+        self.statusLabel.text = @"Offline shortlist; selections stay on this device";
         self.statusLabel.textColor = CYAccentColor();
     }
 }
@@ -284,14 +323,14 @@ static NSString *community_issue_summary(NSString *body)
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section
 {
-    return section == 0 ? (self.showingRemoteResults ? @"Verified Ranking" : @"Candidate Ballot") : @"Have Another Idea?";
+    return section == 0 ? (self.showingRemoteResults ? @"Community Ranking" : @"Your Shortlist") : @"Shape the Roadmap";
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section
 {
     if (section != 0) return nil;
     return self.showingRemoteResults
-        ? @"Vote totals are GitHub thumbs-up reactions. Opening a candidate lets you confirm one vote with your GitHub account."
+        ? @"Totals come from GitHub thumbs-up reactions. Open any candidate to add yours with your GitHub account."
         : @"Local picks are a private shortlist until the repository voting hub is enabled. Pull down to retry community sync.";
 }
 
@@ -319,26 +358,26 @@ static NSString *community_issue_summary(NSString *body)
     cell.detailTextLabel.text = proposal.summary;
     cell.detailTextLabel.textColor = UIColor.secondaryLabelColor;
     cell.detailTextLabel.numberOfLines = 3;
-    cell.imageView.image = [UIImage systemImageNamed:selected ? @"checkmark.circle.fill" : @"hand.thumbsup.circle"];
-    cell.imageView.tintColor = selected ? UIColor.systemGreenColor : CYAccentColor();
+    cell.imageView.image = CYIconBadgeImage(selected ? @"checkmark" : @"sparkles",
+                                            selected ? UIColor.systemGreenColor : CYSpectrumColor((NSUInteger)indexPath.row),
+                                            38.0);
 
-    UILabel *pill = [[UILabel alloc] init];
-    pill.text = proposal.remote
-        ? [NSString stringWithFormat:@"%ld VOTE%@", (long)proposal.voteCount, proposal.voteCount == 1 ? @"" : @"S"]
-        : (selected ? @"PICKED" : @"PICK");
-    pill.font = [UIFont systemFontOfSize:10.0 weight:UIFontWeightHeavy];
-    pill.textColor = proposal.remote ? UIColor.systemBlueColor : (selected ? UIColor.systemGreenColor : CYAccentColor());
-    pill.backgroundColor = [pill.textColor colorWithAlphaComponent:0.14];
-    pill.textAlignment = NSTextAlignmentCenter;
-    [pill sizeToFit];
-    CGRect frame = pill.frame;
-    frame.size.width += 14.0;
-    frame.size.height = 24.0;
-    pill.frame = frame;
-    pill.layer.cornerRadius = 12.0;
-    pill.layer.cornerCurve = kCACornerCurveContinuous;
-    pill.layer.masksToBounds = YES;
-    cell.accessoryView = pill;
+    UIButtonConfiguration *voteConfig = proposal.remote
+        ? [UIButtonConfiguration tintedButtonConfiguration]
+        : (selected ? [UIButtonConfiguration filledButtonConfiguration]
+                    : [UIButtonConfiguration tintedButtonConfiguration]);
+    voteConfig.image = [UIImage systemImageNamed:selected ? @"checkmark" : @"hand.thumbsup.fill"];
+    voteConfig.title = proposal.remote ? [NSString stringWithFormat:@"%ld", (long)proposal.voteCount] : nil;
+    voteConfig.imagePadding = proposal.remote ? 4.0 : 0.0;
+    voteConfig.cornerStyle = UIButtonConfigurationCornerStyleCapsule;
+    voteConfig.baseForegroundColor = selected ? UIColor.whiteColor : CYAccentColor();
+    if (selected) voteConfig.baseBackgroundColor = UIColor.systemGreenColor;
+    UIButton *voteIcon = [UIButton buttonWithConfiguration:voteConfig primaryAction:nil];
+    voteIcon.userInteractionEnabled = NO;
+    voteIcon.accessibilityLabel = proposal.remote
+        ? [NSString stringWithFormat:@"%ld GitHub thumbs up", (long)proposal.voteCount]
+        : (selected ? @"Remove from shortlist" : @"Add to shortlist");
+    cell.accessoryView = voteIcon;
     return cell;
 }
 
@@ -359,6 +398,7 @@ static NSString *community_issue_summary(NSString *body)
     if ([self.localSelections containsObject:proposal.identifier]) [self.localSelections removeObject:proposal.identifier];
     else [self.localSelections addObject:proposal.identifier];
     [self persistLocalSelections];
+    [self updateStatusText];
     [tableView reloadRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationAutomatic];
 }
 

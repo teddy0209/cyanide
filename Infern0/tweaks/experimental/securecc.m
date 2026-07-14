@@ -2,6 +2,7 @@
 #import "../remote_objc.h"
 #import "../sb_walk.h"
 #import "../../TaskRop/RemoteCall.h"
+#import "../../LogTextView.h"
 
 #import <Foundation/Foundation.h>
 #import <stdio.h>
@@ -11,7 +12,6 @@ typedef struct { double x; double y; double width; double height; } SecureCCRect
 
 static uint64_t gSecureCCBanner = 0;
 static bool gSecureCCShowIndicator = true;
-static int gSecureCCDelayMs = 750;
 
 static bool securecc_is_locked(bool *locked)
 {
@@ -40,7 +40,7 @@ static void securecc_class_name(uint64_t obj, char *out, size_t outLen)
     r_free(copy);
 }
 
-static void securecc_set_controls_enabled(uint64_t view, bool enabled, int depth, int *hits)
+static void securecc_lock_controls(uint64_t view, int depth, int *hits)
 {
     if (!r_is_objc_ptr(view) || depth > 14) return;
     char cls[160] = {0};
@@ -48,14 +48,14 @@ static void securecc_set_controls_enabled(uint64_t view, bool enabled, int depth
     bool ccControl = (strstr(cls, "CCUI") || strstr(cls, "ControlCenter")) &&
                      (strstr(cls, "Button") || strstr(cls, "Module") || strstr(cls, "Control"));
     if (ccControl && r_responds_main(view, "setUserInteractionEnabled:")) {
-        r_msg2_main(view, "setUserInteractionEnabled:", enabled ? 1 : 0, 0, 0, 0);
-        if (hits) (*hits)++;
+        if (sb_cc_override_bool("securecc", view, "userInteractionEnabled",
+                                "setUserInteractionEnabled:", false) && hits) (*hits)++;
     }
     uint64_t subviews = r_msg2_main(view, "subviews", 0, 0, 0, 0);
     uint64_t count = r_is_objc_ptr(subviews) ? r_msg2_main(subviews, "count", 0, 0, 0, 0) : 0;
     if (count > 160) count = 160;
     for (uint64_t i = 0; i < count; i++)
-        securecc_set_controls_enabled(r_msg2_main(subviews, "objectAtIndex:", i, 0, 0, 0), enabled, depth + 1, hits);
+        securecc_lock_controls(r_msg2_main(subviews, "objectAtIndex:", i, 0, 0, 0), depth + 1, hits);
 }
 
 static uint64_t securecc_color(double red, double green, double blue, double alpha)
@@ -81,9 +81,13 @@ bool securecc_apply_in_session(void)
     if (!securecc_is_locked(&locked)) return false;
     uint64_t win = sb_control_center_window();
     int controls = 0;
-    if (r_is_objc_ptr(win)) securecc_set_controls_enabled(win, !locked, 0, &controls);
+    if (locked && r_is_objc_ptr(win)) securecc_lock_controls(win, 0, &controls);
+    if (!locked) sb_cc_restore_owner("securecc");
     if (!locked || !gSecureCCShowIndicator) {
-        if (r_is_objc_ptr(gSecureCCBanner)) r_msg2_main(gSecureCCBanner, "removeFromSuperview", 0, 0, 0, 0);
+        if (r_is_objc_ptr(gSecureCCBanner)) {
+            r_msg2_main(gSecureCCBanner, "removeFromSuperview", 0, 0, 0, 0);
+            r_msg2_main(gSecureCCBanner, "release", 0, 0, 0, 0);
+        }
         gSecureCCBanner = 0;
         return true;
     }
@@ -91,6 +95,7 @@ bool securecc_apply_in_session(void)
         r_is_objc_ptr(r_msg2_main(gSecureCCBanner, "superview", 0, 0, 0, 0))) return true;
     if (r_is_objc_ptr(gSecureCCBanner)) {
         r_msg2_main(gSecureCCBanner, "removeFromSuperview", 0, 0, 0, 0);
+        r_msg2_main(gSecureCCBanner, "release", 0, 0, 0, 0);
         gSecureCCBanner = 0;
     }
     uint64_t UILabel = r_class("UILabel");
@@ -99,8 +104,7 @@ bool securecc_apply_in_session(void)
     SecureCCRect frame = { 24, 96, 236, 30 };
     label = r_msg2_main_raw(label, "initWithFrame:", &frame, sizeof(frame), NULL, 0, NULL, 0, NULL, 0);
     if (!r_is_objc_ptr(label)) return false;
-    char text[64];
-    snprintf(text, sizeof(text), "SecureCC  |  %dms delay", gSecureCCDelayMs);
+    const char *text = "SecureCC  |  Locked controls";
     uint64_t str = r_nsstr_retained(text);
     if (r_is_objc_ptr(str)) {
         r_msg2_main(label, "setText:", str, 0, 0, 0);
@@ -125,25 +129,34 @@ bool securecc_apply_in_session(void)
     }
     r_msg2_main(win, "addSubview:", label, 0, 0, 0);
     gSecureCCBanner = label;
+    log_user("[SECURECC][APPLY] locked=1 controlsProtected=%d indicator=1 policy=block-while-locked.\n",
+             controls);
     return true;
 }
 
 bool securecc_stop_in_session(void)
 {
     printf("[SECURECC] stop\n");
-    if (r_is_objc_ptr(gSecureCCBanner)) r_msg2_main(gSecureCCBanner, "removeFromSuperview", 0, 0, 0, 0);
-    uint64_t win = sb_control_center_window();
-    if (r_is_objc_ptr(win)) securecc_set_controls_enabled(win, true, 0, NULL);
+    bool removed = r_is_objc_ptr(gSecureCCBanner);
+    if (removed) {
+        r_msg2_main(gSecureCCBanner, "removeFromSuperview", 0, 0, 0, 0);
+        r_msg2_main(gSecureCCBanner, "release", 0, 0, 0, 0);
+    }
+    int restored = sb_cc_restore_owner("securecc");
     gSecureCCBanner = 0;
+    log_user("[SECURECC][STOP] indicatorRemoved=%d exactControlStatesRestored=%d.\n",
+             removed, restored);
     return true;
 }
 
 void securecc_configure(bool showIndicator, int delayMs)
 {
-    if (delayMs < 0) delayMs = 0;
-    if (delayMs > 3000) delayMs = 3000;
+    (void)delayMs; // retained in the ABI for compatibility with older settings builds
     gSecureCCShowIndicator = showIndicator;
-    gSecureCCDelayMs = delayMs;
 }
 
-void securecc_forget_remote_state(void) { gSecureCCBanner = 0; }
+void securecc_forget_remote_state(void)
+{
+    gSecureCCBanner = 0;
+    sb_cc_forget_owner("securecc");
+}

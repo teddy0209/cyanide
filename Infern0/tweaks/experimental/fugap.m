@@ -44,7 +44,7 @@ static void fugap_scan(uint64_t parent, double offset, int depth, int *hits)
                          !strstr(cls, "ModuleContainer") && !strstr(cls, "Glyph") && !strstr(cls, "Button");
     if (rootContainer) {
         FUGapAffineTransform t = { 1, 0, 0, 1, 0, offset };
-        r_msg2_main_raw(parent, "setTransform:", &t, sizeof(t), NULL, 0, NULL, 0, NULL, 0);
+        sb_cc_override_bytes("fugap", parent, "transform", "setTransform:", &t, sizeof(t));
         if (hits) (*hits)++;
         return;
     }
@@ -71,11 +71,9 @@ bool fugap_apply_in_session(void)
 bool fugap_stop_in_session(void)
 {
     printf("[FUGAP] stop\n");
-    uint64_t win = sb_control_center_window();
-    int hits = 0;
-    if (r_is_objc_ptr(win)) fugap_scan(win, 0.0, 0, &hits);
+    int hits = sb_cc_restore_owner("fugap");
     gFUGapApplied = false;
-    return true;
+    return hits > 0;
 }
 
 void fugap_configure(int yOffset)
@@ -85,4 +83,4 @@ void fugap_configure(int yOffset)
     gFUGapYOffset = yOffset;
 }
 
-void fugap_forget_remote_state(void) { gFUGapApplied = false; }
+void fugap_forget_remote_state(void) { gFUGapApplied = false; sb_cc_forget_owner("fugap"); }

@@ -50,6 +50,7 @@ static void magma_class_name(uint64_t obj, char *out, size_t outLen)
 
 static void magma_scan(uint64_t parent, uint64_t color, bool restore, bool ccContext, int depth, int *hits)
 {
+    (void)restore;
     if (!r_is_objc_ptr(parent) || depth > 12) return;
     char cls[160] = {0};
     magma_class_name(parent, cls, sizeof(cls));
@@ -61,18 +62,13 @@ static void magma_scan(uint64_t parent, uint64_t color, bool restore, bool ccCon
     bool target = ccContext && ((gMagmaColorToggles && isToggle) || (gMagmaColorSliders && isSlider) ||
                   (gMagmaColorMedia && isMedia));
     if (target && r_is_objc_ptr(color)) {
-        r_msg2_main(parent, "setTintColor:", color, 0, 0, 0);
-        if (r_responds_main(parent, "setTextColor:")) r_msg2_main(parent, "setTextColor:", color, 0, 0, 0);
+        sb_cc_override_object("magma", parent, "tintColor", "setTintColor:", color);
+        if (r_responds_main(parent, "setTextColor:"))
+            sb_cc_override_object("magma", parent, "textColor", "setTextColor:", color);
         if (hits) (*hits)++;
     }
     if (ccContext && gMagmaColorBackground && isBackground && r_is_objc_ptr(color) && r_responds_main(parent, "setBackgroundColor:")) {
-        uint64_t bgColor = color;
-        if (restore) {
-            uint64_t UIColor = r_class("UIColor");
-            uint64_t clear = r_is_objc_ptr(UIColor) ? r_msg2_main(UIColor, "clearColor", 0, 0, 0, 0) : 0;
-            if (r_is_objc_ptr(clear)) bgColor = clear;
-        }
-        r_msg2_main(parent, "setBackgroundColor:", bgColor, 0, 0, 0);
+        sb_cc_override_object("magma", parent, "backgroundColor", "setBackgroundColor:", color);
         if (hits) (*hits)++;
     }
     uint64_t subviews = r_msg2_main(parent, "subviews", 0, 0, 0, 0);
@@ -100,12 +96,10 @@ bool magma_apply_in_session(void)
 bool magma_stop_in_session(void)
 {
     printf("[MAGMA] stop\n");
-    uint64_t white = magma_color(1, 1, 1, 1);
-    uint64_t windows[64] = {0};
-    int windowCount = sb_collect_control_center_windows(windows, 64), hits = 0;
-    for (int i = 0; i < windowCount; i++) magma_scan(windows[i], white, true, false, 0, &hits);
+    int hits = sb_cc_restore_owner("magma");
     gMagmaTint = 0;
-    return true;
+    log_user("[MAGMA][RESTORE] exactProperties=%d result=%s.\n", hits, hits > 0 ? "restored" : "nothing-owned");
+    return hits > 0;
 }
 
 void magma_configure(int red, int green, int blue, int alpha,
@@ -125,4 +119,4 @@ void magma_configure(int red, int green, int blue, int alpha,
     gMagmaColorBackground = colorBackground;
 }
 
-void magma_forget_remote_state(void) { gMagmaTint = 0; }
+void magma_forget_remote_state(void) { gMagmaTint = 0; sb_cc_forget_owner("magma"); }

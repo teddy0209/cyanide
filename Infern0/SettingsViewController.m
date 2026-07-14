@@ -1679,6 +1679,15 @@ static bool settings_stop_pullover_registered(BOOL springboardWillDie)
     return pullover_stop_in_session();
 }
 
+static bool settings_stop_layout_extras_registered(BOOL springboardWillDie)
+{
+    if (springboardWillDie) {
+        darksword_layout_forget_remote_state();
+        return true;
+    }
+    return darksword_layout_stop_in_session();
+}
+
 #define SETTINGS_COMMUNITY_STOP_FN(fnName, portValue) \
 static bool fnName(BOOL springboardWillDie) { (void)springboardWillDie; return communityports_stop(portValue); }
 SETTINGS_COMMUNITY_STOP_FN(settings_stop_scrollingdock_registered, CommunityPortScrollingDock)
@@ -1737,6 +1746,7 @@ static void settings_each_springboard_cleanup_entry(void (^block)(const Settings
         { kSettingsNotificationIslandEnabled, "Notification Island", settings_request_notificationisland_stop, settings_stop_notificationisland_registered, notificationisland_forget_remote_state, settings_notificationisland_running, YES, YES },
         { kSettingsAppSwitcherGridEnabled, "App Switcher Grid", NULL, settings_stop_appswitchergrid_registered, appswitchergrid_forget_remote_state, NULL, YES, YES },
         { kSettingsGravityLiteEnabled, "Gravity Lite", settings_request_gravitylite_stop, settings_stop_gravitylite_registered, gravitylite_forget_remote_state, NULL, YES, YES },
+        { kSettingsLayoutExtrasEnabled, "Home Layout Extras", NULL, settings_stop_layout_extras_registered, darksword_layout_forget_remote_state, NULL, YES, YES },
         { kSettingsThemerEnabled, "Themer", settings_request_themer_stop, settings_stop_themer_registered, themer_forget_remote_state, settings_themer_running, YES, YES },
         { kSettingsSnowBoardLiteEnabled, "SnowBoard Lite", NULL, settings_stop_themer_registered, themer_forget_remote_state, NULL, YES, YES },
         { kSettingsLiveWPEnabled, "LiveWP", settings_request_livewp_stop, settings_stop_livewp_registered, livewp_forget_remote_state, settings_livewp_running, YES, YES },
@@ -5935,6 +5945,7 @@ static void settings_start_velvet_live_loop(void)
 static BOOL settings_visual_refresh_enabled(NSUserDefaults *d)
 {
     return [d boolForKey:kSettingsCleanCCEnabled] ||
+           [d boolForKey:kSettingsLayoutExtrasEnabled] ||
            [d boolForKey:kSettingsFUGapEnabled] ||
            [d boolForKey:kSettingsModuleSpacingEnabled] ||
            [d boolForKey:kSettingsSugarCaneEnabled] ||
@@ -5966,6 +5977,9 @@ static void settings_visual_refresh_mark_if_ready(NSString *key, bool ready)
 
 static void settings_visual_refresh_tick(NSUserDefaults *d, BOOL fullScan)
 {
+    if (fullScan && [d boolForKey:kSettingsLayoutExtrasEnabled])
+        settings_visual_refresh_mark_if_ready(kSettingsLayoutExtrasEnabled,
+                                              settings_apply_layout_extras_from_defaults_locked(d));
     if (fullScan && [d boolForKey:kSettingsCleanCCEnabled])
         settings_visual_refresh_mark_if_ready(kSettingsCleanCCEnabled, cleancc_apply_in_session());
     if (fullScan && [d boolForKey:kSettingsFUGapEnabled])
@@ -5988,8 +6002,9 @@ static void settings_visual_refresh_tick(NSUserDefaults *d, BOOL fullScan)
         settings_visual_refresh_mark_if_ready(kSettingsHapticCCEnabled, hapticcc_apply_in_session());
     if ([d boolForKey:kSettingsSecureCCEnabled])
         settings_visual_refresh_mark_if_ready(kSettingsSecureCCEnabled, securecc_apply_in_session());
-    if (fullScan && [d boolForKey:kSettingsCylinderLiteEnabled])
-        settings_visual_refresh_mark_if_ready(kSettingsCylinderLiteEnabled, cylinderlite_apply_in_session());
+    if ([d boolForKey:kSettingsCylinderLiteEnabled])
+        settings_visual_refresh_mark_if_ready(kSettingsCylinderLiteEnabled,
+                                              cylinderlite_refresh_in_session(fullScan));
     if (fullScan && [d boolForKey:kSettingsBlurryBadgesEnabled])
         settings_visual_refresh_mark_if_ready(kSettingsBlurryBadgesEnabled, blurrybadges_apply_in_session());
     if (fullScan && [d boolForKey:kSettingsAlkalineEnabled])
@@ -6031,13 +6046,18 @@ static void settings_start_visual_refresh_live_loop(void)
                    !g_visual_refresh_live_stop_requested) {
                 if (!g_settings_actions_running) {
                     @synchronized (settings_rc_lock()) {
-                        if (!g_visual_refresh_live_stop_requested && g_springboard_rc_ready)
-                            settings_visual_refresh_tick(d, (tick % 4) == 0);
+                        if (!g_visual_refresh_live_stop_requested && g_springboard_rc_ready) {
+                            BOOL cylinderActive = [d boolForKey:kSettingsCylinderLiteEnabled];
+                            NSUInteger fullScanDivisor = cylinderActive ? 20 : 4;
+                            settings_visual_refresh_tick(d, (tick % fullScanDivisor) == 0);
+                        }
                     }
                 }
                 tick++;
-                useconds_t interval = settings_live_interval(kVisualRefreshIntervalUS,
-                                                              kVisualRefreshBackgroundIntervalUS);
+                BOOL cylinderActive = [d boolForKey:kSettingsCylinderLiteEnabled];
+                useconds_t interval = cylinderActive
+                    ? settings_live_interval(100000, 750000)
+                    : settings_live_interval(kVisualRefreshIntervalUS, kVisualRefreshBackgroundIntervalUS);
                 settings_live_loop_sleep_interruptible(0, interval,
                                                        &g_visual_refresh_live_stop_requested);
             }
@@ -6615,7 +6635,7 @@ static void settings_log_pancake_config(NSUserDefaults *d, const char *prefix)
 
 static void settings_log_cylinderlite_config(NSUserDefaults *d, const char *prefix)
 {
-    log_user("[%s] Cylinder Lite config: depth=%ld perspective=%ld scanLimit=512 requestedLimit=%ld pages=all taps=preserved.\n",
+    log_user("[%s] Cylinder Lite config: animation=page-position-driven refresh=100ms depth=%ld perspective=%ld scanLimit=512 requestedLimit=%ld pages=all taps=preserved.\n",
              prefix ?: "CFG",
              (long)[d integerForKey:kSettingsCylinderLiteDepth],
              (long)[d integerForKey:kSettingsCylinderLitePerspective],
@@ -6760,9 +6780,8 @@ static void settings_log_split_tweak_config(NSString *masterKey, NSUserDefaults 
         log_user("[%s] HapticCC config: style=%ld.\n", tag,
                  (long)[d integerForKey:kSettingsHapticCCFeedbackStyle]);
     } else if ([masterKey isEqualToString:kSettingsSecureCCEnabled]) {
-        log_user("[%s] SecureCC config: indicator=%d delay=%ldms.\n", tag,
-                 [d boolForKey:kSettingsSecureCCShowIndicator],
-                 (long)[d integerForKey:kSettingsSecureCCDelayMs]);
+        log_user("[%s] SecureCC config: indicator=%d policy=block-while-locked exactRestore=1.\n", tag,
+                 [d boolForKey:kSettingsSecureCCShowIndicator]);
     } else if ([masterKey isEqualToString:kSettingsBarmojiEnabled]) {
         log_user("[%s] Barmoji config: bottom=%ldpt width=%ld%% font=%ldpt alpha=%ld%%.\n", tag,
                  (long)[d integerForKey:kSettingsBarmojiYOffset],
@@ -7442,6 +7461,28 @@ static NSString *settings_resolve_icon_layout_conflict(NSUserDefaults *d, NSStri
     return disabledKey;
 }
 
+static NSArray<NSString *> *settings_resolve_statusbar_conflicts(NSUserDefaults *d, NSString *preferredKey)
+{
+    NSArray<NSString *> *keys = @[ kSettingsStatBarEnabled, kSettingsNSBarEnabled,
+                                   kSettingsNiceBarLiteEnabled ];
+    if (!preferredKey || ![d boolForKey:preferredKey]) {
+        if ([d boolForKey:kSettingsNiceBarLiteEnabled]) preferredKey = kSettingsNiceBarLiteEnabled;
+        else if ([d boolForKey:kSettingsNSBarEnabled]) preferredKey = kSettingsNSBarEnabled;
+        else if ([d boolForKey:kSettingsStatBarEnabled]) preferredKey = kSettingsStatBarEnabled;
+    }
+    if (!preferredKey || ![d boolForKey:preferredKey]) return @[];
+    NSMutableArray<NSString *> *disabled = [NSMutableArray array];
+    for (NSString *candidate in keys) {
+        if ([candidate isEqualToString:preferredKey] || ![d boolForKey:candidate]) continue;
+        [d setBool:NO forKey:candidate];
+        [disabled addObject:candidate];
+        log_user("[COMPAT] %s disabled because %s owns the active status-bar presentation.\n",
+                 candidate.UTF8String, preferredKey.UTF8String);
+    }
+    if (disabled.count > 0) [d synchronize];
+    return disabled;
+}
+
 static bool settings_apply_community_ports(NSUserDefaults *d);
 static BOOL settings_community_ports_should_run(NSUserDefaults *d, BOOL pendingOnly);
 
@@ -7482,6 +7523,31 @@ static void settings_schedule_live_apply_for_key(NSString *key)
     if (([key isEqualToString:kSettingsWatchLayoutEnabled] ||
          [key isEqualToString:kSettingsFreePlacementEnabled]) && [d boolForKey:key]) {
         layoutKeyToStop = settings_resolve_icon_layout_conflict(d, key);
+    }
+    BOOL statusBarMasterChanged = [key isEqualToString:kSettingsStatBarEnabled] ||
+                                  [key isEqualToString:kSettingsNSBarEnabled] ||
+                                  [key isEqualToString:kSettingsNiceBarLiteEnabled];
+    NSArray<NSString *> *statusKeysToStop = statusBarMasterChanged && [d boolForKey:key]
+        ? settings_resolve_statusbar_conflicts(d, key) : @[];
+    if (statusKeysToStop.count > 0) {
+        if ([statusKeysToStop containsObject:kSettingsStatBarEnabled]) g_statbar_live_stop_requested = 1;
+        if ([statusKeysToStop containsObject:kSettingsNSBarEnabled]) g_nsbar_live_stop_requested = 1;
+        if ([statusKeysToStop containsObject:kSettingsNiceBarLiteEnabled]) g_nicebarlite_live_stop_requested = 1;
+        dispatch_async(dispatch_get_global_queue(0, 0), ^{
+            @synchronized (settings_rc_lock()) {
+                for (NSString *disabledKey in statusKeysToStop) {
+                    if (g_springboard_rc_ready) {
+                        if ([disabledKey isEqualToString:kSettingsStatBarEnabled]) statbar_stop_in_session();
+                        else if ([disabledKey isEqualToString:kSettingsNSBarEnabled]) nsbar_stop_in_session();
+                        else if ([disabledKey isEqualToString:kSettingsNiceBarLiteEnabled]) nicebarlite_stop_in_session();
+                    }
+                    settings_mark_tweak_applied(disabledKey, NO);
+                }
+            }
+            settings_schedule_live_apply_for_key(key);
+            settings_notify_package_queue_changed_async();
+        });
+        return;
     }
     if (settings_key_is_community_port(key)) {
         if (!g_springboard_rc_ready) {
@@ -8964,9 +9030,9 @@ static void settings_log_tweak_plan_details(NSUserDefaults *d, BOOL pendingOnly)
         { kSettingsHapticCCEnabled, "HapticCC", "watches Control Center state changes and emits the selected haptic" },
         { kSettingsSecureCCEnabled, "SecureCC", "blocks supported Control Center interaction while the UI is locked" },
         { kSettingsHideLabelsEnabled, "HideLabels", "hides visible home-screen icon labels" },
-        { kSettingsFakeClockUpEnabled, "FakeClockUp", "changes the Clock icon animation speed" },
-        { kSettingsPancakeEnabled, "Pancake", "installs the configured left-edge home-screen gesture hint" },
-        { kSettingsCylinderLiteEnabled, "Cylinder Lite", "applies perspective depth to visible home-screen icons" },
+        { kSettingsFakeClockUpEnabled, "FakeClockUp", "changes active SpringBoard window-layer animation speed" },
+        { kSettingsPancakeEnabled, "Pancake", "configures the native interactive edge-back gesture" },
+        { kSettingsCylinderLiteEnabled, "Cylinder Lite", "animates loaded home-screen pages through a live cylindrical swipe transform" },
         { kSettingsBarmojiEnabled, "Barmoji", "adds the configured emoji strip overlay to SpringBoard" },
         { kSettingsRoundedIconsEnabled, "Rounded Icons", "applies a continuous corner mask to every discovered Home Screen icon" },
         { kSettingsWatchLayoutEnabled, "Watch Layout", "reflows each Home Screen page into a staggered Apple Watch-style honeycomb of circular live icons" },
@@ -9033,6 +9099,7 @@ static void settings_run_actions_internal(BOOL pendingOnly)
             // frame-owning icon layouts to be enabled together. The normal
             // disabled-tweak cleanup below restores the displaced layout first.
             settings_resolve_icon_layout_conflict(d, kSettingsWatchLayoutEnabled);
+            settings_resolve_statusbar_conflicts(d, nil);
             BOOL patchSandboxExt = [d boolForKey:kSettingsRunPatchSandboxExt];
             BOOL runPowercuff = settings_enabled_tweak_should_run(d, kSettingsPowercuffEnabled, pendingOnly);
             BOOL forceSpringBoardRefresh = runPowercuff &&
@@ -11564,7 +11631,7 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
     return @[
         @{ @"kind": @"toggle", @"key": kSettingsSecureCCEnabled, @"title": @"Enable SecureCC" },
         @{ @"kind": @"toggle", @"key": kSettingsSecureCCShowIndicator, @"title": @"Show armed indicator" },
-        @{ @"kind": @"slider", @"key": kSettingsSecureCCDelayMs, @"title": @"Confirmation delay", @"min": @0, @"max": @3000, @"step": @50, @"default": @750, @"unit": @"ms" },
+        @{ @"kind": @"info", @"title": @"Lock policy", @"subtitle": @"Supported Control Center controls are blocked immediately while locked and restored to their exact prior interaction state after unlock." },
     ];
 }
 
@@ -11597,6 +11664,7 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
 {
     return @[
         @{ @"kind": @"toggle", @"key": kSettingsCylinderLiteEnabled, @"title": @"Enable Cylinder Lite" },
+        @{ @"kind": @"info", @"title": @"Live page animation", @"subtitle": @"Transforms follow each page's window position while swiping. Centered pages return to their captured stock transform and newly loaded pages join automatically." },
         @{ @"kind": @"slider", @"key": kSettingsCylinderLiteDepth, @"title": @"Icon depth", @"min": @-80, @"max": @0, @"step": @1, @"default": @-10, @"unit": @"z" },
         @{ @"kind": @"slider", @"key": kSettingsCylinderLitePerspective, @"title": @"Perspective distance", @"min": @250, @"max": @1600, @"step": @25, @"default": @650 },
         @{ @"kind": @"info", @"title": @"Coverage", @"subtitle": @"Scans up to 512 live icons across every discovered Home Screen page and preserves icon interaction." },
@@ -11634,6 +11702,7 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
         @{ @"kind": @"slider", @"key": kSettingsWatchLayoutCompactPct, @"title": @"Honeycomb compactness", @"min": @60, @"max": @100, @"step": @1, @"default": @82, @"unit": @"%" },
         @{ @"kind": @"slider", @"key": kSettingsWatchLayoutScalePct, @"title": @"Circular icon size", @"min": @60, @"max": @110, @"step": @1, @"default": @88, @"unit": @"%" },
         @{ @"kind": @"info", @"title": @"Beehive geometry", @"subtitle": @"Preserves each page's stock icon order, compresses vertical spacing using the hex-grid ratio, and offsets alternating rows by half a slot." },
+        @{ @"kind": @"info", @"title": @"Visible bounds", @"subtitle": @"Final honeycomb frames are clamped to their page bounds so edge icons cannot disappear off-screen." },
         @{ @"kind": @"info", @"title": @"Interaction", @"subtitle": @"Uses live SBIconViews instead of snapshots, so every honeycomb icon still launches normally. Dock and App Library icons stay untouched." },
         @{ @"kind": @"info", @"title": @"Layout safety", @"subtitle": @"Watch Layout and Free Placement are mutually exclusive because both own the same live icon frames. Enabling either one cleanly disables the other." },
         @{ @"kind": @"button", @"title": @"View Detailed Activity Log", @"action": @"view-log" },
@@ -11658,7 +11727,7 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
         @{ @"kind": @"slider", @"key": kSettingsLockCustomizerMetalLightThickness, @"title": @"Edge-light thickness", @"min": @1, @"max": @14, @"step": @1, @"default": @5, @"unit": @"pt" },
         @{ @"kind": @"stepper", @"key": kSettingsLockCustomizerMetalLightStyle, @"title": @"Light style (0 ice, 1 violet, 2 gold)", @"min": @0, @"max": @2, @"default": @0 },
         @{ @"kind": @"info", @"title": @"Metal Lock Light", @"subtitle": @"Adds a noninteractive glowing metal edge to the live Lock Screen. Uninstall removes the overlay without touching wallpaper files." },
-        @{ @"kind": @"info", @"title": @"Safe restore", @"subtitle": @"Uninstall restores stock transforms and visibility for all matched live lock-screen views." },
+        @{ @"kind": @"info", @"title": @"Safe restore", @"subtitle": @"Cleanup restores the exact captured transforms, opacity, and visibility values for every matched live lock-screen view." },
         @{ @"kind": @"button", @"title": @"View Detailed Activity Log", @"action": @"view-log" },
     ];
 }
@@ -11671,6 +11740,7 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
         @{ @"kind": @"slider", @"key": kSettingsFreePlacementVerticalStep, @"title": @"Vertical offset step", @"min": @-40, @"max": @40, @"step": @1, @"default": @5, @"unit": @"pt" },
         @{ @"kind": @"slider", @"key": kSettingsFreePlacementStaggerPct, @"title": @"Alternate-icon stagger", @"min": @0, @"max": @100, @"step": @1, @"default": @35, @"unit": @"%" },
         @{ @"kind": @"info", @"title": @"First port", @"subtitle": @"Builds a configurable free-form offset pattern across all discovered live icons. Taps work; per-icon dragging is not included yet." },
+        @{ @"kind": @"info", @"title": @"No lost icons", @"subtitle": @"Offsets are clamped to each page's visible bounds, and cleanup restores the exact frame captured for every icon." },
         @{ @"kind": @"info", @"title": @"Layout safety", @"subtitle": @"Free Placement and Watch Layout are mutually exclusive because both own the same live icon frames. Enabling either one cleanly disables the other." },
         @{ @"kind": @"button", @"title": @"View Detailed Activity Log", @"action": @"view-log" },
     ];
@@ -11892,7 +11962,10 @@ static bool settings_apply_community_ports(NSUserDefaults *d)
     return @[
         @{ @"kind": @"info",
            @"title": @"Page-isolated physics",
-           @"subtitle": @"Every Home Screen page owns its live icons, overlay, collision bounds, and animator. Swiping pages no longer merges icons into the current page." },
+           @"subtitle": @"Every Home Screen page owns its live icons, overlay, collision bounds, and animator. Lazy pages are attached while swiping instead of merging into the current page." },
+        @{ @"kind": @"info",
+           @"title": @"App Library physics",
+           @"subtitle": @"When SpringBoard loads the App Library, Gravity detects its live icon and category views and gives them a separate collision space." },
         @{ @"kind": @"toggle",
            @"key": kSettingsGravityLiteDockEnabled,
            @"title": @"Include Dock" },
@@ -12882,10 +12955,10 @@ static bool settings_apply_community_ports(NSUserDefaults *d)
         return @"Hides all icon labels on the home screen.";
     }
     if (s == SectionFakeClockUp) {
-        return @"Speeds up the clock hand animation speed. Adjust the speed multiplier to control how fast the clock hands move.";
+        return @"Adjusts the animation speed of active SpringBoard window layers. Disable it to restore every captured layer speed exactly; this does not modify Clock data or persistent system files.";
     }
     if (s == SectionPancake) {
-        return @"Adds a left-hand gesture hint to the home screen for one-handed navigation.";
+        return @"Uses the current navigation controller's native interactive edge-back recognizer. Touch limits are configurable, and disabling Pancake restores the recognizer's exact prior values.";
     }
     if (s == SectionCylinderLite) {
         return @"Applies perspective depth to every discovered Home Screen page. It keeps each live SBIconView interactive so icons continue to open normally.";
@@ -12927,7 +13000,7 @@ static bool settings_apply_community_ports(NSUserDefaults *d)
         return @"Runtime patch. It changes SpringBoard's app switcher style in memory, writes no system files, and a respring restores stock. Unsupported builds may glitch the app switcher or crash SpringBoard.";
     }
     if (s == SectionGravityLite) {
-        return @"RemoteCall-only core port of Julio Verne's Gravity. Run gives every Home Screen page a separate overlay, animator, collision boundary, and saved live-icon layout, while the optional dock receives its own simulation. Icons remain pressable and attached to their original page while gravity, bounce, friction, resistance, and accelerometer steering are active. Restore resets every captured page, and Explosion Pulse affects every active page independently.\n\nNot included in this core port: Activator/Home-button hooks, drag gestures, automatic shake effects, and preference-daemon notifications.";
+        return @"RemoteCall-only core port of Julio Verne's Gravity. Run gives every loaded Home Screen page a separate overlay, animator, collision boundary, and saved live-icon layout, while a live scan attaches pages created during swipes. The App Library gets its own physics group when loaded, and the optional dock receives a separate simulation. Icons remain pressable and attached to their original container while gravity, bounce, friction, resistance, and accelerometer steering are active. Restore resets every captured group, and Explosion Pulse affects every group independently.\n\nNot included in this core port: Activator/Home-button hooks, drag gestures, automatic shake effects, and preference-daemon notifications.";
     }
     if (s == SectionLocationSim) {
         return @"Beta CoreLocation simulation. Requires Apple Maps installed and set up — Maps is the RemoteCall host process that drives the simulation.\n\nThis is a manual tool, not an installable package. Use Simulate Current Target to start; use Restore Real Location to stop simulation and return CoreLocation to the device's real providers. Each run opens the activity log and marks completion when the request returns.\n\nNot all apps respect the simulated location. Apps that use their own location validation or additional signals may ignore it.\n\nCredits: kolbicz for the RemoteCall/CLSimulationManager GPS spoofer prototype, and ezzuldinSt's LSpoof for picker/route references.\n\nWarning: this can affect more than maps. Location-tied system behavior, including time zone and date/time handling, may behave unexpectedly. Only use this if you know what you're doing.";

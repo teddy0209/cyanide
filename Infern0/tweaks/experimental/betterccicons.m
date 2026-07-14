@@ -42,8 +42,8 @@ static void betterccicons_scan(uint64_t parent, double radius, int depth, int *h
                   strstr(cls, "ToggleView");
     uint64_t layer = target ? r_msg2_main(parent, "layer", 0, 0, 0, 0) : 0;
     if (r_is_objc_ptr(layer)) {
-        r_msg2_main_raw(layer, "setCornerRadius:", &radius, sizeof(radius), NULL, 0, NULL, 0, NULL, 0);
-        r_msg2_main(layer, "setMasksToBounds:", 1, 0, 0, 0);
+        sb_cc_override_bytes("betterccicons", layer, "cornerRadius", "setCornerRadius:", &radius, sizeof(radius));
+        sb_cc_override_bool("betterccicons", layer, "masksToBounds", "setMasksToBounds:", true);
         if (hits) (*hits)++;
     }
     uint64_t subviews = r_msg2_main(parent, "subviews", 0, 0, 0, 0);
@@ -67,11 +67,9 @@ bool betterccicons_apply_in_session(void)
 bool betterccicons_stop_in_session(void)
 {
     printf("[BETTERCCICONS] stop\n");
-    uint64_t win = sb_control_center_window();
-    int hits = 0;
-    if (r_is_objc_ptr(win)) betterccicons_scan(win, 12.0, 0, &hits);
+    int hits = sb_cc_restore_owner("betterccicons");
     gBetterCCIconsApplied = false;
-    return true;
+    return hits > 0;
 }
 
 void betterccicons_configure(int cornerRadius)
@@ -81,4 +79,4 @@ void betterccicons_configure(int cornerRadius)
     gBetterCCIconsCornerRadius = cornerRadius;
 }
 
-void betterccicons_forget_remote_state(void) { gBetterCCIconsApplied = false; }
+void betterccicons_forget_remote_state(void) { gBetterCCIconsApplied = false; sb_cc_forget_owner("betterccicons"); }

@@ -17,6 +17,7 @@ typedef struct { double a, b, c, d, tx, ty; } CPTransform;
 static uint64_t gCPViews[CommunityPortCount] = {0};
 static uint64_t gDockIcons[64] = {0}, gDockParents[64] = {0};
 static CPRect gDockFrames[64] = {{0}};
+static uint64_t gDockIndices[64] = {0};
 static int gDockIconCount = 0;
 static uint64_t gFlowViews[128] = {0}, gLastLookViews[256] = {0};
 static int gFlowCount = 0, gLastLookCount = 0;
@@ -71,6 +72,15 @@ static void cp_round(uint64_t view, double radius, double borderWidth, uint64_t 
     uint64_t cg = r_is_objc_ptr(color) ? r_msg2_main(color, "CGColor", 0, 0, 0, 0) : 0;
     if (cg) r_msg2_main(layer, "setBorderColor:", cg, 0, 0, 0);
     r_msg2_main(layer, "setMasksToBounds:", 1, 0, 0, 0);
+}
+
+static void cp_round_owned(const char *owner, uint64_t view, double radius, double borderWidth)
+{
+    uint64_t layer = r_is_objc_ptr(view) ? r_msg2_main(view, "layer", 0, 0, 0, 0) : 0;
+    if (!r_is_objc_ptr(layer)) return;
+    sb_cc_override_bytes(owner, layer, "cornerRadius", "setCornerRadius:", &radius, sizeof(radius));
+    sb_cc_override_bytes(owner, layer, "borderWidth", "setBorderWidth:", &borderWidth, sizeof(borderWidth));
+    sb_cc_override_bool(owner, layer, "masksToBounds", "setMasksToBounds:", true);
 }
 
 static bool cp_class_name(uint64_t obj, char *out, size_t outLen)
@@ -129,11 +139,13 @@ static uint64_t cp_invocation_int(uint64_t target, const char *selectorName, int
 static uint64_t cp_button(uint64_t parent, const char *title, CPRect frame, uint64_t invocation)
 {
     uint64_t button = cp_alloc_view("UIButton", frame);
+    bool ownsButton = r_is_objc_ptr(button);
     if (!r_is_objc_ptr(button)) {
         uint64_t cls = r_class("UIButton");
         button = r_is_objc_ptr(cls) ? r_msg2_main(cls, "buttonWithType:", 0, 0, 0, 0) : 0;
         cp_set_rect(button, frame);
     }
+    if (!r_is_objc_ptr(parent) || !r_is_objc_ptr(button)) return 0;
     uint64_t text = r_nsstr_retained(title ?: "");
     if (r_is_objc_ptr(text)) { r_msg2_main(button, "setTitle:forState:", text, 0, 0, 0); r_msg2_main(text, "release", 0, 0, 0, 0); }
     r_msg2_main(button, "setBackgroundColor:", cp_color(1, 1, 1, 0.12), 0, 0, 0);
@@ -144,12 +156,14 @@ static uint64_t cp_button(uint64_t parent, const char *title, CPRect frame, uint
         if (key) r_dlsym_call(R_TIMEOUT, "objc_setAssociatedObject", button, key, invocation, 1, 0, 0, 0, 0);
     }
     r_msg2_main(parent, "addSubview:", button, 0, 0, 0);
+    if (ownsButton) r_msg2_main(button, "release", 0, 0, 0, 0);
     return button;
 }
 
 static uint64_t cp_label(uint64_t parent, const char *text, CPRect frame, double size)
 {
     uint64_t label = cp_alloc_view("UILabel", frame);
+    if (!r_is_objc_ptr(parent) || !r_is_objc_ptr(label)) return 0;
     uint64_t string = r_nsstr_retained(text ?: "");
     if (r_is_objc_ptr(string)) { r_msg2_main(label, "setText:", string, 0, 0, 0); r_msg2_main(string, "release", 0, 0, 0, 0); }
     uint64_t fontClass = r_class("UIFont");
@@ -157,6 +171,7 @@ static uint64_t cp_label(uint64_t parent, const char *text, CPRect frame, double
     if (r_is_objc_ptr(font)) r_msg2_main(label, "setFont:", font, 0, 0, 0);
     r_msg2_main(label, "setTextColor:", cp_color(1, 1, 1, 0.96), 0, 0, 0);
     r_msg2_main(parent, "addSubview:", label, 0, 0, 0);
+    r_msg2_main(label, "release", 0, 0, 0, 0);
     return label;
 }
 
@@ -176,10 +191,21 @@ static bool cp_apply_scrolling_dock(void)
         if (parent != commonParent) continue;
         int n = gDockIconCount++;
         gDockIcons[n] = icons[i]; gDockParents[n] = parent; gDockFrames[n] = frame;
+        r_msg2_main(parent, "retain", 0, 0, 0, 0);
+        uint64_t siblings = r_msg2_main(parent, "subviews", 0, 0, 0, 0);
+        gDockIndices[n] = r_is_objc_ptr(siblings)
+            ? r_msg2_main(siblings, "indexOfObject:", icons[i], 0, 0, 0) : UINT64_MAX;
     }
-    if (!gDockIconCount || !r_is_objc_ptr(commonParent)) return false;
+    if (!gDockIconCount || !r_is_objc_ptr(commonParent) ||
+        parentBounds.width <= 1.0 || parentBounds.height <= 1.0) {
+        communityports_stop(CommunityPortScrollingDock);
+        return false;
+    }
     uint64_t scroll = cp_alloc_view("UIScrollView", parentBounds);
-    if (!r_is_objc_ptr(scroll)) return false;
+    if (!r_is_objc_ptr(scroll)) {
+        communityports_stop(CommunityPortScrollingDock);
+        return false;
+    }
     r_msg2_main(scroll, "setShowsHorizontalScrollIndicator:", 0, 0, 0, 0);
     r_msg2_main(scroll, "setAlwaysBounceHorizontal:", 1, 0, 0, 0);
     r_msg2_main(scroll, "setClipsToBounds:", 0, 0, 0, 0);
@@ -189,7 +215,8 @@ static bool cp_apply_scrolling_dock(void)
         r_msg2_main(scroll, "addSubview:", gDockIcons[i], 0, 0, 0);
         CPRect f = { step * i + (step - side) * 0.5, (parentBounds.height - side) * 0.5, side, side };
         cp_set_rect(gDockIcons[i], f);
-        r_msg2_main(gDockIcons[i], "setUserInteractionEnabled:", 1, 0, 0, 0);
+        sb_cc_override_bool("community.scrollingdock", gDockIcons[i],
+                            "userInteractionEnabled", "setUserInteractionEnabled:", true);
     }
     CPSize content = { step * gDockIconCount, parentBounds.height };
     r_msg2_main_raw(scroll, "setContentSize:", &content, sizeof(content), NULL, 0, NULL, 0, NULL, 0);
@@ -204,6 +231,7 @@ static bool cp_apply_niubibar(void)
     uint64_t win = cp_window(); CPRect bounds = {0};
     if (!cp_rect(win, "bounds", &bounds)) return false;
     uint64_t bar = cp_alloc_view("UIView", (CPRect){bounds.width * 0.16, bounds.height - 38.0, bounds.width * 0.68, 30.0});
+    if (!r_is_objc_ptr(bar)) return false;
     r_msg2_main(bar, "setBackgroundColor:", cp_color(0.05, 0.05, 0.07, 0.78), 0, 0, 0);
     cp_round(bar, 15.0, (double)gBarThickness / 5.0, cp_color(0.2, 0.7, 1.0, 0.8));
     uint64_t springBoardClass = r_class("SpringBoard");
@@ -229,6 +257,7 @@ static bool cp_apply_volskip(void)
     uint64_t player = r_is_objc_ptr(playerClass) ? r_msg2_main(playerClass, "systemMusicPlayer", 0, 0, 0, 0) : 0;
     uint64_t win = cp_window(); if (!r_is_objc_ptr(player) || !r_is_objc_ptr(win)) return false;
     uint64_t panel = cp_alloc_view("UIView", (CPRect){8, 180, 52, 158});
+    if (!r_is_objc_ptr(panel)) return false;
     r_msg2_main(panel, "setBackgroundColor:", cp_color(0.04, 0.04, 0.06, 0.82), 0, 0, 0);
     cp_round(panel, 18, 1, cp_color(1, 1, 1, 0.2));
     cp_button(panel, "Prev", (CPRect){5, 6, 42, 44}, cp_invocation0(player, "skipToPreviousItem"));
@@ -248,8 +277,9 @@ static bool cp_apply_flow(void)
         char name[160] = {0}; if (!cp_class_name(views[i], name, sizeof(name))) continue;
         if (!strstr(name, "MediaControls") && !strstr(name, "NowPlaying") && !strstr(name, "Artwork")) continue;
         gFlowViews[gFlowCount++] = views[i];
-        if (r_responds_main(views[i], "setTransform:")) r_msg2_main_raw(views[i], "setTransform:", &scale, sizeof(scale), NULL, 0, NULL, 0, NULL, 0);
-        cp_round(views[i], 18.0, 0.0, 0);
+        if (r_responds_main(views[i], "setTransform:"))
+            sb_cc_override_bytes("community.flow", views[i], "transform", "setTransform:", &scale, sizeof(scale));
+        cp_round_owned("community.flow", views[i], 18.0, 0.0);
     }
     if (gFlowLastReported != gFlowCount) {
         log_user("[FLOWLITE][APPLY] scanned=%d styledNowPlayingViews=%d scale=105%% radius=18 artworkAndControls=1.\n", count, gFlowCount);
@@ -271,7 +301,9 @@ static bool cp_apply_app_profiles(void)
     if (strcmp(bundle, gProfileLastBundle) == 0) return true;
     uint64_t screenClass = r_class("UIScreen"), screen = r_is_objc_ptr(screenClass) ? r_msg2_main(screenClass, "mainScreen",0,0,0,0) : 0;
     double brightness = (double)pct / 100.0;
-    if (r_is_objc_ptr(screen)) r_msg2_main_raw(screen, "setBrightness:", &brightness, sizeof(brightness), NULL,0,NULL,0,NULL,0);
+    if (r_is_objc_ptr(screen))
+        sb_cc_override_bytes("community.appprofiles", screen, "brightness", "setBrightness:",
+                             &brightness, sizeof(brightness));
     log_user("[APPPROFILES][APPLY] foreground=%s profileBrightness=%d%% rule=%s.\n", bundle, pct, pct==100?"camera":(pct==92?"maps":"default"));
     strncpy(gProfileLastBundle, bundle, sizeof(gProfileLastBundle)-1);
     return r_is_objc_ptr(screen);
@@ -284,9 +316,13 @@ static bool cp_apply_chargefx(void)
     r_msg2_main(device,"setBatteryMonitoringEnabled:",1,0,0,0);
     uint64_t state=r_msg2_main(device,"batteryState",0,0,0,0);
     if (state == gChargeLastState && r_is_objc_ptr(gCPViews[CommunityPortChargeFX])) return true;
-    if (r_is_objc_ptr(gCPViews[CommunityPortChargeFX])) r_msg2_main(gCPViews[CommunityPortChargeFX],"removeFromSuperview",0,0,0,0);
+    if (r_is_objc_ptr(gCPViews[CommunityPortChargeFX])) {
+        r_msg2_main(gCPViews[CommunityPortChargeFX],"removeFromSuperview",0,0,0,0);
+        r_msg2_main(gCPViews[CommunityPortChargeFX],"release",0,0,0,0);
+    }
+    gCPViews[CommunityPortChargeFX] = 0;
     uint64_t win=cp_window(); CPRect b={0}; if(!cp_rect(win,"bounds",&b)) return false;
-    uint64_t edge=cp_alloc_view("UIView",b); r_msg2_main(edge,"setUserInteractionEnabled:",0,0,0,0);
+    uint64_t edge=cp_alloc_view("UIView",b); if(!r_is_objc_ptr(edge))return false; r_msg2_main(edge,"setUserInteractionEnabled:",0,0,0,0);
     double alpha=(state==2||state==3)?0.95:0.0; uint64_t color=cp_color(0.15,1.0,0.42,alpha);
     cp_round(edge,28.0,(double)gChargeThickness,color); r_msg2_main(win,"addSubview:",edge,0,0,0); gCPViews[CommunityPortChargeFX]=edge;
     log_user("[CHARGEFX][APPLY] batteryState=%llu charging=%d thickness=%d visibleAlpha=%.2f passthrough=1.\n",state,(state==2||state==3),gChargeThickness,alpha);
@@ -299,7 +335,7 @@ static bool cp_apply_rotatepro(void)
     uint64_t deviceClass=r_class("UIDevice"), device=r_is_objc_ptr(deviceClass)?r_msg2_main(deviceClass,"currentDevice",0,0,0,0):0;
     uint64_t inv=cp_invocation_int(device,"setOrientation:",3);
     uint64_t win=cp_window(); if(!r_is_objc_ptr(win)||!r_is_objc_ptr(inv)) return false;
-    uint64_t button=cp_button(win,"Rotate",(CPRect){330,110,54,44},inv); gCPViews[CommunityPortRotatePro]=button;
+    uint64_t button=cp_button(win,"Rotate",(CPRect){330,110,54,44},inv); if(!r_is_objc_ptr(button))return false; r_msg2_main(button,"retain",0,0,0,0); gCPViews[CommunityPortRotatePro]=button;
     log_user("[ROTATEPRO][APPLY] floatingButton=1 requestedOrientation=landscapeRight selectorAvailable=1.\n"); return true;
 }
 
@@ -313,7 +349,7 @@ static bool cp_apply_keepeye(void)
     uint64_t cores=r_is_objc_ptr(process)?r_msg2_main(process,"activeProcessorCount",0,0,0,0):0;
     const char *batteryText=(batteryState==2)?"charging":((batteryState==3)?"full":((batteryState==1)?"battery":"unknown"));
     char text[160]; snprintf(text,sizeof(text),"CPU %llu cores   BAT %s   RC live",cores,batteryText);
-    uint64_t hud=cp_alloc_view("UIView",(CPRect){18,(double)gHUDYOffset,b.width-36,34}); r_msg2_main(hud,"setBackgroundColor:",cp_color(0.03,0.04,0.06,0.82),0,0,0); cp_round(hud,12,0.5,cp_color(0.2,0.7,1,0.5));
+    uint64_t hud=cp_alloc_view("UIView",(CPRect){18,(double)gHUDYOffset,b.width-36,34}); if(!r_is_objc_ptr(hud))return false; r_msg2_main(hud,"setBackgroundColor:",cp_color(0.03,0.04,0.06,0.82),0,0,0); cp_round(hud,12,0.5,cp_color(0.2,0.7,1,0.5));
     cp_label(hud,text,(CPRect){10,5,b.width-56,24},12); r_msg2_main(hud,"setUserInteractionEnabled:",0,0,0,0); r_msg2_main(win,"addSubview:",hud,0,0,0); gCPViews[CommunityPortKeepEye]=hud;
     log_user("[KEEPEYE][APPLY] activeCores=%llu batteryState=%llu(%s) y=%d refresh=visual-loop.\n",cores,batteryState,batteryText,gHUDYOffset); return true;
 }
@@ -322,7 +358,7 @@ static bool cp_apply_lastlook(void)
 {
     uint64_t viewClass=r_class("UIView"), views[1024]={0}; int count=r_is_objc_ptr(viewClass)?sb_collect_views_in_windows(viewClass,views,1024):0;
     gLastLookCount=0; double alpha=(double)gLastLookAlpha/100.0; CPTransform t={0.96,0,0,0.96,0,0};
-    for(int i=0;i<count&&gLastLookCount<256;i++){char name[160]={0};if(!cp_class_name(views[i],name,sizeof(name)))continue;if(!strstr(name,"Notification")&&!strstr(name,"ShortLook")&&!strstr(name,"Platter"))continue;gLastLookViews[gLastLookCount++]=views[i];r_msg2_main_raw(views[i],"setAlpha:",&alpha,sizeof(alpha),NULL,0,NULL,0,NULL,0);if(r_responds_main(views[i],"setTransform:"))r_msg2_main_raw(views[i],"setTransform:",&t,sizeof(t),NULL,0,NULL,0,NULL,0);cp_round(views[i],18,1,cp_color(1,1,1,0.16));}
+    for(int i=0;i<count&&gLastLookCount<256;i++){char name[160]={0};if(!cp_class_name(views[i],name,sizeof(name)))continue;if(!strstr(name,"Notification")&&!strstr(name,"ShortLook")&&!strstr(name,"Platter"))continue;gLastLookViews[gLastLookCount++]=views[i];sb_cc_override_bytes("community.lastlook",views[i],"alpha","setAlpha:",&alpha,sizeof(alpha));if(r_responds_main(views[i],"setTransform:"))sb_cc_override_bytes("community.lastlook",views[i],"transform","setTransform:",&t,sizeof(t));cp_round_owned("community.lastlook",views[i],18,1);}
     if(gLastLookLastReported!=gLastLookCount){log_user("[LASTLOOK][APPLY] scanned=%d notificationViews=%d opacity=%d%% compactScale=96%% oledStyle=1.\n",count,gLastLookCount,gLastLookAlpha);gLastLookLastReported=gLastLookCount;}return gLastLookCount>0;
 }
 
@@ -343,13 +379,56 @@ bool communityports_apply(CommunityPort port)
 
 bool communityports_stop(CommunityPort port)
 {
-    if(port<0||port>=CommunityPortCount)return false;
-    if(port==CommunityPortScrollingDock){for(int i=0;i<gDockIconCount;i++){if(r_is_objc_ptr(gDockIcons[i])&&r_is_objc_ptr(gDockParents[i])){r_msg2_main(gDockParents[i],"addSubview:",gDockIcons[i],0,0,0);cp_set_rect(gDockIcons[i],gDockFrames[i]);}}memset(gDockIcons,0,sizeof(gDockIcons));memset(gDockParents,0,sizeof(gDockParents));memset(gDockFrames,0,sizeof(gDockFrames));gDockIconCount=0;}
-    if(port==CommunityPortFlow){CPTransform id={1,0,0,1,0,0};for(int i=0;i<gFlowCount;i++){if(r_is_objc_ptr(gFlowViews[i])){r_msg2_main_raw(gFlowViews[i],"setTransform:",&id,sizeof(id),NULL,0,NULL,0,NULL,0);cp_round(gFlowViews[i],0,0,0);}}memset(gFlowViews,0,sizeof(gFlowViews));gFlowCount=0;}
-    if(port==CommunityPortLastLook){CPTransform id={1,0,0,1,0,0};double a=1;for(int i=0;i<gLastLookCount;i++){if(r_is_objc_ptr(gLastLookViews[i])){r_msg2_main_raw(gLastLookViews[i],"setAlpha:",&a,sizeof(a),NULL,0,NULL,0,NULL,0);r_msg2_main_raw(gLastLookViews[i],"setTransform:",&id,sizeof(id),NULL,0,NULL,0,NULL,0);cp_round(gLastLookViews[i],0,0,0);}}memset(gLastLookViews,0,sizeof(gLastLookViews));gLastLookCount=0;}
-    if(r_is_objc_ptr(gCPViews[port]))r_msg2_main(gCPViews[port],"removeFromSuperview",0,0,0,0);gCPViews[port]=0;
-    log_user("[COMMUNITYPORTS][STOP] port=%d restored=1 overlayRemoved=1.\n",port);return true;
+    if (port < 0 || port >= CommunityPortCount) return false;
+    int restored = 0;
+    bool overlayRemoved = r_is_objc_ptr(gCPViews[port]);
+
+    if (port == CommunityPortScrollingDock) {
+        for (int i = 0; i < gDockIconCount; i++) {
+            if (!r_is_objc_ptr(gDockIcons[i]) || !r_is_objc_ptr(gDockParents[i])) continue;
+            uint64_t siblings = r_msg2_main(gDockParents[i], "subviews", 0, 0, 0, 0);
+            uint64_t count = r_is_objc_ptr(siblings)
+                ? r_msg2_main(siblings, "count", 0, 0, 0, 0) : 0;
+            uint64_t index = gDockIndices[i] == UINT64_MAX ? count : gDockIndices[i];
+            if (index > count) index = count;
+            if (r_responds_main(gDockParents[i], "insertSubview:atIndex:"))
+                r_msg2_main(gDockParents[i], "insertSubview:atIndex:", gDockIcons[i], index, 0, 0);
+            else
+                r_msg2_main(gDockParents[i], "addSubview:", gDockIcons[i], 0, 0, 0);
+            cp_set_rect(gDockIcons[i], gDockFrames[i]);
+            r_msg2_main(gDockParents[i], "release", 0, 0, 0, 0);
+            restored++;
+        }
+        memset(gDockIcons, 0, sizeof(gDockIcons));
+        memset(gDockParents, 0, sizeof(gDockParents));
+        memset(gDockFrames, 0, sizeof(gDockFrames));
+        memset(gDockIndices, 0, sizeof(gDockIndices));
+        gDockIconCount = 0;
+        restored += sb_cc_restore_owner("community.scrollingdock");
+    }
+    if (port == CommunityPortFlow) {
+        restored += sb_cc_restore_owner("community.flow");
+        memset(gFlowViews, 0, sizeof(gFlowViews));
+        gFlowCount = 0;
+    }
+    if (port == CommunityPortAppProfiles) {
+        restored += sb_cc_restore_owner("community.appprofiles");
+        memset(gProfileLastBundle, 0, sizeof(gProfileLastBundle));
+    }
+    if (port == CommunityPortLastLook) {
+        restored += sb_cc_restore_owner("community.lastlook");
+        memset(gLastLookViews, 0, sizeof(gLastLookViews));
+        gLastLookCount = 0;
+    }
+    if (overlayRemoved) {
+        r_msg2_main(gCPViews[port], "removeFromSuperview", 0, 0, 0, 0);
+        r_msg2_main(gCPViews[port], "release", 0, 0, 0, 0);
+    }
+    gCPViews[port] = 0;
+    log_user("[COMMUNITYPORTS][STOP] port=%d exactOrStructuralRestores=%d overlayRemoved=%d result=clean.\n",
+             port, restored, overlayRemoved);
+    return true;
 }
 
-bool communityports_stop_all(void){for(int i=0;i<CommunityPortCount;i++)communityports_stop((CommunityPort)i);return true;}
-void communityports_forget_remote_state(void){memset(gCPViews,0,sizeof(gCPViews));memset(gDockIcons,0,sizeof(gDockIcons));memset(gDockParents,0,sizeof(gDockParents));memset(gDockFrames,0,sizeof(gDockFrames));memset(gFlowViews,0,sizeof(gFlowViews));memset(gLastLookViews,0,sizeof(gLastLookViews));memset(gProfileLastBundle,0,sizeof(gProfileLastBundle));gDockIconCount=gFlowCount=gLastLookCount=0;gFlowLastReported=gLastLookLastReported=-1;gChargeLastState=UINT64_MAX;}
+bool communityports_stop_all(void){bool ok=true;for(int i=0;i<CommunityPortCount;i++)if(!communityports_stop((CommunityPort)i))ok=false;log_user("[COMMUNITYPORTS][STOP-ALL] ports=%d result=%s.\n",CommunityPortCount,ok?"success":"partial-failure");return ok;}
+void communityports_forget_remote_state(void){sb_cc_forget_owner("community.scrollingdock");sb_cc_forget_owner("community.flow");sb_cc_forget_owner("community.appprofiles");sb_cc_forget_owner("community.lastlook");memset(gCPViews,0,sizeof(gCPViews));memset(gDockIcons,0,sizeof(gDockIcons));memset(gDockParents,0,sizeof(gDockParents));memset(gDockFrames,0,sizeof(gDockFrames));memset(gDockIndices,0,sizeof(gDockIndices));memset(gFlowViews,0,sizeof(gFlowViews));memset(gLastLookViews,0,sizeof(gLastLookViews));memset(gProfileLastBundle,0,sizeof(gProfileLastBundle));gDockIconCount=gFlowCount=gLastLookCount=0;gFlowLastReported=gLastLookLastReported=-1;gChargeLastState=UINT64_MAX;}

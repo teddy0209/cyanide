@@ -1,5 +1,6 @@
 #import "pancake.h"
 #import "../remote_objc.h"
+#import "../sb_walk.h"
 #import "../../TaskRop/RemoteCall.h"
 #import "../../LogTextView.h"
 
@@ -48,12 +49,7 @@ static uint64_t pc_navigation_target_for_controller(uint64_t controller, int dep
 bool pancake_apply_in_session(void)
 {
     printf("[PANCAKE] apply\n");
-    if (r_is_objc_ptr(gPcWindow) && r_is_objc_ptr(gPcGesture)) {
-        r_msg2_main(gPcWindow, "removeGestureRecognizer:", gPcGesture, 0, 0, 0);
-        gPcGesture = 0;
-        gPcWindow = 0;
-        gPcApplied = false;
-    }
+    if (gPcApplied) pancake_stop_in_session();
 
     uint64_t UIApplication = r_class("UIApplication");
     if (!r_is_objc_ptr(UIApplication)) return false;
@@ -87,40 +83,45 @@ bool pancake_apply_in_session(void)
         return false;
     }
 
-    uint64_t UIPanGestureRecognizer = r_class("UIPanGestureRecognizer");
-    if (!r_is_objc_ptr(UIPanGestureRecognizer)) return false;
+    uint64_t gesture = r_responds_main(target, "interactivePopGestureRecognizer")
+        ? r_msg2_main(target, "interactivePopGestureRecognizer", 0, 0, 0, 0) : 0;
+    if (!r_is_objc_ptr(gesture)) {
+        log_user("[PANCAKE][APPLY] failed: navigation target 0x%llx exposes no native interactive-pop recognizer.\n",
+                 target);
+        return false;
+    }
 
-    uint64_t panGesture = r_msg2_main(UIPanGestureRecognizer, "alloc", 0, 0, 0, 0);
-    if (!r_is_objc_ptr(panGesture)) return false;
-    panGesture = r_msg2_main(panGesture, "init", 0, 0, 0, 0);
-    if (!r_is_objc_ptr(panGesture)) return false;
-    r_msg2_main(panGesture, "setMinimumNumberOfTouches:", (uint64_t)gPcMinimumTouches, 0, 0, 0);
-    r_msg2_main(panGesture, "setMaximumNumberOfTouches:", (uint64_t)gPcMaximumTouches, 0, 0, 0);
-    r_msg2_main(panGesture, "setCancelsTouchesInView:", gPcCancelsTouches ? 1 : 0, 0, 0, 0);
+    int changed = 0;
+    changed += sb_cc_override_bool("pancake", gesture, "isEnabled", "setEnabled:", true) ? 1 : 0;
+    changed += sb_cc_override_bool("pancake", gesture, "cancelsTouchesInView",
+                                   "setCancelsTouchesInView:", gPcCancelsTouches) ? 1 : 0;
+    uint64_t minimum = (uint64_t)gPcMinimumTouches;
+    uint64_t maximum = (uint64_t)gPcMaximumTouches;
+    if (r_responds_main(gesture, "minimumNumberOfTouches") &&
+        r_responds_main(gesture, "setMinimumNumberOfTouches:"))
+        changed += sb_cc_override_bytes("pancake", gesture, "minimumNumberOfTouches",
+                                        "setMinimumNumberOfTouches:", &minimum, sizeof(minimum)) ? 1 : 0;
+    if (r_responds_main(gesture, "maximumNumberOfTouches") &&
+        r_responds_main(gesture, "setMaximumNumberOfTouches:"))
+        changed += sb_cc_override_bytes("pancake", gesture, "maximumNumberOfTouches",
+                                        "setMaximumNumberOfTouches:", &maximum, sizeof(maximum)) ? 1 : 0;
 
-    uint64_t backSel = r_sel("popViewControllerAnimated:");
-    if (!backSel) return false;
-
-    r_msg2_main(panGesture, "addTarget:action:", target, backSel, 0, 0);
-
-    r_msg2_main(keyWindow, "addGestureRecognizer:", panGesture, 0, 0, 0);
-    gPcGesture = panGesture;
+    gPcGesture = gesture;
     gPcWindow = keyWindow;
-    printf("[PANCAKE] added pan gesture to keyWindow 0x%llx target=0x%llx\n", keyWindow, target);
-
-    gPcApplied = true;
-    return true;
+    gPcApplied = changed > 0;
+    log_user("[PANCAKE][APPLY] nativeInteractivePop=1 gesture=0x%llx minimumTouches=%d maximumTouches=%d cancelsTouches=%d exactProperties=%d.\n",
+             gesture, gPcMinimumTouches, gPcMaximumTouches, gPcCancelsTouches, changed);
+    return gPcApplied;
 }
 
 bool pancake_stop_in_session(void)
 {
     printf("[PANCAKE] stop\n");
-    if (r_is_objc_ptr(gPcWindow) && r_is_objc_ptr(gPcGesture)) {
-        r_msg2_main(gPcWindow, "removeGestureRecognizer:", gPcGesture, 0, 0, 0);
-    }
+    int restored = sb_cc_restore_owner("pancake");
     gPcGesture = 0;
     gPcWindow = 0;
     gPcApplied = false;
+    log_user("[PANCAKE][STOP] nativeGestureKept=1 exactPropertiesRestored=%d.\n", restored);
     return true;
 }
 
@@ -140,4 +141,5 @@ void pancake_forget_remote_state(void)
     gPcGesture = 0;
     gPcWindow = 0;
     gPcApplied = false;
+    sb_cc_forget_owner("pancake");
 }

@@ -93,6 +93,7 @@ static void snapper_add_handle(uint64_t parent, double x, double y)
         r_msg2_main(layer, "setMasksToBounds:", 1, 0, 0, 0);
     }
     r_msg2_main(parent, "addSubview:", handle, 0, 0, 0);
+    r_msg2_main(handle, "release", 0, 0, 0, 0);
 }
 
 bool snapper_apply_in_session(void)
@@ -100,6 +101,7 @@ bool snapper_apply_in_session(void)
     printf("[SNAPPER] apply\n");
     if (r_is_objc_ptr(gSnapperView)) {
         r_msg2_main(gSnapperView, "removeFromSuperview", 0, 0, 0, 0);
+        r_msg2_main(gSnapperView, "release", 0, 0, 0, 0);
         gSnapperView = 0;
     }
     uint64_t win = sb_frontmost_window();
@@ -129,7 +131,10 @@ bool snapper_apply_in_session(void)
     snapper_add_handle(frame, -7.0, (double)gSnapperHeight - 7.0);
     snapper_add_handle(frame, (double)gSnapperWidth - 7.0, (double)gSnapperHeight - 7.0);
     uint64_t label = snapper_alloc_label("Snap");
-    if (r_is_objc_ptr(label)) r_msg2_main(frame, "addSubview:", label, 0, 0, 0);
+    if (r_is_objc_ptr(label)) {
+        r_msg2_main(frame, "addSubview:", label, 0, 0, 0);
+        r_msg2_main(label, "release", 0, 0, 0, 0);
+    }
     r_msg2_main(win, "addSubview:", frame, 0, 0, 0);
     gSnapperView = frame;
     log_user("[SNAPPER][APPLY] selection=%d,%d %dx%d border=%d radius=%d existingPins=%d result=ready-to-capture.\n",
@@ -196,6 +201,7 @@ bool snapper_clear_pins_in_session(void)
     for (int i = 0; i < gSnapperPinCount; i++) {
         if (!r_is_objc_ptr(gSnapperPins[i])) continue;
         r_msg2_main(gSnapperPins[i], "removeFromSuperview", 0, 0, 0, 0);
+        r_msg2_main(gSnapperPins[i], "release", 0, 0, 0, 0);
         cleared++;
     }
     memset(gSnapperPins, 0, sizeof(gSnapperPins));
@@ -207,7 +213,10 @@ bool snapper_clear_pins_in_session(void)
 bool snapper_stop_in_session(void)
 {
     printf("[SNAPPER] stop\n");
-    if (r_is_objc_ptr(gSnapperView)) r_msg2_main(gSnapperView, "removeFromSuperview", 0, 0, 0, 0);
+    if (r_is_objc_ptr(gSnapperView)) {
+        r_msg2_main(gSnapperView, "removeFromSuperview", 0, 0, 0, 0);
+        r_msg2_main(gSnapperView, "release", 0, 0, 0, 0);
+    }
     gSnapperView = 0;
     snapper_clear_pins_in_session();
     log_user("[SNAPPER][STOP] selection and pinned snapshot views removed.\n");

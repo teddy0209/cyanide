@@ -17,6 +17,7 @@ typedef struct {
 static uint64_t gPullOverView = 0;
 static uint64_t gPullOverIcons[4] = {0};
 static uint64_t gPullOverIconParents[4] = {0};
+static uint64_t gPullOverIconIndices[4] = {0};
 static PullOverRect gPullOverIconFrames[4] = {{0}};
 static int gPullOverIconCount = 0;
 static int gPullOverWidth = 76;
@@ -107,6 +108,7 @@ static void pullover_add_grabber(uint64_t tray, double trayWidth)
         r_msg2_main(layer, "setMasksToBounds:", 1, 0, 0, 0);
     }
     r_msg2_main(tray, "addSubview:", grabber, 0, 0, 0);
+    r_msg2_main(grabber, "release", 0, 0, 0, 0);
 }
 
 static void pullover_restore_icons(void)
@@ -114,17 +116,28 @@ static void pullover_restore_icons(void)
     int restored = 0;
     for (int i = 0; i < gPullOverIconCount; i++) {
         if (!r_is_objc_ptr(gPullOverIcons[i]) || !r_is_objc_ptr(gPullOverIconParents[i])) continue;
-        r_msg2_main(gPullOverIconParents[i], "addSubview:", gPullOverIcons[i], 0, 0, 0);
+        uint64_t siblings = r_msg2_main(gPullOverIconParents[i], "subviews", 0, 0, 0, 0);
+        uint64_t count = r_is_objc_ptr(siblings) ? r_msg2_main(siblings, "count", 0, 0, 0, 0) : 0;
+        uint64_t index = gPullOverIconIndices[i] == UINT64_MAX ? count : gPullOverIconIndices[i];
+        if (index > count) index = count;
+        if (r_responds_main(gPullOverIconParents[i], "insertSubview:atIndex:"))
+            r_msg2_main(gPullOverIconParents[i], "insertSubview:atIndex:", gPullOverIcons[i], index, 0, 0);
+        else
+            r_msg2_main(gPullOverIconParents[i], "addSubview:", gPullOverIcons[i], 0, 0, 0);
         r_msg2_main_raw(gPullOverIcons[i], "setFrame:", &gPullOverIconFrames[i], sizeof(PullOverRect),
                         NULL, 0, NULL, 0, NULL, 0);
-        r_msg2_main(gPullOverIcons[i], "setUserInteractionEnabled:", 1, 0, 0, 0);
+        r_msg2_main(gPullOverIconParents[i], "release", 0, 0, 0, 0);
         restored++;
     }
+    int interactionRestored = sb_cc_restore_owner("pullover");
     memset(gPullOverIcons, 0, sizeof(gPullOverIcons));
     memset(gPullOverIconParents, 0, sizeof(gPullOverIconParents));
     memset(gPullOverIconFrames, 0, sizeof(gPullOverIconFrames));
+    memset(gPullOverIconIndices, 0, sizeof(gPullOverIconIndices));
     gPullOverIconCount = 0;
-    if (restored) log_user("[PULLOVER][RESTORE] returned %d live icon(s) to their original lists and frames.\n", restored);
+    if (restored || interactionRestored)
+        log_user("[PULLOVER][RESTORE] returned=%d exactInteractionStates=%d originalListsFramesAndSiblingOrder=1.\n",
+                 restored, interactionRestored);
 }
 
 static void pullover_add_icon_slot(uint64_t tray, double x, double y, double side)
@@ -140,6 +153,7 @@ static void pullover_add_icon_slot(uint64_t tray, double x, double y, double sid
         r_msg2_main(layer, "setMasksToBounds:", 1, 0, 0, 0);
     }
     r_msg2_main(tray, "addSubview:", slot, 0, 0, 0);
+    r_msg2_main(slot, "release", 0, 0, 0, 0);
 }
 
 static bool pullover_is_excluded_icon(uint64_t view)
@@ -186,12 +200,17 @@ static int pullover_attach_live_icons(uint64_t tray, double trayWidth, double tr
         int slot = gPullOverIconCount++;
         gPullOverIcons[slot] = icon;
         gPullOverIconParents[slot] = parent;
+        r_msg2_main(parent, "retain", 0, 0, 0, 0);
         gPullOverIconFrames[slot] = frame;
+        uint64_t siblings = r_msg2_main(parent, "subviews", 0, 0, 0, 0);
+        gPullOverIconIndices[slot] = r_is_objc_ptr(siblings)
+            ? r_msg2_main(siblings, "indexOfObject:", icon, 0, 0, 0) : UINT64_MAX;
         r_msg2_main(tray, "addSubview:", icon, 0, 0, 0);
         PullOverRect trayFrame = { (trayWidth - side) * 0.5, y, side, side };
         r_msg2_main_raw(icon, "setFrame:", &trayFrame, sizeof(trayFrame),
                         NULL, 0, NULL, 0, NULL, 0);
-        r_msg2_main(icon, "setUserInteractionEnabled:", 1, 0, 0, 0);
+        sb_cc_override_bool("pullover", icon, "userInteractionEnabled",
+                            "setUserInteractionEnabled:", true);
         y += side + 14.0;
     }
     log_user("[PULLOVER][ICONS] discovered=%d attached=%d capacity=4 tapsPreserved=1.\n",
@@ -205,6 +224,7 @@ bool pullover_apply_in_session(void)
     if (r_is_objc_ptr(gPullOverView)) {
         pullover_restore_icons();
         r_msg2_main(gPullOverView, "removeFromSuperview", 0, 0, 0, 0);
+        r_msg2_main(gPullOverView, "release", 0, 0, 0, 0);
         gPullOverView = 0;
     }
     uint64_t win = sb_frontmost_window();
@@ -236,7 +256,10 @@ bool pullover_apply_in_session(void)
         pullover_add_icon_slot(tray, ((double)gPullOverWidth - iconSide) / 2.0, 88.0, iconSide);
         pullover_add_icon_slot(tray, ((double)gPullOverWidth - iconSide) / 2.0, 156.0, iconSide);
         uint64_t label = pullover_alloc_label();
-        if (r_is_objc_ptr(label)) r_msg2_main(tray, "addSubview:", label, 0, 0, 0);
+        if (r_is_objc_ptr(label)) {
+            r_msg2_main(tray, "addSubview:", label, 0, 0, 0);
+            r_msg2_main(label, "release", 0, 0, 0, 0);
+        }
     }
     gPullOverView = tray;
     log_user("[PULLOVER][APPLY] frameX=%.1f y=%d width=%d height=%.1f radius=%d alpha=%d%% liveIcons=%d result=%s.\n",
@@ -251,7 +274,10 @@ bool pullover_stop_in_session(void)
 {
     printf("[PULLOVER] stop\n");
     pullover_restore_icons();
-    if (r_is_objc_ptr(gPullOverView)) r_msg2_main(gPullOverView, "removeFromSuperview", 0, 0, 0, 0);
+    if (r_is_objc_ptr(gPullOverView)) {
+        r_msg2_main(gPullOverView, "removeFromSuperview", 0, 0, 0, 0);
+        r_msg2_main(gPullOverView, "release", 0, 0, 0, 0);
+    }
     gPullOverView = 0;
     log_user("[PULLOVER][STOP] tray removed and all borrowed live icons restored.\n");
     return true;
@@ -277,5 +303,7 @@ void pullover_forget_remote_state(void)
     memset(gPullOverIcons, 0, sizeof(gPullOverIcons));
     memset(gPullOverIconParents, 0, sizeof(gPullOverIconParents));
     memset(gPullOverIconFrames, 0, sizeof(gPullOverIconFrames));
+    memset(gPullOverIconIndices, 0, sizeof(gPullOverIconIndices));
     gPullOverIconCount = 0;
+    sb_cc_forget_owner("pullover");
 }

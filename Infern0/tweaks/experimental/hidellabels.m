@@ -1,5 +1,6 @@
 #import "hidellabels.h"
 #import "../remote_objc.h"
+#import "../sb_walk.h"
 #import "../../TaskRop/RemoteCall.h"
 #import "../../LogTextView.h"
 
@@ -7,6 +8,7 @@
 #import <math.h>
 
 static bool gHllApplied = false;
+static int gHllChanged = 0;
 
 static void hll_scan_icon_views(uint64_t parent, int depth)
 {
@@ -45,8 +47,8 @@ static void hll_scan_icon_views(uint64_t parent, int depth)
                 uint64_t isLabel = r_msg2_main(sv, "isKindOfClass:", UILabel, 0, 0, 0);
                 if (isLabel & 0xff) {
                     double zero = 0.0;
-                    r_msg2_main_raw(sv, "setAlpha:", &zero, sizeof(zero), NULL, 0, NULL, 0, NULL, 0);
-                    printf("[HLL] hid label 0x%llx\n", sv);
+                    if (sb_cc_override_bytes("hidellabels", sv, "alpha", "setAlpha:",
+                                             &zero, sizeof(zero))) gHllChanged++;
                 }
             }
         }
@@ -58,6 +60,7 @@ static void hll_scan_icon_views(uint64_t parent, int depth)
 bool hidellabels_apply_in_session(void)
 {
     printf("[HLL] apply\n");
+    gHllChanged = 0;
 
     uint64_t UIApplication = r_class("UIApplication");
     if (!r_is_objc_ptr(UIApplication)) return false;
@@ -94,18 +97,24 @@ bool hidellabels_apply_in_session(void)
         }
     }
 
-    gHllApplied = true;
-    return true;
+    gHllApplied = gHllChanged > 0;
+    log_user("[HIDELABELS][APPLY] hiddenLabels=%d result=%s.\n",
+             gHllChanged, gHllApplied ? "active" : "no-labels-found");
+    return gHllApplied;
 }
 
 bool hidellabels_stop_in_session(void)
 {
     printf("[HLL] stop\n");
+    int restored = sb_cc_restore_owner("hidellabels");
     gHllApplied = false;
-    return true;
+    log_user("[HIDELABELS][RESTORE] exactProperties=%d.\n", restored);
+    return restored > 0;
 }
 
 void hidellabels_forget_remote_state(void)
 {
     gHllApplied = false;
+    gHllChanged = 0;
+    sb_cc_forget_owner("hidellabels");
 }

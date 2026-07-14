@@ -1,5 +1,6 @@
 #import "cleanhomescreen.h"
 #import "../remote_objc.h"
+#import "../sb_walk.h"
 #import "../../TaskRop/RemoteCall.h"
 #import "../../LogTextView.h"
 
@@ -10,11 +11,12 @@ static bool gChsApplied = false;
 static bool gChsBadgeHidden = false;
 static bool gChsDotHidden = false;
 static bool gChsLabelHidden = false;
+static int gChsChanged = 0;
 
-static void chs_set_alpha(uint64_t view, double alpha)
+static bool chs_set_alpha(uint64_t view, double alpha)
 {
-    if (!r_is_objc_ptr(view)) return;
-    r_msg2_main_raw(view, "setAlpha:", &alpha, sizeof(alpha), NULL, 0, NULL, 0, NULL, 0);
+    return r_is_objc_ptr(view) &&
+        sb_cc_override_bytes("cleanhomescreen", view, "alpha", "setAlpha:", &alpha, sizeof(alpha));
 }
 
 static void chs_scan_views(uint64_t parent, int depth)
@@ -44,19 +46,16 @@ static void chs_scan_views(uint64_t parent, int depth)
         }
 
         if (strstr(cls, "Badge") && !strstr(cls, "Label")) {
-            chs_set_alpha(sv, gChsBadgeHidden ? 0.0 : 1.0);
-            printf("[CHS] hid badge: 0x%llx\n", sv);
+            if (gChsBadgeHidden && chs_set_alpha(sv, 0.0)) gChsChanged++;
         }
 
         if (strstr(cls, "PageControl") || strstr(cls, "PageDot") ||
             strstr(cls, "PageIndicator")) {
-            r_msg2_main(sv, "setHidden:", gChsDotHidden ? 1 : 0, 0, 0, 0);
-            printf("[CHS] hid page dot: 0x%llx\n", sv);
+            if (gChsDotHidden && sb_cc_override_bool("cleanhomescreen", sv, "isHidden", "setHidden:", true)) gChsChanged++;
         }
 
         if (strstr(cls, "Label") || strstr(cls, "label")) {
-            chs_set_alpha(sv, gChsLabelHidden ? 0.0 : 1.0);
-            printf("[CHS] hid label: 0x%llx\n", sv);
+            if (gChsLabelHidden && chs_set_alpha(sv, 0.0)) gChsChanged++;
         }
 
         chs_scan_views(sv, depth + 1);
@@ -70,6 +69,8 @@ bool cleanhomescreen_apply_in_session(bool hideBadges, bool hidePageDots, bool h
     gChsBadgeHidden = hideBadges;
     gChsDotHidden = hidePageDots;
     gChsLabelHidden = hideLabels;
+    sb_cc_restore_owner("cleanhomescreen");
+    gChsChanged = 0;
 
     uint64_t UIApplication = r_class("UIApplication");
     if (!r_is_objc_ptr(UIApplication)) return false;
@@ -109,22 +110,25 @@ bool cleanhomescreen_apply_in_session(bool hideBadges, bool hidePageDots, bool h
         }
     }
 
-    gChsApplied = true;
-    return true;
+    gChsApplied = gChsChanged > 0;
+    log_user("[CLEANHOMESCREEN][APPLY] exactOverrides=%d hideBadges=%d hideDots=%d hideLabels=%d result=%s.\n",
+             gChsChanged, hideBadges, hidePageDots, hideLabels,
+             gChsApplied ? "active" : "nothing-requested-or-found");
+    return gChsApplied;
 }
 
 bool cleanhomescreen_stop_in_session(void)
 {
     printf("[CHS] stop\n");
-    gChsBadgeHidden = false;
-    gChsDotHidden = false;
-    gChsLabelHidden = false;
-    cleanhomescreen_apply_in_session(false, false, false);
+    int restored = sb_cc_restore_owner("cleanhomescreen");
     gChsApplied = false;
-    return true;
+    log_user("[CLEANHOMESCREEN][RESTORE] exactProperties=%d.\n", restored);
+    return restored > 0;
 }
 
 void cleanhomescreen_forget_remote_state(void)
 {
     gChsApplied = false;
+    gChsChanged = 0;
+    sb_cc_forget_owner("cleanhomescreen");
 }

@@ -27,12 +27,74 @@ static NSString * const kRepoTweaksHideHomeBarMaterialKitAssets =
 
 static NSMutableDictionary<NSString *, JSContext *> *g_repo_contexts = nil;
 static NSMutableDictionary<NSString *, NSMutableDictionary<NSNumber *, id> *> *g_repo_timers_registry = nil;
+static NSMutableDictionary<NSString *, NSMutableSet<NSNumber *> *> *g_repo_allocated_objects_registry = nil;
+static NSMutableDictionary<NSString *, NSMutableSet<NSNumber *> *> *g_repo_owned_views_registry = nil;
 static int g_repo_timer_id_counter = 0;
 static int g_repo_shutting_down = 0;
 static char g_repo_queue_key;
 static pthread_mutex_t g_repo_queue_lock = PTHREAD_MUTEX_INITIALIZER;
 static dispatch_queue_t g_repo_queue = nil;
 static uint64_t g_repo_generation = 1;
+
+static BOOL repotweaks_selector_requires_main(NSString *selector) {
+    if (![selector isKindOfClass:NSString.class]) return NO;
+    static NSArray<NSString *> *exact;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        exact = @[@"addSubview:", @"bringSubviewToFront:", @"sendSubviewToBack:",
+                  @"addSublayer:", @"removeFromSuperlayer", @"removeAllAnimations",
+                  @"removeFromSuperview", @"setFrame:", @"setBounds:", @"setCenter:",
+                  @"setTransform:", @"setAlpha:", @"setHidden:", @"setText:",
+                  @"setTextColor:", @"setBackgroundColor:", @"setImage:",
+                  @"setNeedsLayout", @"layoutIfNeeded", @"setNeedsDisplay"];
+    });
+    if ([exact containsObject:selector] || [selector isEqualToString:@"alloc"] ||
+        [selector isEqualToString:@"new"] || [selector hasPrefix:@"init"]) return YES;
+    return [selector hasPrefix:@"set"] || [selector hasPrefix:@"insertSubview:"] ||
+           [selector hasPrefix:@"insertSublayer:"] || [selector hasPrefix:@"addAnimation:"] ||
+           [selector hasPrefix:@"removeAnimation"];
+}
+
+static void repotweaks_track_remote_call(NSString *tweakID, uint64_t target,
+                                         NSString *selector, uint64_t firstArg, uint64_t result) {
+    NSMutableSet<NSNumber *> *allocated = g_repo_allocated_objects_registry[tweakID];
+    NSMutableSet<NSNumber *> *owned = g_repo_owned_views_registry[tweakID];
+    if (!allocated) {
+        allocated = [NSMutableSet set];
+        g_repo_allocated_objects_registry[tweakID] = allocated;
+    }
+    if (!owned) {
+        owned = [NSMutableSet set];
+        g_repo_owned_views_registry[tweakID] = owned;
+    }
+    if (([selector isEqualToString:@"alloc"] || [selector isEqualToString:@"new"]) && result) {
+        [allocated addObject:@(result)];
+    } else if ([selector hasPrefix:@"init"] && [allocated containsObject:@(target)] && result) {
+        [allocated addObject:@(result)];
+    }
+    if (([selector isEqualToString:@"addSubview:"] || [selector hasPrefix:@"insertSubview:"]) &&
+        firstArg && [allocated containsObject:@(firstArg)]) {
+        [owned addObject:@(firstArg)];
+    } else if ([selector isEqualToString:@"removeFromSuperview"] && target) {
+        [owned removeObject:@(target)];
+    }
+}
+
+static void repotweaks_remove_owned_views_locked(NSString *tweakID, const char *reason) {
+    NSMutableSet<NSNumber *> *owned = g_repo_owned_views_registry[tweakID];
+    NSArray<NSNumber *> *views = [owned.allObjects copy] ?: @[];
+    for (NSNumber *pointer in [views reverseObjectEnumerator]) {
+        uint64_t view = pointer.unsignedLongLongValue;
+        if (view) r_msg2_main(view, "removeFromSuperview", 0, 0, 0, 0);
+    }
+    if (views.count > 0) {
+        log_user("[RepoTweaks][OVERLAY][%s] Removed %lu script-owned view%s during %s.\n",
+                 tweakID.UTF8String, (unsigned long)views.count,
+                 views.count == 1 ? "" : "s", reason ?: "cleanup");
+    }
+    [g_repo_owned_views_registry removeObjectForKey:tweakID];
+    [g_repo_allocated_objects_registry removeObjectForKey:tweakID];
+}
 
 static dispatch_queue_t repotweaks_create_js_queue_locked(void) {
     NSString *label = [NSString stringWithFormat:@"com.zeroxjf.cyanide.repotweaks.js.%llu",
@@ -93,6 +155,8 @@ static BOOL repotweaks_generation_is_active(uint64_t generation) {
 }
 
 static void repotweaks_abandon_js_queue_after_timeout(const char *reason, BOOL shuttingDown) {
+    NSDictionary<NSString *, NSSet<NSNumber *> *> *orphanedViews =
+        [g_repo_owned_views_registry copy] ?: @{};
     pthread_mutex_lock(&g_repo_queue_lock);
     g_repo_generation++;
     if (g_repo_generation == 0) g_repo_generation = 1;
@@ -100,9 +164,20 @@ static void repotweaks_abandon_js_queue_after_timeout(const char *reason, BOOL s
     g_repo_queue = repotweaks_create_js_queue_locked();
     g_repo_contexts = nil;
     g_repo_timers_registry = nil;
+    g_repo_allocated_objects_registry = nil;
+    g_repo_owned_views_registry = nil;
     pthread_mutex_unlock(&g_repo_queue_lock);
+    NSUInteger removed = 0;
+    for (NSSet<NSNumber *> *views in orphanedViews.allValues) {
+        for (NSNumber *pointer in views) {
+            uint64_t view = pointer.unsignedLongLongValue;
+            if (view) { r_msg2_main(view, "removeFromSuperview", 0, 0, 0, 0); removed++; }
+        }
+    }
     log_user("[RepoTweaks] Abandoned wedged JS queue after %s; future runs will use a fresh queue.\n",
              reason ? reason : "timeout");
+    log_user("[RepoTweaks][OVERLAY] Reclaimed %lu view%s from the abandoned generation.\n",
+             (unsigned long)removed, removed == 1 ? "" : "s");
 }
 
 static bool repotweaks_perform_sync_timeout(dispatch_block_t block, int64_t timeoutNsec) {
@@ -508,6 +583,7 @@ static void repotweaks_cancel_tweak_locked(NSString *tweakID) {
         dispatch_source_cancel((dispatch_source_t)timerSource);
     }
     [timers removeAllObjects];
+    repotweaks_remove_owned_views_locked(tweakID, "cleanup");
     [g_repo_timers_registry removeObjectForKey:tweakID];
     [g_repo_contexts removeObjectForKey:tweakID];
 }
@@ -541,6 +617,8 @@ bool repotweaks_run_isolated_js(NSString *tweakID, NSString *tweakName, NSString
         if (!repotweaks_generation_is_current(runGeneration)) return;
         if (!g_repo_contexts) g_repo_contexts = [NSMutableDictionary dictionary];
         if (!g_repo_timers_registry) g_repo_timers_registry = [NSMutableDictionary dictionary];
+        if (!g_repo_allocated_objects_registry) g_repo_allocated_objects_registry = [NSMutableDictionary dictionary];
+        if (!g_repo_owned_views_registry) g_repo_owned_views_registry = [NSMutableDictionary dictionary];
 
         repotweaks_cancel_tweak_locked(safeID);
         NSMutableDictionary<NSNumber *, id> *tweakTimers = [NSMutableDictionary dictionary];
@@ -685,7 +763,11 @@ bool repotweaks_run_isolated_js(NSString *tweakID, NSString *tweakName, NSString
             uint64_t a3 = args.count > 4 ? repo_js_to_uint64(args[4]) : 0;
             uint64_t a4 = args.count > 5 ? repo_js_to_uint64(args[5]) : 0;
 
-            uint64_t res = r_msg2(target, [selector UTF8String], a1, a2, a3, a4);
+            BOOL onMain = repotweaks_selector_requires_main(selector);
+            uint64_t res = onMain
+                ? r_msg2_main(target, [selector UTF8String], a1, a2, a3, a4)
+                : r_msg2(target, [selector UTF8String], a1, a2, a3, a4);
+            repotweaks_track_remote_call(safeID, target, selector, a1, res);
             return repo_uint64_to_js(res);
         };
 
@@ -702,7 +784,32 @@ bool repotweaks_run_isolated_js(NSString *tweakID, NSString *tweakName, NSString
             uint64_t a4 = args.count > 5 ? repo_js_to_uint64(args[5]) : 0;
 
             uint64_t res = r_msg2_main(target, [selector UTF8String], a1, a2, a3, a4);
+            repotweaks_track_remote_call(safeID, target, selector, a1, res);
             return repo_uint64_to_js(res);
+        };
+
+        context[@"r_overlay_claim"] = ^NSNumber*(JSValue *viewValue) {
+            uint64_t view = repo_js_to_uint64(viewValue);
+            if (!view || !repotweaks_generation_is_active(runGeneration)) return @(NO);
+            NSMutableSet<NSNumber *> *owned = g_repo_owned_views_registry[safeID];
+            if (!owned) {
+                owned = [NSMutableSet set];
+                g_repo_owned_views_registry[safeID] = owned;
+            }
+            [owned addObject:@(view)];
+            log_user("[RepoTweaks][OVERLAY][%s] Claimed remote view 0x%llx.\n",
+                     safeName.UTF8String, (unsigned long long)view);
+            return @(YES);
+        };
+
+        context[@"r_overlay_release"] = ^NSNumber*(JSValue *viewValue) {
+            uint64_t view = repo_js_to_uint64(viewValue);
+            if (!view || !repotweaks_generation_is_active(runGeneration)) return @(NO);
+            r_msg2_main(view, "removeFromSuperview", 0, 0, 0, 0);
+            [g_repo_owned_views_registry[safeID] removeObject:@(view)];
+            log_user("[RepoTweaks][OVERLAY][%s] Released remote view 0x%llx.\n",
+                     safeName.UTF8String, (unsigned long long)view);
+            return @(YES);
         };
 
         context[@"r_nsstr"] = ^NSString*(NSString *str) {
@@ -1011,13 +1118,18 @@ bool repotweaks_stop_in_session(void) {
     bool stopped = repotweaks_perform_sync_timeout(^{
         if (!repotweaks_generation_is_current(stopGeneration)) return;
         log_user("[RepoTweaks] Safe stop: stopping timers.\n");
-        if (g_repo_timers_registry) {
-            for (NSString *tweakID in [g_repo_timers_registry allKeys]) {
+        NSMutableSet<NSString *> *activeTweaks = [NSMutableSet setWithArray:g_repo_timers_registry.allKeys ?: @[]];
+        [activeTweaks addObjectsFromArray:g_repo_contexts.allKeys ?: @[]];
+        [activeTweaks addObjectsFromArray:g_repo_owned_views_registry.allKeys ?: @[]];
+        if (activeTweaks.count > 0) {
+            for (NSString *tweakID in activeTweaks) {
                 repotweaks_cancel_tweak_locked(tweakID);
             }
-            [g_repo_timers_registry removeAllObjects];
         }
+        [g_repo_timers_registry removeAllObjects];
         [g_repo_contexts removeAllObjects];
+        [g_repo_allocated_objects_registry removeAllObjects];
+        [g_repo_owned_views_registry removeAllObjects];
     }, 2 * NSEC_PER_SEC);
 
     if (!stopped) {

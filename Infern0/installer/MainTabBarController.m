@@ -9,6 +9,7 @@
 #import "PackageQueue.h"
 #import "HomeViewController.h"
 #import "SourcesViewController.h"
+#import "CYIconBadge.h"
 #import "../SettingsViewController.h"
 #import "../tweaks/RepoTweaks.h"
 
@@ -18,7 +19,7 @@ static const CGFloat kPopupPadding = 2.0;
 static const NSTimeInterval kSourcesRefreshInterval = 3 * 60 * 60; // 3 hours
 static NSString * const kSourcesLastRefreshKey = @"RepoTweaksLastRefreshTimestamp";
 
-@interface MainTabBarController ()
+@interface MainTabBarController () <UITabBarControllerDelegate>
 @property (nonatomic, strong) QueuePopupBar *popupBar;
 @property (nonatomic, copy) NSArray<NSLayoutConstraint *> *popupBarConstraints;
 @property (nonatomic, strong) NSTimer *sourcesRefreshTimer;
@@ -30,6 +31,12 @@ static NSString * const kSourcesLastRefreshKey = @"RepoTweaksLastRefreshTimestam
 - (void)viewDidLoad
 {
     [super viewDidLoad];
+    self.delegate = self;
+
+    self.view.tintColor = CYAccentColor();
+    self.tabBar.tintColor = CYAccentColor();
+    self.tabBar.unselectedItemTintColor = UIColor.secondaryLabelColor;
+    CYApplyTabBarStyle(self.tabBar);
 
     [self installPackagesAndSourcesTabsIfNeeded];
 
@@ -63,6 +70,13 @@ static NSString * const kSourcesLastRefreshKey = @"RepoTweaksLastRefreshTimestam
                                                               repeats:YES];
 }
 
+- (void)tabBarController:(UITabBarController *)tabBarController didSelectViewController:(UIViewController *)viewController
+{
+    (void)tabBarController;
+    (void)viewController;
+    CYSelectionHaptic();
+}
+
 - (void)installPackagesAndSourcesTabsIfNeeded
 {
     NSMutableArray<UIViewController *> *controllers = [self.viewControllers mutableCopy];
@@ -86,7 +100,6 @@ static NSString * const kSourcesLastRefreshKey = @"RepoTweaksLastRefreshTimestam
     if (!hasHome) {
         HomeViewController *home = [[HomeViewController alloc] init];
         UINavigationController *homeNav = [[UINavigationController alloc] initWithRootViewController:home];
-        homeNav.navigationBar.barStyle = UIBarStyleBlack;
         homeNav.tabBarItem = [[UITabBarItem alloc] initWithTitle:@"Home"
                                                            image:[UIImage systemImageNamed:@"house.fill"]
                                                              tag:0];
@@ -101,7 +114,6 @@ static NSString * const kSourcesLastRefreshKey = @"RepoTweaksLastRefreshTimestam
     if (!hasSources) {
         SourcesViewController *sources = [[SourcesViewController alloc] initWithStyle:UITableViewStyleInsetGrouped];
         UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:sources];
-        nav.navigationBar.barStyle = UIBarStyleBlack;
         nav.tabBarItem = [[UITabBarItem alloc] initWithTitle:@"Sources"
                                                        image:[UIImage systemImageNamed:@"tray.and.arrow.down.fill"]
                                                          tag:0];
@@ -114,7 +126,21 @@ static NSString * const kSourcesLastRefreshKey = @"RepoTweaksLastRefreshTimestam
         [controllers insertObject:nav atIndex:insertIndex];
     }
 
+    for (UIViewController *vc in controllers) {
+        if ([vc.tabBarItem.title isEqualToString:@"Log"]) {
+            vc.tabBarItem.title = @"Activity";
+            vc.tabBarItem.image = [UIImage systemImageNamed:@"waveform.path.ecg"];
+            UINavigationController *nav = [vc isKindOfClass:UINavigationController.class] ? (UINavigationController *)vc : nil;
+            nav.topViewController.title = @"Activity";
+        }
+    }
+
     [self setViewControllers:controllers animated:NO];
+    for (UIViewController *controller in controllers) {
+        if ([controller isKindOfClass:UINavigationController.class]) {
+            CYApplyNavigationStyle((UINavigationController *)controller);
+        }
+    }
     self.selectedIndex = 0;
 }
 
@@ -228,7 +254,7 @@ static NSString * const kSourcesLastRefreshKey = @"RepoTweaksLastRefreshTimestam
 
     UIView *banner = [[UIView alloc] init];
     banner.translatesAutoresizingMaskIntoConstraints = NO;
-    banner.backgroundColor = [UIColor.systemRedColor colorWithAlphaComponent:0.9];
+    banner.backgroundColor = [CYAccentColor() colorWithAlphaComponent:0.94];
     banner.layer.cornerRadius = 10.0;
     banner.layer.cornerCurve = kCACornerCurveContinuous;
     banner.alpha = 0.0;

@@ -9,6 +9,8 @@
 #import <UIKit/UIKit.h>
 
 @interface LogTextView : UITextView
+- (void)setLogFilterText:(nullable NSString *)filterText;
+- (void)setLogSeverityFilter:(NSInteger)severityFilter; // 0 all, 1 warnings, 2 errors
 @end
 
 void log_init(void);
@@ -24,7 +26,7 @@ void log_user(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 // is tee'd into that file with an [HH:MM:SS.mmm] prefix. Call log_session_end()
 // when the chain run finishes (typically in @finally) to flush + close.
 // Info.plist's UIFileSharingEnabled surfaces these files in Files.app under
-// On My iPhone → Cyanide.
+// On My iPhone → Infern0.
 void log_session_begin(void);
 void log_session_end(void);
 

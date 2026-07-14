@@ -14,6 +14,8 @@ bool repotweaks_apply_in_session(void);
 // Fetches the JSON from the given URL and caches it
 void repotweaks_refresh_repo(NSString *repoURL, void (^completion)(BOOL success, NSString *message));
 void repotweaks_seed_default_repos(void);
+BOOL repotweaks_is_builtin_repo(NSString *repoURL);
+NSString *repotweaks_builtin_repo_display_name(NSString *repoURL);
 
 NSString *repotweaks_storage_key(NSString *repoURL, NSString *tweakId);
 NSString *repotweaks_enabled_defaults_key(NSString *repoURL, NSString *tweakId);

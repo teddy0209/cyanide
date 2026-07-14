@@ -19,8 +19,9 @@ extern uint64_t r_nsstr_retained(const char *str);
 static const NSUInteger kRepoTweaksMaxRepoBytes = 512 * 1024;
 static const NSUInteger kRepoTweaksMaxScriptBytes = 512 * 1024;
 static NSString * const kRepoTweaksDefaultRepoURL = @"https://zeroxjf.github.io/cyanide-repotweaks.json";
+static NSString * const kRepoTweaksInfern0RepoURL = @"https://raw.githubusercontent.com/Nnnnnnn274/Infern0/main/repository/infern0-repotweaks.json";
 static NSString * const kRepoTweaksDefaultReposSeedVersionKey = @"RepoTweaksDefaultReposSeedVersion";
-static NSString * const kRepoTweaksDefaultReposSeedVersion = @"4";
+static NSString * const kRepoTweaksDefaultReposSeedVersion = @"5";
 static NSString * const kRepoTweaksHideHomeBarMaterialKitAssets =
     @"/System/Library/PrivateFrameworks/MaterialKit.framework/Assets.car";
 
@@ -396,6 +397,57 @@ static NSDictionary *repotweaks_saved_caches(NSUserDefaults *d) {
     return [raw isKindOfClass:NSDictionary.class] ? raw : @{};
 }
 
+static NSArray<NSDictionary<NSString *, NSString *> *> *repotweaks_builtin_repos(void) {
+    return @[
+        @{ @"url": kRepoTweaksDefaultRepoURL, @"name": @"zeroxjf Community" },
+        @{ @"url": kRepoTweaksInfern0RepoURL, @"name": @"Infern0 Curated" },
+    ];
+}
+
+static NSDictionary *repotweaks_infern0_fallback_repo(void) {
+    NSString *base = @"https://raw.githubusercontent.com/Nnnnnnn274/Infern0/main/repository/scripts/";
+    return @{
+        @"repoName": @"Infern0 Curated",
+        @"author": @"Infern0 Team",
+        @"tweaks": @[
+            @{ @"id": @"infern0.session.diagnostics", @"name": @"Session Diagnostics",
+               @"description": @"Reports the live SpringBoard RemoteCall capabilities used by Infern0.",
+               @"version": @"1.0.0", @"symbol": @"stethoscope",
+               @"scriptURL": [base stringByAppendingString:@"session-diagnostics.js"] },
+            @{ @"id": @"infern0.motion.monitor", @"name": @"Motion Monitor",
+               @"description": @"Logs Reduce Motion state changes during the active session.",
+               @"version": @"1.0.0", @"symbol": @"figure.walk.motion",
+               @"scriptURL": [base stringByAppendingString:@"motion-monitor.js"] },
+            @{ @"id": @"infern0.frontmost.reporter", @"name": @"Frontmost Reporter",
+               @"description": @"Periodically reports the visible SpringBoard window for debugging layouts.",
+               @"version": @"1.0.0", @"symbol": @"rectangle.on.rectangle",
+               @"scriptURL": [base stringByAppendingString:@"frontmost-reporter.js"] },
+        ],
+    };
+}
+
+static NSDictionary<NSString *, NSString *> *repotweaks_infern0_fallback_scripts(void) {
+    return @{
+        @"infern0.session.diagnostics": @"(() => { log('[Session Diagnostics] RemoteCall bridge is ready'); log('[Session Diagnostics] UIApplication=' + r_class('UIApplication')); log('[Session Diagnostics] UIWindow=' + r_class('UIWindow')); })();",
+        @"infern0.motion.monitor": @"(() => { let last=null; const report=()=>{ const current=!!r_msg2(r_class('UIAccessibility'),'isReduceMotionEnabled'); if(current!==last){last=current;log('[Motion Monitor] Reduce Motion is '+(current?'enabled':'disabled'));}}; report(); setInterval(report,3000); })();",
+        @"infern0.frontmost.reporter": @"(() => { const report=()=>{const app=r_msg2(r_class('UIApplication'),'sharedApplication');log('[Frontmost Reporter] keyWindow='+r_msg2(app,'keyWindow'));}; report(); setInterval(report,5000); })();",
+    };
+}
+
+BOOL repotweaks_is_builtin_repo(NSString *repoURL) {
+    for (NSDictionary *entry in repotweaks_builtin_repos()) {
+        if ([entry[@"url"] isEqualToString:repoURL]) return YES;
+    }
+    return NO;
+}
+
+NSString *repotweaks_builtin_repo_display_name(NSString *repoURL) {
+    for (NSDictionary *entry in repotweaks_builtin_repos()) {
+        if ([entry[@"url"] isEqualToString:repoURL]) return entry[@"name"];
+    }
+    return nil;
+}
+
 void repotweaks_seed_default_repos(void) {
     NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
     NSMutableArray *urls = [[repotweaks_saved_urls(d) mutableCopy] ?: [NSMutableArray array] mutableCopy];
@@ -404,18 +456,24 @@ void repotweaks_seed_default_repos(void) {
     BOOL firstSeedForVersion = ![seedVersion isEqualToString:kRepoTweaksDefaultReposSeedVersion];
     BOOL changed = NO;
 
-    if (firstSeedForVersion && ![urls containsObject:kRepoTweaksDefaultRepoURL]) {
-        [urls addObject:kRepoTweaksDefaultRepoURL];
-        changed = YES;
-    }
-
-    if ([urls containsObject:kRepoTweaksDefaultRepoURL] && ![caches[kRepoTweaksDefaultRepoURL] isKindOfClass:NSDictionary.class]) {
-        caches[kRepoTweaksDefaultRepoURL] = @{
-            @"repoName": @"zeroxjf",
-            @"author": @"zeroxjf",
-            @"tweaks": @[],
-        };
-        changed = YES;
+    for (NSDictionary<NSString *, NSString *> *entry in repotweaks_builtin_repos()) {
+        NSString *url = entry[@"url"];
+        if (firstSeedForVersion && ![urls containsObject:url]) {
+            [urls addObject:url];
+            changed = YES;
+        }
+        if ([urls containsObject:url] && ![caches[url] isKindOfClass:NSDictionary.class]) {
+            caches[url] = [url isEqualToString:kRepoTweaksInfern0RepoURL]
+                ? repotweaks_infern0_fallback_repo()
+                : @{ @"repoName": entry[@"name"] ?: @"Built-in Source", @"author": @"zeroxjf", @"tweaks": @[] };
+            if ([url isEqualToString:kRepoTweaksInfern0RepoURL]) {
+                [repotweaks_infern0_fallback_scripts() enumerateKeysAndObjectsUsingBlock:^(NSString *tweakID, NSString *script, BOOL *stop) {
+                    (void)stop;
+                    [d setObject:script forKey:repotweaks_script_defaults_key(url, tweakID)];
+                }];
+            }
+            changed = YES;
+        }
     }
 
     if (firstSeedForVersion) {
@@ -428,14 +486,19 @@ void repotweaks_seed_default_repos(void) {
         [d synchronize];
     }
 
-    NSDictionary *repo = repotweaks_saved_caches(d)[kRepoTweaksDefaultRepoURL];
-    NSArray *tweaks = [repo isKindOfClass:NSDictionary.class] ? repo[@"tweaks"] : nil;
-    if (firstSeedForVersion || ![tweaks isKindOfClass:NSArray.class] || tweaks.count == 0) {
-        repotweaks_refresh_repo(kRepoTweaksDefaultRepoURL, ^(BOOL success, NSString *message) {
-            if (!success) {
-                log_user("[RepoTweaks] Default source refresh failed: %s\n", (message ?: @"Download failed.").UTF8String);
-            }
-        });
+    for (NSDictionary<NSString *, NSString *> *entry in repotweaks_builtin_repos()) {
+        NSString *url = entry[@"url"];
+        NSDictionary *repo = repotweaks_saved_caches(d)[url];
+        NSArray *tweaks = [repo isKindOfClass:NSDictionary.class] ? repo[@"tweaks"] : nil;
+        if (firstSeedForVersion || ![tweaks isKindOfClass:NSArray.class] || tweaks.count == 0) {
+            repotweaks_refresh_repo(url, ^(BOOL success, NSString *message) {
+                if (!success) {
+                    log_user("[RepoTweaks] Built-in source refresh failed (%s): %s\n",
+                             (entry[@"name"] ?: url).UTF8String,
+                             (message ?: @"Download failed.").UTF8String);
+                }
+            });
+        }
     }
 }
 
@@ -752,6 +815,14 @@ bool repotweaks_apply_in_session(void) {
 
 void repotweaks_refresh_repo(NSString *repoURL, void (^completion)(BOOL success, NSString *message)) {
     void (^finish)(BOOL, NSString *) = ^(BOOL success, NSString *message) {
+        if (repoURL.length > 0) {
+            NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+            NSMutableDictionary *health = [[defaults dictionaryForKey:@"RepoTweaksSourceHealth"] mutableCopy] ?: [NSMutableDictionary dictionary];
+            health[repoURL] = @{ @"success": @(success),
+                                 @"message": message ?: @"",
+                                 @"checkedAt": @([[NSDate date] timeIntervalSince1970]) };
+            [defaults setObject:health forKey:@"RepoTweaksSourceHealth"];
+        }
         if (completion) dispatch_async(dispatch_get_main_queue(), ^{ completion(success, message ?: @""); });
     };
     if (!repotweaks_is_https_url(repoURL)) {
@@ -825,7 +896,9 @@ void repotweaks_refresh_repo(NSString *repoURL, void (^completion)(BOOL success,
             }
         }
 
-        caches[repoURL] = sanitized;
+        NSMutableDictionary *cachedRepo = [sanitized mutableCopy];
+        cachedRepo[@"_refreshedAt"] = @(now);
+        caches[repoURL] = cachedRepo;
         [d setObject:caches forKey:@"RepoTweaksCaches"];
 
         NSMutableArray *urls = [[repotweaks_saved_urls(d) mutableCopy] ?: [NSMutableArray array] mutableCopy];

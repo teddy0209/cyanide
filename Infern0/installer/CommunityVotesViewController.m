@@ -4,6 +4,7 @@
 //
 
 #import "CommunityVotesViewController.h"
+#import "CYIconBadge.h"
 #import <math.h>
 
 static NSString * const kCommunityVotesAPI = @"https://api.github.com/repos/Nnnnnnn274/Infern0/issues?state=open&per_page=100";
@@ -58,6 +59,8 @@ static NSString *community_issue_summary(NSString *body)
     [super viewDidLoad];
     self.title = @"Community Votes";
     self.navigationItem.largeTitleDisplayMode = UINavigationItemLargeTitleDisplayModeNever;
+    CYConfigureTableView(self.tableView);
+    CYApplyNavigationStyle(self.navigationController);
     self.tableView.rowHeight = UITableViewAutomaticDimension;
     self.tableView.estimatedRowHeight = 94.0;
 
@@ -67,7 +70,7 @@ static NSString *community_issue_summary(NSString *body)
     [self buildIntroHeader];
 
     self.voteRefreshControl = [[UIRefreshControl alloc] init];
-    self.voteRefreshControl.tintColor = UIColor.systemOrangeColor;
+    self.voteRefreshControl.tintColor = CYAccentColor();
     [self.voteRefreshControl addTarget:self action:@selector(refreshCommunityResults) forControlEvents:UIControlEventValueChanged];
     self.refreshControl = self.voteRefreshControl;
 
@@ -124,16 +127,14 @@ static NSString *community_issue_summary(NSString *body)
     UIView *header = [[UIView alloc] initWithFrame:CGRectMake(0, 0, self.tableView.bounds.size.width, 184.0)];
     UIView *card = [[UIView alloc] initWithFrame:CGRectZero];
     card.tag = 101;
-    card.backgroundColor = UIColor.secondarySystemGroupedBackgroundColor;
-    card.layer.cornerRadius = 22.0;
-    card.layer.cornerCurve = kCACornerCurveContinuous;
+    CYApplyCardStyle(card, 22.0);
     [header addSubview:card];
 
     UILabel *eyebrow = [[UILabel alloc] initWithFrame:CGRectZero];
     eyebrow.tag = 102;
     eyebrow.text = @"COMMUNITY ROADMAP";
     eyebrow.font = [UIFont systemFontOfSize:12.0 weight:UIFontWeightHeavy];
-    eyebrow.textColor = UIColor.systemOrangeColor;
+    eyebrow.textColor = CYAccentColor();
     [card addSubview:eyebrow];
 
     UILabel *title = [[UILabel alloc] initWithFrame:CGRectZero];
@@ -162,6 +163,7 @@ static NSString *community_issue_summary(NSString *body)
     [hub setTitle:@"Open Voting Hub" forState:UIControlStateNormal];
     hub.titleLabel.font = [UIFont systemFontOfSize:13.0 weight:UIFontWeightBold];
     [hub addTarget:self action:@selector(openVotingHub) forControlEvents:UIControlEventTouchUpInside];
+    CYPolishButton(hub);
     [card addSubview:hub];
 
     self.introHeader = header;
@@ -194,7 +196,7 @@ static NSString *community_issue_summary(NSString *body)
         self.statusLabel.textColor = UIColor.systemGreenColor;
     } else {
         self.statusLabel.text = @"Offline ballot • selections stay on this device";
-        self.statusLabel.textColor = UIColor.systemOrangeColor;
+        self.statusLabel.textColor = CYAccentColor();
     }
 }
 
@@ -302,7 +304,7 @@ static NSString *community_issue_summary(NSString *body)
         cell.textLabel.font = [UIFont systemFontOfSize:16.0 weight:UIFontWeightSemibold];
         cell.detailTextLabel.text = @"Describe what it should do and why it fits Infern0.";
         cell.imageView.image = [UIImage systemImageNamed:@"lightbulb.fill"];
-        cell.imageView.tintColor = UIColor.systemOrangeColor;
+        cell.imageView.tintColor = CYAccentColor();
         cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
         return cell;
     }
@@ -318,14 +320,14 @@ static NSString *community_issue_summary(NSString *body)
     cell.detailTextLabel.textColor = UIColor.secondaryLabelColor;
     cell.detailTextLabel.numberOfLines = 3;
     cell.imageView.image = [UIImage systemImageNamed:selected ? @"checkmark.circle.fill" : @"hand.thumbsup.circle"];
-    cell.imageView.tintColor = selected ? UIColor.systemGreenColor : UIColor.systemOrangeColor;
+    cell.imageView.tintColor = selected ? UIColor.systemGreenColor : CYAccentColor();
 
     UILabel *pill = [[UILabel alloc] init];
     pill.text = proposal.remote
         ? [NSString stringWithFormat:@"%ld VOTE%@", (long)proposal.voteCount, proposal.voteCount == 1 ? @"" : @"S"]
         : (selected ? @"PICKED" : @"PICK");
     pill.font = [UIFont systemFontOfSize:10.0 weight:UIFontWeightHeavy];
-    pill.textColor = proposal.remote ? UIColor.systemBlueColor : (selected ? UIColor.systemGreenColor : UIColor.systemOrangeColor);
+    pill.textColor = proposal.remote ? UIColor.systemBlueColor : (selected ? UIColor.systemGreenColor : CYAccentColor());
     pill.backgroundColor = [pill.textColor colorWithAlphaComponent:0.14];
     pill.textAlignment = NSTextAlignmentCenter;
     [pill sizeToFit];
@@ -343,6 +345,7 @@ static NSString *community_issue_summary(NSString *body)
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath
 {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    CYSelectionHaptic();
     if (indexPath.section == 1) {
         [self suggestTweak];
         return;

@@ -58,6 +58,8 @@ static NSString * const kCatPkgCellID = @"CatPkgCell";
 {
     [super viewDidLoad];
     self.title = self.categoryName ?: @"Packages";
+    CYConfigureTableView(self.tableView);
+    CYApplyNavigationStyle(self.navigationController);
     self.searchText = @"";
 
     [self refreshPackages];
@@ -278,6 +280,7 @@ static NSString * const kCatPkgCellID = @"CatPkgCell";
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath
 {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    CYSelectionHaptic();
     Package *pkg = self.filteredPackages[indexPath.row];
     PackageDetailViewController *detail = [[PackageDetailViewController alloc] initWithPackage:pkg];
     [self.navigationController pushViewController:detail animated:YES];

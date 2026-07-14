@@ -1,0 +1,30 @@
+{
+  "repoName": "Infern0 Curated",
+  "author": "Infern0 Team",
+  "tweaks": [
+    {
+      "id": "infern0.session.diagnostics",
+      "name": "Session Diagnostics",
+      "description": "Reports the live SpringBoard RemoteCall capabilities used by Infern0.",
+      "version": "1.0.0",
+      "symbol": "stethoscope",
+      "scriptURL": "https://raw.githubusercontent.com/Nnnnnnn274/Infern0/main/repository/scripts/session-diagnostics.js"
+    },
+    {
+      "id": "infern0.motion.monitor",
+      "name": "Motion Monitor",
+      "description": "Logs Reduce Motion state changes during the active session.",
+      "version": "1.0.0",
+      "symbol": "figure.walk.motion",
+      "scriptURL": "https://raw.githubusercontent.com/Nnnnnnn274/Infern0/main/repository/scripts/motion-monitor.js"
+    },
+    {
+      "id": "infern0.frontmost.reporter",
+      "name": "Frontmost Reporter",
+      "description": "Periodically reports the visible SpringBoard window for debugging layouts.",
+      "version": "1.0.0",
+      "symbol": "rectangle.on.rectangle",
+      "scriptURL": "https://raw.githubusercontent.com/Nnnnnnn274/Infern0/main/repository/scripts/frontmost-reporter.js"
+    }
+  ]
+}

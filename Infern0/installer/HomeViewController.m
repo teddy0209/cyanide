@@ -5,6 +5,10 @@
 
 #import "HomeViewController.h"
 #import "SourcesViewController.h"
+#import "Package.h"
+#import "PackageCatalog.h"
+#import "PackageQueue.h"
+#import "CYIconBadge.h"
 #import "../SettingsViewController.h"
 #import <unistd.h>
 #import <fcntl.h>
@@ -13,9 +17,9 @@
 #import "../tweaks/kpac_bypass.h"
 #import "../tweaks/coretrust_bypass.h"
 
-static NSString * const kSignalGroupURL  = @"https://signal.group/#CjQKIP0pxjc9V52ddCNk--04DosuoQl-vVOsznJfQ4GwlrlxEhCveFhBS8YdNcILpUFt7IqC";
-static NSString * const kGitHubIssuesURL = @"https://github.com/zeroxjf/cyanide/issues";
-static NSString * const kGitHubRepoURL   = @"https://github.com/zeroxjf/cyanide";
+static NSString * const kCommunityURL    = @"https://github.com/Nnnnnnn274/Infern0/issues?q=is%3Aissue%20state%3Aopen%20%22%5BTweak%20Vote%5D%22%20in%3Atitle";
+static NSString * const kGitHubIssuesURL = @"https://github.com/Nnnnnnn274/Infern0/issues";
+static NSString * const kGitHubRepoURL   = @"https://github.com/Nnnnnnn274/Infern0";
 
 static const CGFloat kMargin = 20.0;
 
@@ -26,6 +30,7 @@ static const CGFloat kMargin = 20.0;
 @property (nonatomic, weak) CAGradientLayer *heroGrad;
 @property (nonatomic, strong) UITextView *logView;
 @property (nonatomic, strong) NSPipe *logPipe;
+@property (nonatomic, strong) UIView *statusView;
 @end
 
 @implementation HomeViewController
@@ -34,7 +39,8 @@ static const CGFloat kMargin = 20.0;
 {
     [super viewDidLoad];
     self.title = @"Home";
-    self.view.backgroundColor = UIColor.systemGroupedBackgroundColor;
+    self.view.backgroundColor = CYCanvasColor();
+    CYApplyNavigationStyle(self.navigationController);
     self.navigationItem.largeTitleDisplayMode = UINavigationItemLargeTitleDisplayModeAlways;
     self.navigationController.navigationBar.prefersLargeTitles = YES;
     self.navigationItem.title = @"infern0";
@@ -47,7 +53,7 @@ static const CGFloat kMargin = 20.0;
     self.stack = [[UIStackView alloc] init];
     self.stack.translatesAutoresizingMaskIntoConstraints = NO;
     self.stack.axis = UILayoutConstraintAxisVertical;
-    self.stack.spacing = 24.0;
+    self.stack.spacing = 18.0;
     self.stack.alignment = UIStackViewAlignmentFill;
     [self.scrollView addSubview:self.stack];
 
@@ -64,17 +70,30 @@ static const CGFloat kMargin = 20.0;
     ]];
 
     [self.stack addArrangedSubview:[self buildHero]];
-    [self.stack addArrangedSubview:[self buildQuickActions]];
+    self.statusView = [self buildQuickActions];
+    [self.stack addArrangedSubview:self.statusView];
     [self.stack addArrangedSubview:[self buildWhatsNew]];
-    [self.stack addArrangedSubview:[self buildExploits]];
     [self.stack addArrangedSubview:[self buildGetStarted]];
     [self.stack addArrangedSubview:[self buildCommunity]];
+    CYAnimateEntrance(self.stack);
 
     [self setupLogCapture];
 
     // Set crash log path for direct writes (bypasses pipe, survives panic)
     NSString *logPath = [self crashLogPath];
     strncpy(g_crash_log_path, [logPath UTF8String], sizeof(g_crash_log_path) - 1);
+}
+
+- (void)viewWillAppear:(BOOL)animated
+{
+    [super viewWillAppear:animated];
+    if (!self.statusView || !self.stack) return;
+    NSUInteger index = [self.stack.arrangedSubviews indexOfObject:self.statusView];
+    if (index == NSNotFound) return;
+    [self.stack removeArrangedSubview:self.statusView];
+    [self.statusView removeFromSuperview];
+    self.statusView = [self buildQuickActions];
+    [self.stack insertArrangedSubview:self.statusView atIndex:index];
 }
 
 #pragma mark - Hero
@@ -85,11 +104,13 @@ static const CGFloat kMargin = 20.0;
     hero.layer.cornerRadius = 20.0;
     hero.layer.cornerCurve = kCACornerCurveContinuous;
     hero.clipsToBounds = YES;
+    hero.layer.borderWidth = 1.0 / UIScreen.mainScreen.scale;
+    hero.layer.borderColor = [UIColor.whiteColor colorWithAlphaComponent:0.18].CGColor;
 
     CAGradientLayer *grad = [CAGradientLayer layer];
     grad.colors = @[
-        (id)[UIColor colorWithRed:0.0 green:0.72 blue:0.84 alpha:1.0].CGColor,
-        (id)[UIColor colorWithRed:0.0 green:0.50 blue:0.90 alpha:1.0].CGColor,
+        (id)[UIColor colorWithRed:1.0 green:0.34 blue:0.12 alpha:1.0].CGColor,
+        (id)[UIColor colorWithRed:0.82 green:0.08 blue:0.12 alpha:1.0].CGColor,
     ];
     grad.startPoint = CGPointMake(0.0, 0.0);
     grad.endPoint = CGPointMake(1.0, 1.0);
@@ -165,24 +186,65 @@ static const CGFloat kMargin = 20.0;
     row.spacing = 12.0;
     row.distribution = UIStackViewDistributionFillEqually;
 
-    [row addArrangedSubview:[self actionCard:@"Packages"
-                                       icon:@"shippingbox.fill"
-                                      color:UIColor.systemRedColor
-                                        sel:@selector(openPackagesTab)]];
-    [row addArrangedSubview:[self actionCard:@"Sources"
-                                       icon:@"tray.and.arrow.down.fill"
-                                      color:UIColor.systemGreenColor
-                                        sel:@selector(openSourcesTab)]];
+    NSInteger active = 0;
+    for (Package *package in [PackageCatalog allPackages]) if (package.isInstalled) active++;
+    NSInteger pending = [PackageQueue sharedQueue].pendingCount;
+    [row addArrangedSubview:[self statusCard:@"ACTIVE"
+                                      value:[NSString stringWithFormat:@"%ld", (long)active]
+                                       icon:@"checkmark.circle.fill"
+                                      color:UIColor.systemGreenColor]];
+    [row addArrangedSubview:[self statusCard:@"PENDING"
+                                      value:[NSString stringWithFormat:@"%ld", (long)pending]
+                                       icon:@"clock.badge.fill"
+                                      color:pending > 0 ? UIColor.systemOrangeColor : UIColor.systemGrayColor]];
+    [row addArrangedSubview:[self statusCard:@"DEVICE"
+                                      value:settings_device_supported() ? @"Ready" : @"Check"
+                                       icon:settings_device_supported() ? @"iphone.gen3" : @"exclamationmark.triangle.fill"
+                                      color:settings_device_supported() ? UIColor.systemBlueColor : UIColor.systemRedColor]];
 
     return row;
+}
+
+- (UIView *)statusCard:(NSString *)title value:(NSString *)value icon:(NSString *)icon color:(UIColor *)color
+{
+    UIView *card = [[UIView alloc] init];
+    CYApplyCardStyle(card, 18.0);
+    UIImageView *image = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:icon]];
+    image.translatesAutoresizingMaskIntoConstraints = NO;
+    image.tintColor = color;
+    UILabel *valueLabel = [[UILabel alloc] init];
+    valueLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    valueLabel.text = value;
+    valueLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleHeadline];
+    valueLabel.adjustsFontForContentSizeCategory = YES;
+    valueLabel.textAlignment = NSTextAlignmentCenter;
+    UILabel *titleLabel = [[UILabel alloc] init];
+    titleLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    titleLabel.text = title;
+    titleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleCaption2];
+    titleLabel.textColor = UIColor.secondaryLabelColor;
+    titleLabel.textAlignment = NSTextAlignmentCenter;
+    [card addSubview:image]; [card addSubview:valueLabel]; [card addSubview:titleLabel];
+    [NSLayoutConstraint activateConstraints:@[
+        [card.heightAnchor constraintEqualToConstant:96.0],
+        [image.topAnchor constraintEqualToAnchor:card.topAnchor constant:12.0],
+        [image.centerXAnchor constraintEqualToAnchor:card.centerXAnchor],
+        [valueLabel.topAnchor constraintEqualToAnchor:image.bottomAnchor constant:5.0],
+        [valueLabel.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:4.0],
+        [valueLabel.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-4.0],
+        [titleLabel.topAnchor constraintEqualToAnchor:valueLabel.bottomAnchor constant:1.0],
+        [titleLabel.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:4.0],
+        [titleLabel.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-4.0],
+    ]];
+    card.isAccessibilityElement = YES;
+    card.accessibilityLabel = [NSString stringWithFormat:@"%@, %@", title.capitalizedString, value];
+    return card;
 }
 
 - (UIView *)actionCard:(NSString *)title icon:(NSString *)iconName color:(UIColor *)color sel:(SEL)sel
 {
     UIView *card = [[UIView alloc] init];
-    card.backgroundColor = UIColor.secondarySystemGroupedBackgroundColor;
-    card.layer.cornerRadius = 16.0;
-    card.layer.cornerCurve = kCACornerCurveContinuous;
+    CYApplyCardStyle(card, 18.0);
 
     UIView *iconCircle = [[UIView alloc] init];
     iconCircle.translatesAutoresizingMaskIntoConstraints = NO;
@@ -235,6 +297,8 @@ static const CGFloat kMargin = 20.0;
         #pragma clang diagnostic pop
     }] forControlEvents:UIControlEventTouchUpInside];
     [card addSubview:tap];
+    CYPolishOverlayButton(tap, card);
+    tap.accessibilityLabel = title;
     [NSLayoutConstraint activateConstraints:@[
         [tap.topAnchor constraintEqualToAnchor:card.topAnchor],
         [tap.leadingAnchor constraintEqualToAnchor:card.leadingAnchor],
@@ -275,7 +339,7 @@ static const CGFloat kMargin = 20.0;
     [s addArrangedSubview:[self sectionHeader:@"Get Started"]];
 
     [s addArrangedSubview:[self bigActionButton:@"Open QuickLoader"
-                                          sub:@"Run a local .js tweak file"
+                                          sub:@"Run several local .js tweaks together"
                                          icon:@"bolt.fill"
                                         color:UIColor.systemOrangeColor
                                           sel:@selector(openQuickLoader)]];
@@ -354,6 +418,8 @@ static const CGFloat kMargin = 20.0;
         #pragma clang diagnostic pop
     }] forControlEvents:UIControlEventTouchUpInside];
     [btn addSubview:tap];
+    CYPolishOverlayButton(tap, btn);
+    tap.accessibilityLabel = [NSString stringWithFormat:@"%@. %@", title, sub];
     [NSLayoutConstraint activateConstraints:@[
         [tap.topAnchor constraintEqualToAnchor:btn.topAnchor],
         [tap.leadingAnchor constraintEqualToAnchor:btn.leadingAnchor],
@@ -383,11 +449,6 @@ static const CGFloat kMargin = 20.0;
                                          icon:@"lock.shield.fill"
                                         color:UIColor.systemOrangeColor
                                           sel:@selector(runAmfiBypass)]];
-    [s addArrangedSubview:[self bigActionButton:@"Run CoreTrust"
-                                          sub:@"amfid NOP + MSM trust cache"
-                                         icon:@"checkmark.shield.fill"
-                                        color:UIColor.systemGreenColor
-                                          sel:@selector(runCoreTrust)]];
 
     // Live log output
     UILabel *logLabel = [[UILabel alloc] init];
@@ -534,28 +595,6 @@ static BOOL g_running_flag = NO;
     });
 }
 
-- (void)runCoreTrust
-{
-    [self showLog];
-    if (__sync_lock_test_and_set(&g_running_flag, YES)) {
-        printf("[COREbreak] already running\n");
-        return;
-    }
-    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
-        if (g_crash_log_path[0]) {
-            int fd = open(g_crash_log_path, O_WRONLY | O_APPEND, 0644);
-            if (fd >= 0) { write(fd, "[COREbreak] block started\n", 26); close(fd); }
-        }
-        printf("[COREbreak] === CoreTrust bypass (amfid NOP + MSM) ===\n");
-        if (coretrust_bypass_all()) {
-            printf("[COREbreak] OK: CoreTrust bypassed\n");
-        } else {
-            printf("[COREbreak] FAILED: coretrust_bypass_all\n");
-        }
-        g_running_flag = NO;
-    });
-}
-
 #pragma mark - Community
 
 - (UIView *)buildCommunity
@@ -575,8 +614,8 @@ static BOOL g_running_flag = NO;
     ]];
     [s addArrangedSubview:headerWrap];
 
-    [s addArrangedSubview:[self linkCell:@"Signal Group" icon:@"bubble.left.and.bubble.right.fill"
-                                  color:UIColor.systemRedColor url:kSignalGroupURL sep:YES]];
+    [s addArrangedSubview:[self linkCell:@"Community Roadmap" icon:@"person.3.fill"
+                                  color:UIColor.systemOrangeColor url:kCommunityURL sep:YES]];
     [s addArrangedSubview:[self linkCell:@"Report a Bug" icon:@"exclamationmark.bubble.fill"
                                   color:UIColor.systemRedColor url:kGitHubIssuesURL sep:YES]];
     [s addArrangedSubview:[self linkCell:@"GitHub" icon:@"chevron.left.forwardslash.chevron.right"
@@ -589,9 +628,7 @@ static BOOL g_running_flag = NO;
 - (UIView *)card
 {
     UIView *v = [[UIView alloc] init];
-    v.backgroundColor = UIColor.secondarySystemGroupedBackgroundColor;
-    v.layer.cornerRadius = 16.0;
-    v.layer.cornerCurve = kCACornerCurveContinuous;
+    CYApplyCardStyle(v, 20.0);
     return v;
 }
 
@@ -616,8 +653,9 @@ static BOOL g_running_flag = NO;
 {
     UILabel *h = [[UILabel alloc] init];
     h.text = title;
-    h.font = [UIFont systemFontOfSize:20.0 weight:UIFontWeightBold];
-    h.textColor = UIColor.labelColor;
+    h.text = title.uppercaseString;
+    h.font = [UIFont systemFontOfSize:12.0 weight:UIFontWeightHeavy];
+    h.textColor = CYAccentColor();
     return h;
 }
 
@@ -727,6 +765,8 @@ static BOOL g_running_flag = NO;
     __weak typeof(self) ws = self;
     [tap addAction:[UIAction actionWithHandler:^(UIAction *_) { [ws openURLString:url]; }] forControlEvents:UIControlEventTouchUpInside];
     [cell addSubview:tap];
+    CYPolishOverlayButton(tap, cell);
+    tap.accessibilityLabel = title;
     [NSLayoutConstraint activateConstraints:@[
         [tap.topAnchor constraintEqualToAnchor:cell.topAnchor],
         [tap.leadingAnchor constraintEqualToAnchor:cell.leadingAnchor],
@@ -767,8 +807,7 @@ static BOOL g_running_flag = NO;
             UINavigationController *nav = [vc isKindOfClass:UINavigationController.class] ? (UINavigationController *)vc : nil;
             if (!nav) return;
             [nav popToRootViewControllerAnimated:NO];
-            SettingsViewController *ql = [[SettingsViewController alloc] initWithUnderlyingSection:25 bundleTitle:@"QuickLoader"];
-            ql.quickLoaderStandalone = YES;
+            SettingsViewController *ql = [SettingsViewController quickLoaderSettingsController];
             [nav pushViewController:ql animated:NO];
             tab.selectedIndex = i;
             return;

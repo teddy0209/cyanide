@@ -5,6 +5,7 @@
 
 #import "QueuePopupBar.h"
 #import "PackageQueue.h"
+#import "CYIconBadge.h"
 #import "../SettingsViewController.h"
 
 @interface QueuePopupBar ()
@@ -134,7 +135,37 @@
 
 - (void)didTap
 {
+    CYSelectionHaptic();
     if (self.onTap) self.onTap();
+}
+
+- (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event
+{
+    [super touchesBegan:touches withEvent:event];
+    [UIView animateWithDuration:0.12 delay:0 options:UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionCurveEaseOut animations:^{
+        self.transform = CGAffineTransformMakeScale(0.975, 0.975);
+        self.alpha = 0.9;
+    } completion:nil];
+}
+
+- (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event
+{
+    [super touchesEnded:touches withEvent:event];
+    [self restorePressedAppearance];
+}
+
+- (void)touchesCancelled:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event
+{
+    [super touchesCancelled:touches withEvent:event];
+    [self restorePressedAppearance];
+}
+
+- (void)restorePressedAppearance
+{
+    [UIView animateWithDuration:0.34 delay:0 usingSpringWithDamping:0.72 initialSpringVelocity:0.4 options:UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionAllowUserInteraction animations:^{
+        self.transform = CGAffineTransformIdentity;
+        self.alpha = 1.0;
+    } completion:nil];
 }
 
 - (void)queueChanged:(NSNotification *)note

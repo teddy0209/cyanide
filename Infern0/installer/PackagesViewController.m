@@ -97,6 +97,8 @@ static UILabel *packages_stat_label(void)
 {
     [super viewDidLoad];
     self.title = @"Packages";
+    CYConfigureTableView(self.tableView);
+    CYApplyNavigationStyle(self.navigationController);
     self.navigationItem.title = @"Packages";
     self.navigationItem.largeTitleDisplayMode = UINavigationItemLargeTitleDisplayModeAlways;
     self.navigationController.navigationBar.prefersLargeTitles = YES;
@@ -119,7 +121,7 @@ static UILabel *packages_stat_label(void)
     [self refreshCatalog];
 
     UIRefreshControl *refresh = [[UIRefreshControl alloc] init];
-    refresh.tintColor = UIColor.systemOrangeColor;
+    refresh.tintColor = CYAccentColor();
     refresh.attributedTitle = [[NSAttributedString alloc] initWithString:@"Refresh package sources"];
     [refresh addTarget:self action:@selector(pullToRefresh) forControlEvents:UIControlEventValueChanged];
     self.refreshControl = refresh;
@@ -167,15 +169,13 @@ static UILabel *packages_stat_label(void)
 {
     UIView *header = [[UIView alloc] initWithFrame:CGRectMake(0, 0, self.tableView.bounds.size.width, 194.0)];
     UIView *card = [[UIView alloc] initWithFrame:CGRectZero];
-    card.backgroundColor = UIColor.secondarySystemGroupedBackgroundColor;
-    card.layer.cornerRadius = 22.0;
-    card.layer.cornerCurve = kCACornerCurveContinuous;
+    CYApplyCardStyle(card, 24.0);
     [header addSubview:card];
 
     UILabel *title = [[UILabel alloc] initWithFrame:CGRectZero];
     title.text = @"TWEAK LIBRARY";
     title.font = [UIFont systemFontOfSize:12.0 weight:UIFontWeightHeavy];
-    title.textColor = UIColor.systemOrangeColor;
+    title.textColor = CYAccentColor();
     [card addSubview:title];
 
     UILabel *subtitle = [[UILabel alloc] initWithFrame:CGRectZero];
@@ -193,7 +193,7 @@ static UILabel *packages_stat_label(void)
 
     UISegmentedControl *scope = [[UISegmentedControl alloc] initWithItems:@[@"All", @"Active", @"Updates", @"New"]];
     scope.selectedSegmentIndex = PackagesScopeAll;
-    scope.selectedSegmentTintColor = UIColor.systemOrangeColor;
+    scope.selectedSegmentTintColor = CYAccentColor();
     [scope setTitleTextAttributes:@{NSForegroundColorAttributeName: UIColor.whiteColor,
                                     NSFontAttributeName: [UIFont systemFontOfSize:12.0 weight:UIFontWeightBold]}
                          forState:UIControlStateSelected];
@@ -207,6 +207,7 @@ static UILabel *packages_stat_label(void)
     self.statLabels = stats;
     self.scopeControl = scope;
     self.tableView.tableHeaderView = header;
+    CYAnimateEntrance(card);
 }
 
 - (void)layoutLibraryHeader
@@ -568,6 +569,7 @@ static UILabel *packages_stat_label(void)
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath
 {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    CYSelectionHaptic();
     PackageDetailViewController *detail = [[PackageDetailViewController alloc]
         initWithPackage:[self packageAtIndexPath:indexPath]];
     [self.navigationController pushViewController:detail animated:YES];

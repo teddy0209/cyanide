@@ -82,6 +82,7 @@ typedef NS_ENUM(NSInteger, PackageDetailSection) {
 @property (nonatomic, copy)   NSArray<NSDictionary<NSString *, NSString *> *> *settingsSummary;
 @property (nonatomic, copy)   NSArray<NSDictionary *> *repoParams;
 @property (nonatomic, strong) NSMutableDictionary *repoValues;
+@property (nonatomic, strong) UIButton *primaryActionButton;
 @end
 
 @implementation PackageDetailViewController
@@ -496,7 +497,21 @@ typedef NS_ENUM(NSInteger, PackageDetailSection) {
 {
     [super viewDidLoad];
     self.title = self.package.name;
+    CYConfigureTableView(self.tableView);
+    CYApplyNavigationStyle(self.navigationController);
     self.tableView.tableHeaderView = [self buildHeaderView];
+    UIButtonConfiguration *configuration = [UIButtonConfiguration filledButtonConfiguration];
+    configuration.cornerStyle = UIButtonConfigurationCornerStyleLarge;
+    configuration.baseBackgroundColor = CYAccentColor();
+    configuration.contentInsets = NSDirectionalEdgeInsetsMake(13.0, 20.0, 13.0, 20.0);
+    self.primaryActionButton = [UIButton buttonWithConfiguration:configuration primaryAction:nil];
+    CYPolishButton(self.primaryActionButton);
+    [self.primaryActionButton addTarget:self action:@selector(didTapAction) forControlEvents:UIControlEventTouchUpInside];
+    self.primaryActionButton.frame = CGRectMake(0, 0, MIN(520.0, MAX(240.0, self.view.bounds.size.width - 48.0)), 50.0);
+    UIBarButtonItem *leadingSpace = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFlexibleSpace target:nil action:nil];
+    UIBarButtonItem *buttonItem = [[UIBarButtonItem alloc] initWithCustomView:self.primaryActionButton];
+    UIBarButtonItem *trailingSpace = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFlexibleSpace target:nil action:nil];
+    self.toolbarItems = @[leadingSpace, buttonItem, trailingSpace];
     [self updateActionButton];
 
     [[NSNotificationCenter defaultCenter] addObserver:self
@@ -517,6 +532,7 @@ typedef NS_ENUM(NSInteger, PackageDetailSection) {
 - (void)viewWillAppear:(BOOL)animated
 {
     [super viewWillAppear:animated];
+    [self.navigationController setToolbarHidden:NO animated:animated];
     [self reloadRepoOptions];
     self.settingsSummary = [SettingsViewController settingsSummaryForSection:self.package.settingsSection];
     self.tableView.tableHeaderView = [self buildHeaderView];
@@ -746,6 +762,23 @@ typedef NS_ENUM(NSInteger, PackageDetailSection) {
     if (tint) item.tintColor = tint;
     item.enabled = !self.package.isInstallDisabled || installed || intent != PackageQueueIntentNone;
     self.navigationItem.rightBarButtonItem = item;
+
+    UIButtonConfiguration *buttonConfig = self.primaryActionButton.configuration ?: [UIButtonConfiguration filledButtonConfiguration];
+    buttonConfig.title = title;
+    buttonConfig.image = [UIImage systemImageNamed:installed ? @"minus.circle.fill" : @"plus.circle.fill"];
+    buttonConfig.imagePadding = 8.0;
+    buttonConfig.baseBackgroundColor = (installed && intent == PackageQueueIntentNone) ? UIColor.systemRedColor : CYAccentColor();
+    self.primaryActionButton.configuration = buttonConfig;
+    self.primaryActionButton.enabled = item.enabled;
+    self.primaryActionButton.accessibilityLabel = [NSString stringWithFormat:@"%@ %@", title, self.package.name];
+    self.primaryActionButton.menu = useMenu ? [self manualActionMenu] : nil;
+    self.primaryActionButton.showsMenuAsPrimaryAction = useMenu;
+}
+
+- (void)viewWillDisappear:(BOOL)animated
+{
+    [super viewWillDisappear:animated];
+    [self.navigationController setToolbarHidden:YES animated:animated];
 }
 
 - (void)didTapAction
@@ -1087,7 +1120,7 @@ typedef NS_ENUM(NSInteger, PackageDetailSection) {
             cell.backgroundColor  = UIColor.clearColor;
 
             NSArray<NSString *> *issues = self.package.knownIssues;
-            UIColor *accent = UIColor.systemOrangeColor;
+            UIColor *accent = CYAccentColor();
 
             UIView *card = [[UIView alloc] init];
             card.translatesAutoresizingMaskIntoConstraints = NO;
@@ -1273,6 +1306,7 @@ typedef NS_ENUM(NSInteger, PackageDetailSection) {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
     if ([self sectionAtIndex:indexPath.section] != PackageDetailSectionAction) return;
     if (![self hasSettingsBundle]) return;
+    CYSelectionHaptic();
     [self navigateToSettingsSection];
 }
 

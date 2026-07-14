@@ -6,6 +6,7 @@
 #import "InstallProgressViewController.h"
 #import "PackageQueue.h"
 #import "QueueReviewViewController.h"
+#import "CYIconBadge.h"
 #import "../SettingsViewController.h"
 #import "../LogTextView.h"
 #import <sys/utsname.h>
@@ -25,21 +26,23 @@
 - (void)viewDidLoad
 {
     [super viewDidLoad];
-    self.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
-    UIColor *bg = [UIColor colorWithRed:0.04 green:0.05 blue:0.07 alpha:1.0];
-    self.view.backgroundColor = bg;
-    self.title = @"Activity";
+    self.view.backgroundColor = CYCanvasColor();
+    CYApplyNavigationStyle(self.navigationController);
+    self.title = @"Applying Changes";
     self.modalInPresentation = NO;
 
     self.bannerLabel = [[UILabel alloc] init];
     self.bannerLabel.translatesAutoresizingMaskIntoConstraints = NO;
     self.bannerLabel.numberOfLines = 0;
-    self.bannerLabel.font = [UIFont monospacedSystemFontOfSize:11.5 weight:UIFontWeightRegular];
-    self.bannerLabel.textColor = [UIColor colorWithWhite:0.86 alpha:1.0];
-    self.bannerLabel.backgroundColor = [UIColor colorWithRed:0.06 green:0.07 blue:0.10 alpha:1.0];
-    self.bannerLabel.textAlignment = NSTextAlignmentLeft;
+    self.bannerLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleSubheadline];
+    self.bannerLabel.adjustsFontForContentSizeCategory = YES;
+    self.bannerLabel.textColor = UIColor.labelColor;
+    self.bannerLabel.backgroundColor = CYSurfaceColor();
+    self.bannerLabel.textAlignment = NSTextAlignmentCenter;
     self.bannerLabel.attributedText = [self buildBannerText];
-    self.bannerLabel.layer.cornerRadius = 10;
+    self.bannerLabel.layer.cornerRadius = 18;
+    self.bannerLabel.layer.borderWidth = 0.5;
+    self.bannerLabel.layer.borderColor = CYSurfaceBorderColor().CGColor;
     self.bannerLabel.clipsToBounds = YES;
     [self.view addSubview:self.bannerLabel];
 
@@ -53,27 +56,27 @@
     [self.view addSubview:self.logView];
 
     // Blurred footer
-    UIBlurEffect *blur = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemUltraThinMaterialDark];
+    UIBlurEffect *blur = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemUltraThinMaterial];
     UIVisualEffectView *footer = [[UIVisualEffectView alloc] initWithEffect:blur];
     footer.translatesAutoresizingMaskIntoConstraints = NO;
     [self.view addSubview:footer];
 
     UIView *footerDivider = [[UIView alloc] init];
     footerDivider.translatesAutoresizingMaskIntoConstraints = NO;
-    footerDivider.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.07];
+    footerDivider.backgroundColor = UIColor.separatorColor;
     [footer.contentView addSubview:footerDivider];
 
     self.spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleMedium];
     self.spinner.translatesAutoresizingMaskIntoConstraints = NO;
-    self.spinner.color = [UIColor colorWithWhite:0.75 alpha:1.0];
+    self.spinner.color = CYAccentColor();
     [self.spinner startAnimating];
     [footer.contentView addSubview:self.spinner];
 
     self.statusLabel = [[UILabel alloc] init];
     self.statusLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    self.statusLabel.text = @"Running — stay here until complete.";
+    self.statusLabel.text = @"Preparing a safe live session…";
     self.statusLabel.font = [UIFont systemFontOfSize:13.5 weight:UIFontWeightRegular];
-    self.statusLabel.textColor = [UIColor colorWithWhite:0.55 alpha:1.0];
+    self.statusLabel.textColor = UIColor.secondaryLabelColor;
     self.statusLabel.numberOfLines = 1;
     self.statusLabel.adjustsFontSizeToFitWidth = YES;
     self.statusLabel.minimumScaleFactor = 0.8;
@@ -83,6 +86,7 @@
         [self.bannerLabel.topAnchor      constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:12],
         [self.bannerLabel.leadingAnchor  constraintEqualToAnchor:self.view.leadingAnchor constant:12],
         [self.bannerLabel.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor constant:-12],
+        [self.bannerLabel.heightAnchor constraintGreaterThanOrEqualToConstant:76.0],
 
         [separator.topAnchor      constraintEqualToAnchor:self.bannerLabel.bottomAnchor constant:12],
         [separator.leadingAnchor  constraintEqualToAnchor:self.view.leadingAnchor],
@@ -142,9 +146,10 @@
         : (success ? @"All tweaks applied in-session." : @"Failed — check the log above.");
     self.statusLabel.font = [UIFont systemFontOfSize:13.5 weight:UIFontWeightSemibold];
     self.statusLabel.textColor = success
-        ? [UIColor colorWithRed:0.38 green:0.90 blue:0.55 alpha:1.0]
-        : [UIColor colorWithRed:1.0 green:0.38 blue:0.32 alpha:1.0];
+        ? UIColor.systemGreenColor
+        : UIColor.systemRedColor;
     self.title = success ? @"Complete" : @"Failed";
+    if (success) CYSuccessHaptic();
     self.hideOrDoneButton.title = @"Done";
     if (success &&
         self.promptsForHideHomeBarRespring &&
@@ -176,23 +181,16 @@
         machine = u.machine;
     NSString *ios = UIDevice.currentDevice.systemVersion ?: @"?";
 
-    NSString *banner = [NSString stringWithFormat:
-        @"     ╭───────────╮\n"
-        @"     │ ▄▄▄▄▄▄▄▄▄ │\n"
-        @"     ├───────────┤\n"
-        @"     │ ░░░░░░░░░ │   C Y A N I D E\n"
-        @"     │ ░░░ C ░░░ │   %@ (%@)\n"
-        @"     │ ░░░░░░░░░ │   %s • iOS %@\n"
-        @"     │ ░░░░░░░░░ │\n"
-        @"     ╰───────────╯",
-        shortVer, build, machine, ios];
+    NSString *banner = [NSString stringWithFormat:@"APPLYING YOUR SETUP\nInfern0 %@ (%@) · %s · iOS %@\nEach package reports its preparation, apply, verification, and cleanup stages below.",
+                        shortVer, build, machine, ios];
 
     NSMutableParagraphStyle *para = [[NSMutableParagraphStyle alloc] init];
-    para.lineSpacing = 2.0;
+    para.lineSpacing = 3.0;
+    para.alignment = NSTextAlignmentCenter;
 
     return [[NSAttributedString alloc] initWithString:banner attributes:@{
-        NSFontAttributeName: [UIFont monospacedSystemFontOfSize:11.5 weight:UIFontWeightRegular],
-        NSForegroundColorAttributeName: [UIColor colorWithWhite:0.86 alpha:1.0],
+        NSFontAttributeName: [UIFont preferredFontForTextStyle:UIFontTextStyleSubheadline],
+        NSForegroundColorAttributeName: UIColor.labelColor,
         NSParagraphStyleAttributeName: para,
     }];
 }

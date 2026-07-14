@@ -38,12 +38,14 @@ static BOOL QueuePackageIsHideHomeBar(Package *pkg)
 {
     [super viewDidLoad];
     self.title = @"Queue";
-    self.view.backgroundColor = UIColor.systemGroupedBackgroundColor;
+    self.view.backgroundColor = CYCanvasColor();
+    CYApplyNavigationStyle(self.navigationController);
 
     self.tableView = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStyleInsetGrouped];
     self.tableView.translatesAutoresizingMaskIntoConstraints = NO;
     self.tableView.dataSource = self;
     self.tableView.delegate = self;
+    CYConfigureTableView(self.tableView);
     [self.view addSubview:self.tableView];
 
     UIView *footer = [self buildFooter];
@@ -95,10 +97,11 @@ static BOOL QueuePackageIsHideHomeBar(Package *pkg)
 - (UIView *)buildFooter
 {
     UIView *container = [[UIView alloc] init];
-    container.backgroundColor = UIColor.systemGroupedBackgroundColor;
+    container.backgroundColor = CYCanvasColor();
 
     UIButtonConfiguration *confirmCfg = [UIButtonConfiguration filledButtonConfiguration];
     confirmCfg.title = @"Confirm";
+    confirmCfg.baseBackgroundColor = CYAccentColor();
     confirmCfg.cornerStyle = UIButtonConfigurationCornerStyleLarge;
     confirmCfg.titleTextAttributesTransformer = ^NSDictionary<NSAttributedStringKey,id> *(NSDictionary<NSAttributedStringKey,id> *incoming) {
         NSMutableDictionary *attrs = [incoming mutableCopy];
@@ -108,6 +111,7 @@ static BOOL QueuePackageIsHideHomeBar(Package *pkg)
     self.confirmButton = [UIButton buttonWithConfiguration:confirmCfg primaryAction:[UIAction actionWithHandler:^(UIAction *_) {
         [self didTapConfirm];
     }]];
+    CYPolishButton(self.confirmButton);
     self.confirmButton.translatesAutoresizingMaskIntoConstraints = NO;
     [container addSubview:self.confirmButton];
 
@@ -122,6 +126,7 @@ static BOOL QueuePackageIsHideHomeBar(Package *pkg)
     self.clearButton = [UIButton buttonWithConfiguration:clearCfg primaryAction:[UIAction actionWithHandler:^(UIAction *_) {
         [self didTapClear];
     }]];
+    CYPolishButton(self.clearButton);
     self.clearButton.translatesAutoresizingMaskIntoConstraints = NO;
     [container addSubview:self.clearButton];
 
@@ -168,19 +173,19 @@ static BOOL QueuePackageIsHideHomeBar(Package *pkg)
     if (width <= 0.0) width = UIScreen.mainScreen.bounds.size.width;
 
     UIView *container = [[UIView alloc] initWithFrame:CGRectMake(0.0, 0.0, width, 1.0)];
-    container.backgroundColor = UIColor.systemGroupedBackgroundColor;
+    container.backgroundColor = CYCanvasColor();
 
     UIView *card = [[UIView alloc] init];
     card.translatesAutoresizingMaskIntoConstraints = NO;
-    card.backgroundColor = [UIColor.systemOrangeColor colorWithAlphaComponent:0.14];
+    card.backgroundColor = [CYAccentColor() colorWithAlphaComponent:0.12];
     card.layer.cornerRadius = 16.0;
     card.layer.borderWidth = 1.0;
-    card.layer.borderColor = [UIColor.systemOrangeColor colorWithAlphaComponent:0.28].CGColor;
+    card.layer.borderColor = [CYAccentColor() colorWithAlphaComponent:0.28].CGColor;
     [container addSubview:card];
 
     UIImageView *icon = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"exclamationmark.triangle.fill"]];
     icon.translatesAutoresizingMaskIntoConstraints = NO;
-    icon.tintColor = UIColor.systemOrangeColor;
+    icon.tintColor = CYAccentColor();
     icon.contentMode = UIViewContentModeScaleAspectFit;
     [card addSubview:icon];
 

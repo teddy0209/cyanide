@@ -441,6 +441,8 @@ static NSArray<NSDictionary *> *settings_repotweaks_tweaks_for_url(NSString *rep
 
 - (void)viewDidLoad {
     [super viewDidLoad];
+    CYConfigureTableView(self.tableView);
+    CYApplyNavigationStyle(self.navigationController);
     NSDictionary *repo = settings_repotweaks_repo_for_url(self.repoURL);
     NSString *repoName = settings_string_or_empty(repo[@"repoName"]);
     self.title = repoName.length ? repoName : @"Repository";
@@ -10259,7 +10261,7 @@ static NSString *settings_pretty_date_for_iso(NSString *iso)
     return date ? [out stringFromDate:date] : iso;
 }
 
-@interface SettingsViewController () <UIDocumentPickerDelegate, PHPickerViewControllerDelegate>
+@interface SettingsViewController () <UIDocumentPickerDelegate, PHPickerViewControllerDelegate, UISearchResultsUpdating>
 @property (nonatomic, strong) UISegmentedControl *powercuffSegmented;
 @property (nonatomic, assign) BOOL pendingManualActionsReload;
 @property (nonatomic, assign) BOOL detailMode;
@@ -10272,6 +10274,9 @@ static NSString *settings_pretty_date_for_iso(NSString *iso)
 @property (nonatomic, strong) NSString *qlRawScript;
 @property (nonatomic, strong) NSMutableDictionary *qlValues;
 @property (nonatomic, strong) NSArray *qlParams;
+@property (nonatomic, copy) NSString *settingsSearchText;
+@property (nonatomic, copy) NSString *detailSearchText;
+@property (nonatomic, strong) UIView *tweakDetailHeader;
 @end
 
 // Singleton delegate so MFMailCompose's host VC doesn't need to conform. Lives
@@ -10365,7 +10370,7 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
         cell.textLabel.text = @"Bundle ID → PNG Data";
         cell.detailTextLabel.text =
             @"Make a dictionary plist. Each key is a bundle ID. Each value is raw PNG data. "
-             "Cyanide imports the plist and copies it into Documents/Themes.";
+             "Infern0 imports the plist and copies it into Documents/Themes.";
     } else {
         cell.selectionStyle = UITableViewCellSelectionStyleDefault;
         if (indexPath.row == 0) {
@@ -10376,7 +10381,7 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
             cell.detailTextLabel.text = @"Exports the iOS 6 Theme plist. Icons by zagnut531/iOS-6-Icons.";
         } else {
             cell.textLabel.text = @"Share App Info.plist";
-            cell.detailTextLabel.text = @"Exports Cyanide's bundled Info.plist for reference.";
+            cell.detailTextLabel.text = @"Exports Infern0's bundled Info.plist for reference.";
         }
         cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     }
@@ -10428,7 +10433,7 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
     if (!data) return nil;
 
     NSURL *url = [NSURL fileURLWithPath:
-        [NSTemporaryDirectory() stringByAppendingPathComponent:@"CyanideThemeTemplate.plist"]];
+        [NSTemporaryDirectory() stringByAppendingPathComponent:@"Infern0ThemeTemplate.plist"]];
     if (![data writeToURL:url options:NSDataWritingAtomic error:error]) return nil;
     return url;
 }
@@ -10446,7 +10451,7 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
     }
 
     NSURL *dst = [NSURL fileURLWithPath:
-        [NSTemporaryDirectory() stringByAppendingPathComponent:@"Cyanide-iOS6-Theme.plist"]];
+        [NSTemporaryDirectory() stringByAppendingPathComponent:@"Infern0-iOS6-Theme.plist"]];
     NSFileManager *fm = NSFileManager.defaultManager;
     if ([fm fileExistsAtPath:dst.path]) {
         [fm removeItemAtURL:dst error:nil];
@@ -10468,7 +10473,7 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
     }
 
     NSURL *dst = [NSURL fileURLWithPath:
-        [NSTemporaryDirectory() stringByAppendingPathComponent:@"Cyanide-Info.plist"]];
+        [NSTemporaryDirectory() stringByAppendingPathComponent:@"Infern0-Info.plist"]];
     NSFileManager *fm = NSFileManager.defaultManager;
     if ([fm fileExistsAtPath:dst.path]) {
         [fm removeItemAtURL:dst error:nil];
@@ -10602,7 +10607,9 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
     BOOL applied = enabled && settings_tweak_is_applied(kSettingsQuickLoaderEnabled);
 
     if (filename) {
-        NSString *source = hasRepoTweak ? @"From source repo" : @"Local file";
+        NSArray *localNames = [ud arrayForKey:@"QuickLoaderSourceScriptNames"];
+        NSString *source = hasRepoTweak ? @"From source repo"
+            : (localNames.count > 1 ? [NSString stringWithFormat:@"%lu local files", (unsigned long)localNames.count] : @"Local file");
         [rows addObject:@{ @"kind": @"ql-loaded",
                            @"title": filename,
                            @"subtitle": source,
@@ -10644,12 +10651,12 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
         }
     }
 
-    [rows addObject:@{ @"kind": @"button", @"action": @"quickloader-run-js", @"title": @"Select .js File" }];
+    [rows addObject:@{ @"kind": @"button", @"action": @"quickloader-run-js", @"title": @"Select .js Files" }];
     [rows addObject:@{ @"kind": @"button", @"action": @"quickloader-open-sources", @"title": @"Browse Sources" }];
 
     if (filename) {
         [rows addObject:@{ @"kind": @"button", @"action": @"quickloader-clear",
-                           @"title": @"Clear Loaded Tweak", @"destructive": @YES }];
+                           @"title": @"Clear Loaded Tweaks", @"destructive": @YES }];
     }
 
     return rows;
@@ -10680,10 +10687,17 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
     return self;
 }
 
++ (instancetype)quickLoaderSettingsController
+{
+    return [[self alloc] initWithUnderlyingSection:SectionQuickLoader bundleTitle:@"QuickLoader"];
+}
+
 - (void)viewDidLoad
 {
     [super viewDidLoad];
     self.title = self.detailMode ? (self.bundleTitle ?: @"Settings") : @"Settings";
+    CYConfigureTableView(self.tableView);
+    CYApplyNavigationStyle(self.navigationController);
     self.tableView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentAlways;
     self.tableView.rowHeight                      = UITableViewAutomaticDimension;
     self.tableView.estimatedRowHeight             = 44.0;
@@ -10724,14 +10738,195 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
                                                                          action:@selector(navRespringTapped)];
         respringItem.accessibilityLabel = @"Respring";
         self.navigationItem.rightBarButtonItem = respringItem;
+        UISearchController *search = [[UISearchController alloc] initWithSearchResultsController:nil];
+        search.searchResultsUpdater = self;
+        search.obscuresBackgroundDuringPresentation = NO;
+        search.searchBar.placeholder = @"Search tweak settings";
+        self.navigationItem.searchController = search;
+        self.navigationItem.hidesSearchBarWhenScrolling = YES;
+        self.definesPresentationContext = YES;
     } else {
-        UIBarButtonItem *logsItem = [[UIBarButtonItem alloc] initWithTitle:@"Logs"
-                                                                    style:UIBarButtonItemStylePlain
-                                                                   target:self
-                                                                   action:@selector(openViewLog)];
-        logsItem.accessibilityLabel = @"View detailed tweak activity log";
-        self.navigationItem.rightBarButtonItem = logsItem;
+        [self buildTweakDetailHeader];
+        UISearchController *search = [[UISearchController alloc] initWithSearchResultsController:nil];
+        search.searchResultsUpdater = self;
+        search.obscuresBackgroundDuringPresentation = NO;
+        search.searchBar.placeholder = @"Search this tweak";
+        self.navigationItem.searchController = search;
+        self.navigationItem.hidesSearchBarWhenScrolling = YES;
+        self.definesPresentationContext = YES;
+        [self installTweakDetailMenu];
     }
+}
+
+- (void)viewDidLayoutSubviews
+{
+    [super viewDidLayoutSubviews];
+    if (!self.tweakDetailHeader) return;
+    CGFloat width = self.tableView.bounds.size.width;
+    UIView *card = [self.tweakDetailHeader viewWithTag:4100];
+    if (width <= 0.0 || (fabs(self.tweakDetailHeader.frame.size.width - width) < 0.5 && card.bounds.size.width > 0.0)) return;
+    self.tweakDetailHeader.frame = CGRectMake(0.0, 0.0, width, 142.0);
+    card.frame = CGRectMake(16.0, 10.0, width - 32.0, 120.0);
+    [card viewWithTag:4101].frame = CGRectMake(18.0, 17.0, 44.0, 44.0);
+    [card viewWithTag:4102].frame = CGRectMake(76.0, 15.0, card.bounds.size.width - 94.0, 17.0);
+    [card viewWithTag:4103].frame = CGRectMake(76.0, 35.0, card.bounds.size.width - 94.0, 27.0);
+    [card viewWithTag:4104].frame = CGRectMake(18.0, 78.0, card.bounds.size.width - 36.0, 28.0);
+    self.tableView.tableHeaderView = self.tweakDetailHeader;
+}
+
+- (void)updateTweakDetailHeaderSummary
+{
+    if (!self.tweakDetailHeader) return;
+    NSUInteger controlCount = 0;
+    NSUInteger enabledCount = 0;
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+    for (NSDictionary *row in [self rowsForSection:self.underlyingSection]) {
+        NSString *kind = row[@"kind"] ?: @"toggle";
+        if (![kind isEqualToString:@"info"] && ![kind isEqualToString:@"button"]) controlCount++;
+        if ([kind isEqualToString:@"toggle"] && [row[@"key"] isKindOfClass:NSString.class] && [defaults boolForKey:row[@"key"]]) enabledCount++;
+    }
+    UILabel *summary = (UILabel *)[[self.tweakDetailHeader viewWithTag:4100] viewWithTag:4104];
+    summary.text = enabledCount > 0
+        ? [NSString stringWithFormat:@"%lu enabled · %lu controls · Values save automatically", (unsigned long)enabledCount, (unsigned long)controlCount]
+        : [NSString stringWithFormat:@"%lu controls · Values save automatically; use Run or Apply when shown", (unsigned long)controlCount];
+}
+
+- (NSDictionary *)bundleMetadataForUnderlyingSection
+{
+    for (NSDictionary *bundle in [self allTweakBundleRows]) {
+        if ([bundle[@"section"] integerValue] == self.underlyingSection) return bundle;
+    }
+    return nil;
+}
+
+- (void)buildTweakDetailHeader
+{
+    NSDictionary *metadata = [self bundleMetadataForUnderlyingSection];
+    NSArray<NSDictionary *> *rows = [self rowsForSection:self.underlyingSection];
+    NSUInteger controlCount = 0;
+    NSUInteger enabledCount = 0;
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+    for (NSDictionary *row in rows) {
+        NSString *kind = row[@"kind"] ?: @"toggle";
+        if (![kind isEqualToString:@"info"] && ![kind isEqualToString:@"button"]) controlCount++;
+        if ([kind isEqualToString:@"toggle"] && [row[@"key"] isKindOfClass:NSString.class] && [defaults boolForKey:row[@"key"]]) enabledCount++;
+    }
+
+    UIView *header = [[UIView alloc] initWithFrame:CGRectMake(0.0, 0.0, self.tableView.bounds.size.width, 142.0)];
+    UIView *card = [[UIView alloc] init];
+    card.tag = 4100;
+    CYApplyCardStyle(card, 22.0);
+    [header addSubview:card];
+
+    UIImageView *icon = [[UIImageView alloc] init];
+    icon.tag = 4101;
+    icon.image = CYIconBadgeImage(metadata[@"icon"] ?: @"slider.horizontal.3", metadata[@"color"] ?: CYAccentColor(), 44.0);
+    [card addSubview:icon];
+
+    UILabel *eyebrow = [[UILabel alloc] init];
+    eyebrow.tag = 4102;
+    eyebrow.text = @"TWEAK SETTINGS";
+    eyebrow.font = [UIFont systemFontOfSize:11.0 weight:UIFontWeightHeavy];
+    eyebrow.textColor = CYAccentColor();
+    [card addSubview:eyebrow];
+
+    UILabel *title = [[UILabel alloc] init];
+    title.tag = 4103;
+    title.text = self.bundleTitle ?: @"Settings";
+    title.font = [UIFont systemFontOfSize:21.0 weight:UIFontWeightBold];
+    title.adjustsFontSizeToFitWidth = YES;
+    title.minimumScaleFactor = 0.8;
+    [card addSubview:title];
+
+    UILabel *summary = [[UILabel alloc] init];
+    summary.tag = 4104;
+    summary.font = [UIFont systemFontOfSize:13.0 weight:UIFontWeightMedium];
+    summary.textColor = UIColor.secondaryLabelColor;
+    summary.numberOfLines = 2;
+    summary.text = enabledCount > 0
+        ? [NSString stringWithFormat:@"%lu enabled · %lu controls · Values save automatically", (unsigned long)enabledCount, (unsigned long)controlCount]
+        : [NSString stringWithFormat:@"%lu controls · Values save automatically; use Run or Apply when shown", (unsigned long)controlCount];
+    [card addSubview:summary];
+
+    self.tweakDetailHeader = header;
+    self.tableView.tableHeaderView = header;
+    [self viewDidLayoutSubviews];
+    CYAnimateEntrance(card);
+}
+
+- (NSArray<NSDictionary *> *)detailRowsWithIndexes
+{
+    NSArray<NSDictionary *> *rows = [self rowsForSection:self.underlyingSection];
+    NSMutableArray<NSDictionary *> *visible = [NSMutableArray arrayWithCapacity:rows.count];
+    NSString *query = self.detailSearchText.lowercaseString;
+    [rows enumerateObjectsUsingBlock:^(NSDictionary *row, NSUInteger idx, BOOL *stop) {
+        (void)stop;
+        NSString *haystack = [NSString stringWithFormat:@"%@ %@ %@", row[@"title"] ?: @"", row[@"subtitle"] ?: @"", row[@"key"] ?: @""];
+        if (query.length == 0 || [haystack.lowercaseString containsString:query]) {
+            [visible addObject:@{ @"row": row, @"index": @(idx) }];
+        }
+    }];
+    return visible;
+}
+
+- (NSIndexPath *)underlyingIndexPathForDisplayedIndexPath:(NSIndexPath *)indexPath
+{
+    NSArray<NSDictionary *> *visible = [self detailRowsWithIndexes];
+    if (indexPath.row >= (NSInteger)visible.count) return nil;
+    return [NSIndexPath indexPathForRow:[visible[indexPath.row][@"index"] integerValue]
+                              inSection:self.underlyingSection];
+}
+
+- (void)installTweakDetailMenu
+{
+    __weak typeof(self) weakSelf = self;
+    UIAction *activity = [UIAction actionWithTitle:@"View Activity"
+                                              image:[UIImage systemImageNamed:@"waveform.path.ecg"]
+                                         identifier:nil
+                                            handler:^(__kindof UIAction *action) { (void)action; [weakSelf openViewLog]; }];
+    BOOL hasResettableKeys = NO;
+    for (NSDictionary *row in [self rowsForSection:self.underlyingSection]) {
+        if ([row[@"key"] isKindOfClass:NSString.class]) { hasResettableKeys = YES; break; }
+    }
+    UIAction *reset = [UIAction actionWithTitle:@"Reset Tweak Settings"
+                                           image:[UIImage systemImageNamed:@"arrow.counterclockwise"]
+                                      identifier:nil
+                                         handler:^(__kindof UIAction *action) { (void)action; [weakSelf confirmResetCurrentTweak]; }];
+    reset.attributes = hasResettableKeys ? UIMenuElementAttributesDestructive : UIMenuElementAttributesDisabled;
+    UIMenu *menu = [UIMenu menuWithTitle:@"" children:@[activity, reset]];
+    UIBarButtonItem *item = [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"ellipsis.circle"] menu:menu];
+    item.accessibilityLabel = @"Tweak settings actions";
+    self.navigationItem.rightBarButtonItem = item;
+}
+
+- (void)confirmResetCurrentTweak
+{
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:[NSString stringWithFormat:@"Reset %@?", self.bundleTitle ?: @"Tweak Settings"]
+                                                                    message:@"This restores this tweak's controls to their registered defaults. You may need to run or reapply the tweak afterward."
+                                                             preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    __weak typeof(self) weakSelf = self;
+    [alert addAction:[UIAlertAction actionWithTitle:@"Reset" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
+        (void)action;
+        __strong typeof(weakSelf) self = weakSelf;
+        if (!self) return;
+        NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+        NSUInteger resetCount = 0;
+        for (NSDictionary *row in [self rowsForSection:self.underlyingSection]) {
+            NSString *key = [row[@"key"] isKindOfClass:NSString.class] ? row[@"key"] : nil;
+            if (!key.length) continue;
+            [defaults removeObjectForKey:key];
+            settings_note_package_configuration_changed(key);
+            settings_schedule_live_apply_for_key(key);
+            resetCount++;
+        }
+        [defaults synchronize];
+        log_user("[SETTINGS] Reset %lu stored option%s for %s.\n", (unsigned long)resetCount, resetCount == 1 ? "" : "s", (self.bundleTitle ?: @"tweak").UTF8String);
+        [self buildTweakDetailHeader];
+        [self.tableView reloadData];
+        CYSuccessHaptic();
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
 }
 
 - (void)navRespringTapped
@@ -10792,6 +10987,7 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
     btn.tintColor = self.view.tintColor;
     btn.contentEdgeInsets = UIEdgeInsetsMake(0, 0, 0, 4);
     [btn addTarget:self action:@selector(returnToInstaller) forControlEvents:UIControlEventTouchUpInside];
+    CYPolishButton(btn);
     [btn sizeToFit];
 
     UIBarButtonItem *backItem = [[UIBarButtonItem alloc] initWithCustomView:btn];
@@ -10840,6 +11036,7 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
 {
     [super viewWillAppear:animated];
     [self reloadManualActions];
+    if (self.detailMode) [self updateTweakDetailHeaderSummary];
 
     // The NanoRegistry plist lives behind a sandbox wall on-device. Keep the
     // detail panel passive; the explicit "Load Current" button performs the
@@ -11552,6 +11749,24 @@ static _CyanideMailDelegate *_cyanide_mail_delegate(void) {
         @{ @"kind": @"slider", @"key": kSettingsPullOverCornerRadius, @"title": @"Corner radius", @"min": @0, @"max": @40, @"step": @1, @"default": @20, @"unit": @"pt" },
         @{ @"kind": @"slider", @"key": kSettingsPullOverBackgroundAlphaPct, @"title": @"Background alpha", @"min": @20, @"max": @100, @"step": @1, @"default": @88, @"unit": @"%" },
     ];
+}
+
+- (void)updateSearchResultsForSearchController:(UISearchController *)searchController
+{
+    NSString *query = [searchController.searchBar.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] ?: @"";
+    if (self.detailMode) self.detailSearchText = query;
+    else self.settingsSearchText = query;
+    [self.tableView reloadData];
+    if (self.detailMode && query.length > 0 && [self detailRowsWithIndexes].count == 0) {
+        UILabel *empty = [[UILabel alloc] init];
+        empty.text = @"No controls match your search";
+        empty.font = [UIFont systemFontOfSize:15.0 weight:UIFontWeightMedium];
+        empty.textColor = UIColor.tertiaryLabelColor;
+        empty.textAlignment = NSTextAlignmentCenter;
+        self.tableView.backgroundView = empty;
+    } else {
+        self.tableView.backgroundView = nil;
+    }
 }
 
 typedef struct {
@@ -12460,6 +12675,10 @@ static bool settings_apply_community_ports(NSUserDefaults *d)
                 destination = RootSectionUtilities; break;
         }
         if (destination != section) continue;
+        if (self.settingsSearchText.length > 0) {
+            NSString *title = [bundle[@"title"] isKindOfClass:NSString.class] ? bundle[@"title"] : @"";
+            if ([title rangeOfString:self.settingsSearchText options:NSCaseInsensitiveSearch].location == NSNotFound) continue;
+        }
         [seen addObject:sectionNumber];
         [out addObject:bundle];
     }
@@ -12476,15 +12695,17 @@ static bool settings_apply_community_ports(NSUserDefaults *d)
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section
 {
     if (self.detailMode) {
-        return (NSInteger)[self rowsForSection:self.underlyingSection].count;
+        return (NSInteger)[self detailRowsWithIndexes].count;
     }
+    BOOL searching = self.settingsSearchText.length > 0;
     switch ((RootSection)section) {
         case RootSectionChangelog: {
+            if (searching) return 0;
             NSInteger n = (NSInteger)settings_changelog_entries().count;
             if (n == 0) return 0;
             return self.changelogExpanded ? n + 2 : 1;
         }
-        case RootSectionActions:        return 4;
+        case RootSectionActions:        return searching ? 0 : 4;
         case RootSectionHomeScreen:
         case RootSectionLockAndNotifications:
         case RootSectionControlCenter:
@@ -12494,7 +12715,7 @@ static bool settings_apply_community_ports(NSUserDefaults *d)
         case RootSectionUtilities:
         case RootSectionSystem:
             return (NSInteger)[self bundleRowsForRootSection:(RootSection)section].count;
-        case RootSectionAbout:          return 6;
+        case RootSectionAbout:          return searching ? 0 : 6;
         case RootSectionWarning:        return 0;
         case RootSectionCount:          return 0;
     }
@@ -12504,6 +12725,10 @@ static bool settings_apply_community_ports(NSUserDefaults *d)
 - (NSString *)settingsRootSectionTitle:(NSInteger)section
 {
     if (self.detailMode) return nil;
+    if (self.settingsSearchText.length > 0 &&
+        ((RootSection)section == RootSectionChangelog ||
+         (RootSection)section == RootSectionActions ||
+         (RootSection)section == RootSectionAbout)) return nil;
     switch ((RootSection)section) {
         case RootSectionChangelog:      return self.changelogExpanded ? @"What's New" : nil;
         case RootSectionActions:        return @"Quick Actions";
@@ -12513,8 +12738,8 @@ static bool settings_apply_community_ports(NSUserDefaults *d)
         case RootSectionStatusBar:      return [self bundleRowsForRootSection:section].count ? @"Status Bar" : nil;
         case RootSectionMultitasking:   return [self bundleRowsForRootSection:section].count ? @"Multitasking" : nil;
         case RootSectionThemesAndVisuals: return [self bundleRowsForRootSection:section].count ? @"Themes & Visuals" : nil;
-        case RootSectionUtilities:      return [self bundleRowsForRootSection:section].count ? @"Utilities & Experiments" : nil;
-        case RootSectionSystem:         return [self bundleRowsForRootSection:section].count ? @"System" : nil;
+        case RootSectionUtilities:      return [self bundleRowsForRootSection:section].count ? @"Tools & Developer" : nil;
+        case RootSectionSystem:         return [self bundleRowsForRootSection:section].count ? @"Advanced & System" : nil;
         case RootSectionAbout:          return @"About";
         default:                        return nil;
     }
@@ -12522,6 +12747,7 @@ static bool settings_apply_community_ports(NSUserDefaults *d)
 
 - (UIView *)tableView:(UITableView *)tableView viewForHeaderInSection:(NSInteger)section
 {
+    if (self.detailMode) return nil;
     NSString *title = [self settingsRootSectionTitle:section];
     return title ? CYSectionHeaderView(title) : nil;
 }
@@ -12724,9 +12950,56 @@ static bool settings_apply_community_ports(NSUserDefaults *d)
     return nil;
 }
 
+- (UIView *)tableView:(UITableView *)tableView viewForFooterInSection:(NSInteger)section
+{
+    if (!self.detailMode) return nil;
+    NSString *bodyText = [self tableView:tableView titleForFooterInSection:section];
+    if (bodyText.length == 0) return nil;
+
+    UIView *container = [[UIView alloc] init];
+    UIView *card = [[UIView alloc] init];
+    card.translatesAutoresizingMaskIntoConstraints = NO;
+    CYApplyCardStyle(card, 18.0);
+    card.layer.shadowOpacity = 0.0;
+    [container addSubview:card];
+
+    UILabel *eyebrow = [[UILabel alloc] init];
+    eyebrow.translatesAutoresizingMaskIntoConstraints = NO;
+    eyebrow.text = @"HOW IT WORKS";
+    eyebrow.font = [UIFont systemFontOfSize:11.0 weight:UIFontWeightHeavy];
+    eyebrow.textColor = CYAccentColor();
+    [card addSubview:eyebrow];
+
+    UILabel *body = [[UILabel alloc] init];
+    body.translatesAutoresizingMaskIntoConstraints = NO;
+    body.text = bodyText;
+    body.font = [UIFont preferredFontForTextStyle:UIFontTextStyleFootnote];
+    body.adjustsFontForContentSizeCategory = YES;
+    body.textColor = UIColor.secondaryLabelColor;
+    body.numberOfLines = 0;
+    [card addSubview:body];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [card.topAnchor constraintEqualToAnchor:container.topAnchor constant:12.0],
+        [card.leadingAnchor constraintEqualToAnchor:container.leadingAnchor constant:16.0],
+        [card.trailingAnchor constraintEqualToAnchor:container.trailingAnchor constant:-16.0],
+        [card.bottomAnchor constraintEqualToAnchor:container.bottomAnchor constant:-22.0],
+        [eyebrow.topAnchor constraintEqualToAnchor:card.topAnchor constant:16.0],
+        [eyebrow.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:16.0],
+        [eyebrow.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-16.0],
+        [body.topAnchor constraintEqualToAnchor:eyebrow.bottomAnchor constant:8.0],
+        [body.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:16.0],
+        [body.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-16.0],
+        [body.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-16.0],
+    ]];
+    return container;
+}
+
 - (CGFloat)tableView:(UITableView *)tableView heightForHeaderInSection:(NSInteger)section
 {
+    if (self.detailMode) return CGFLOAT_MIN;
     if (!self.detailMode) {
+        if (self.settingsSearchText.length > 0 && [self tableView:tableView numberOfRowsInSection:section] == 0) return CGFLOAT_MIN;
         if ((RootSection)section == RootSectionWarning) return CGFLOAT_MIN;
         if ((RootSection)section == RootSectionChangelog     && settings_changelog_entries().count == 0) return CGFLOAT_MIN;
         RootSection root = (RootSection)section;
@@ -12770,16 +13043,42 @@ static bool settings_apply_community_ports(NSUserDefaults *d)
 
 - (UITableViewCell *)buildBundleCellWithRow:(NSDictionary *)row tableView:(UITableView *)tableView
 {
-    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"bundle"];
+    static NSString *identifier = @"bundle-summary";
+    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:identifier];
     if (!cell) {
-        cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"bundle"];
+        cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:identifier];
     }
-    cell.imageView.image = [SettingsViewController iconBadgeWithSymbol:row[@"icon"] color:row[@"color"] size:29.0];
+    NSArray<NSDictionary *> *rows = [self rowsForSection:[row[@"section"] integerValue]];
+    NSUInteger controlCount = 0;
+    NSUInteger enabledCount = 0;
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+    for (NSDictionary *control in rows) {
+        NSString *kind = control[@"kind"] ?: @"toggle";
+        if (![kind isEqualToString:@"info"] && ![kind isEqualToString:@"button"]) controlCount++;
+        if ([kind isEqualToString:@"toggle"] && [control[@"key"] isKindOfClass:NSString.class] && [defaults boolForKey:control[@"key"]]) enabledCount++;
+    }
+    UIColor *color = row[@"color"] ?: CYAccentColor();
+    cell.imageView.image = CYIconBadgeImage(row[@"icon"] ?: @"slider.horizontal.3", color, 34.0);
     cell.textLabel.text = row[@"title"];
-    cell.textLabel.font = [UIFont systemFontOfSize:17.0];
+    cell.textLabel.font = [UIFont systemFontOfSize:16.5 weight:UIFontWeightSemibold];
     cell.textLabel.textColor = UIColor.labelColor;
+    if ([row[@"indev"] boolValue]) {
+        cell.detailTextLabel.text = controlCount > 0
+            ? [NSString stringWithFormat:@"In development · %lu controls", (unsigned long)controlCount]
+            : @"In development";
+        cell.detailTextLabel.textColor = UIColor.systemOrangeColor;
+    } else if (enabledCount > 0) {
+        cell.detailTextLabel.text = [NSString stringWithFormat:@"%lu enabled · %lu controls", (unsigned long)enabledCount, (unsigned long)controlCount];
+        cell.detailTextLabel.textColor = UIColor.systemGreenColor;
+    } else {
+        cell.detailTextLabel.text = [NSString stringWithFormat:@"%lu configurable control%@", (unsigned long)controlCount, controlCount == 1 ? @"" : @"s"];
+        cell.detailTextLabel.textColor = UIColor.secondaryLabelColor;
+    }
+    cell.detailTextLabel.font = [UIFont systemFontOfSize:12.5 weight:UIFontWeightRegular];
     cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+    cell.accessoryView = nil;
     cell.selectionStyle = UITableViewCellSelectionStyleDefault;
+    cell.accessibilityValue = cell.detailTextLabel.text;
     return cell;
 }
 
@@ -12949,7 +13248,7 @@ static bool settings_apply_community_ports(NSUserDefaults *d)
 
 - (void)openReleasesPage
 {
-    NSURL *url = [NSURL URLWithString:@"https://github.com/zeroxjf/cyanide/releases"];
+    NSURL *url = [NSURL URLWithString:@"https://github.com/Nnnnnnn274/Infern0/releases"];
     if (url) [[UIApplication sharedApplication] openURL:url options:@{} completionHandler:nil];
 }
 
@@ -12986,9 +13285,9 @@ static bool settings_apply_community_ports(NSUserDefaults *d)
 
     switch (row) {
         case 0:
-            cell.imageView.image = [SettingsViewController iconBadgeWithSymbol:@"at" color:UIColor.systemRedColor size:29.0];
-            cell.textLabel.text = @"Twitter";
-            cell.detailTextLabel.text = @"@zeroxjf";
+            cell.imageView.image = [SettingsViewController iconBadgeWithSymbol:@"chevron.left.forwardslash.chevron.right" color:UIColor.systemOrangeColor size:29.0];
+            cell.textLabel.text = @"Infern0 on GitHub";
+            cell.detailTextLabel.text = @"Source, issues, and roadmap";
             break;
         case 1:
             cell.imageView.image = [SettingsViewController iconBadgeWithSymbol:@"book.closed.fill" color:UIColor.systemPurpleColor size:29.0];
@@ -13518,6 +13817,12 @@ didFinishPicking:(NSArray<PHPickerResult *> *)results
 didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls
 {
     (void)controller;
+    NSString *requestedMode = self.pendingThemeImportMode;
+    if ([requestedMode isEqualToString:@"quickloader"]) {
+        self.pendingThemeImportMode = nil;
+        [self loadQuickLoaderDocumentsAtURLs:urls];
+        return;
+    }
     NSURL *url = urls.firstObject;
     if (!url) return;
     NSString *ext = url.pathExtension.lowercaseString;
@@ -13690,6 +13995,90 @@ didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls
 // ==========================================
 // QUICKLOADER: injecting and saving
 // ==========================================
+- (void)loadQuickLoaderDocumentsAtURLs:(NSArray<NSURL *> *)urls
+{
+    NSMutableArray<NSString *> *names = [NSMutableArray array];
+    NSMutableString *combined = [NSMutableString string];
+    NSMutableArray *params = [NSMutableArray array];
+    NSMutableDictionary *values = [NSMutableDictionary dictionary];
+    NSMutableArray<NSString *> *failures = [NSMutableArray array];
+
+    for (NSURL *url in urls) {
+        NSString *ext = url.pathExtension.lowercaseString;
+        if (!([ext isEqualToString:@"js"] || [ext isEqualToString:@"txt"])) continue;
+        BOOL scoped = [url startAccessingSecurityScopedResource];
+        NSError *error = nil;
+        NSString *content = [NSString stringWithContentsOfURL:url encoding:NSUTF8StringEncoding error:&error];
+        if (scoped) [url stopAccessingSecurityScopedResource];
+        if (content.length == 0) {
+            [failures addObject:url.lastPathComponent ?: @"Unknown file"];
+            continue;
+        }
+
+        NSString *name = url.lastPathComponent ?: [NSString stringWithFormat:@"Tweak %lu", (unsigned long)names.count + 1];
+        [names addObject:name];
+        [combined appendFormat:@"\n// ===== %@ =====\n(function infern0QuickLoaderModule() {\n%@\n})();\n", name, content];
+        log_user("[QuickLoader] Imported local module %lu: %s (%lu bytes)\n",
+                 (unsigned long)names.count, name.UTF8String, (unsigned long)[content lengthOfBytesUsingEncoding:NSUTF8StringEncoding]);
+
+        for (NSString *line in [content componentsSeparatedByString:@"\n"]) {
+            if (![line containsString:@"@param:"]) continue;
+            NSArray *parts = [line componentsSeparatedByString:@"|"];
+            if (parts.count < 4) continue;
+            NSArray *typeParts = [parts[0] componentsSeparatedByString:@"@param:"];
+            if (typeParts.count < 2) continue;
+            NSString *type = [typeParts[1] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+            NSString *varName = [parts[1] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+            if (!settings_js_identifier_valid(varName)) continue;
+            NSString *label = [parts[2] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+            NSString *defValue = [parts[3] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+            NSMutableDictionary *param = [@{ @"type": type, @"varName": varName,
+                                              @"label": names.count > 1 ? [NSString stringWithFormat:@"%@ · %@", name, label] : label,
+                                              @"default": defValue } mutableCopy];
+            if (parts.count >= 5 && ([type isEqualToString:@"slider"] || [type isEqualToString:@"number"])) {
+                NSArray *range = [[parts[4] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet] componentsSeparatedByString:@"-"];
+                if (range.count == 2) { param[@"min"] = range[0]; param[@"max"] = range[1]; }
+            }
+            if (!values[varName]) values[varName] = defValue;
+            [params addObject:param];
+        }
+    }
+
+    if (names.count == 0) {
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Nothing Imported"
+                                                                       message:@"Select one or more readable .js or .txt files."
+                                                                preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+        [self presentViewController:alert animated:YES completion:nil];
+        return;
+    }
+
+    self.qlScriptName = names.count == 1 ? names.firstObject : [NSString stringWithFormat:@"%lu local tweaks", (unsigned long)names.count];
+    self.qlRawScript = combined;
+    self.qlParams = params;
+    self.qlValues = values;
+    NSUserDefaults *d = NSUserDefaults.standardUserDefaults;
+    [d setObject:self.qlScriptName forKey:@"QuickLoaderSourceScriptName"];
+    [d setObject:names forKey:@"QuickLoaderSourceScriptNames"];
+    [d setObject:self.qlRawScript forKey:@"QuickLoaderSourceRawJS"];
+    [d setObject:self.qlValues forKey:@"QuickLoaderSourceValues"];
+    [d removeObjectForKey:@"QuickLoaderSourceRepoURL"];
+    [d removeObjectForKey:@"QuickLoaderSourceTweakID"];
+    [d synchronize];
+    [self applyQuickLoaderScript];
+    [self.tableView reloadData];
+    log_user("[QuickLoader] Ready: %lu local module%s compiled into one isolated session.\n",
+             (unsigned long)names.count, names.count == 1 ? "" : "s");
+
+    if (failures.count > 0) {
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Some Files Were Skipped"
+                                                                       message:[failures componentsJoinedByString:@"\n"]
+                                                                preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+        [self presentViewController:alert animated:YES completion:nil];
+    }
+}
+
 - (NSString *)compileQuickLoaderScript {
     if (!self.qlRawScript) return nil;
 
@@ -13843,6 +14232,7 @@ didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls
     button.titleLabel.minimumScaleFactor = 0.78;
     button.contentEdgeInsets = UIEdgeInsetsMake(10, 8, 10, 8);
     [button addTarget:self action:@selector(nicebarSlotButtonTapped:) forControlEvents:UIControlEventTouchUpInside];
+    CYPolishButton(button);
 
     NSString *title = [NSString stringWithFormat:@"%@\n%@\n%@",
                        settings_nicebar_slot_name(slot),
@@ -14260,9 +14650,9 @@ didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls
 
 #pragma mark - Links
 
-- (void)openTwitter
+- (void)openProject
 {
-    NSURL *url = [NSURL URLWithString:@"https://twitter.com/zeroxjf"];
+    NSURL *url = [NSURL URLWithString:@"https://github.com/Nnnnnnn274/Infern0"];
     if (url) [[UIApplication sharedApplication] openURL:url options:@{} completionHandler:nil];
 }
 
@@ -14532,7 +14922,7 @@ void cyanide_present_contact(UIViewController *host)
 
     UIAlertController *ac = [UIAlertController
         alertControllerWithTitle:@"Mail Not Available"
-                         message:@"Set up Mail in iOS Settings to send feedback, or DM @zeroxjf on Twitter. View Log in Settings to copy the latest diagnostic log."
+                         message:@"Set up Mail in iOS Settings to send feedback, or report the issue on the Infern0 GitHub project. Activity can share the latest diagnostic log."
                   preferredStyle:UIAlertControllerStyleAlert];
     [ac addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
     [host presentViewController:ac animated:YES completion:nil];
@@ -14583,7 +14973,9 @@ void cyanide_present_contact(UIViewController *host)
                 return [[UITableViewCell alloc] init];
         }
     } else {
-        indexPath = [NSIndexPath indexPathForRow:indexPath.row inSection:self.underlyingSection];
+        NSIndexPath *underlyingPath = [self underlyingIndexPathForDisplayedIndexPath:indexPath];
+        if (!underlyingPath) return [[UITableViewCell alloc] init];
+        indexPath = underlyingPath;
     }
 
     if (indexPath.section == SectionWarning) {
@@ -14701,25 +15093,42 @@ void cyanide_present_contact(UIViewController *host)
             [action isEqualToString:@"nano-load"]) {
             rowSupported = settings_nano_load_override_enabled();
         }
-        UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"button" forIndexPath:dequeuePath];
+        static NSString *buttonIdentifier = @"button-intuitive";
+        UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:buttonIdentifier];
+        if (!cell) cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:buttonIdentifier];
         cell.selectionStyle = rowSupported ? UITableViewCellSelectionStyleDefault : UITableViewCellSelectionStyleNone;
         cell.userInteractionEnabled = rowSupported;
         cell.accessoryView = nil;
+        cell.accessoryType = rowSupported ? UITableViewCellAccessoryDisclosureIndicator : UITableViewCellAccessoryNone;
         cell.textLabel.text = row[@"title"];
-        cell.textLabel.textAlignment = NSTextAlignmentCenter;
+        cell.textLabel.textAlignment = NSTextAlignmentNatural;
+        cell.detailTextLabel.text = row[@"subtitle"];
+        cell.detailTextLabel.textColor = rowSupported ? UIColor.secondaryLabelColor : UIColor.tertiaryLabelColor;
+        cell.detailTextLabel.font = [UIFont systemFontOfSize:12.0 weight:UIFontWeightRegular];
+        cell.detailTextLabel.numberOfLines = 0;
 
         BOOL prominent = [row[@"style"] isEqualToString:@"prominent"];
+        BOOL destructive = [row[@"destructive"] boolValue];
+        UIColor *actionColor = destructive ? UIColor.systemRedColor : (prominent ? CYAccentColor() : self.view.tintColor);
+        NSString *symbol = destructive ? @"trash.fill" : (prominent ? @"play.fill" : @"arrow.right.circle.fill");
+        if ([action containsString:@"restore"] || [action containsString:@"reset"] || [action containsString:@"clear"]) {
+            symbol = @"arrow.counterclockwise";
+        } else if ([action containsString:@"import"] || [action containsString:@"select"] || [action containsString:@"pick"]) {
+            symbol = @"folder.fill";
+        } else if ([action containsString:@"view"] || [action containsString:@"guide"] || [action containsString:@"log"]) {
+            symbol = @"doc.text.fill";
+        }
+        cell.imageView.image = CYIconBadgeImage(symbol, rowSupported ? actionColor : UIColor.tertiaryLabelColor, 32.0);
         if (prominent && rowSupported) {
-            cell.textLabel.textColor = UIColor.whiteColor;
+            cell.textLabel.textColor = CYAccentColor();
             cell.textLabel.font = [UIFont systemFontOfSize:17.0 weight:UIFontWeightSemibold];
-            cell.backgroundColor = self.view.tintColor;
         } else {
             cell.textLabel.textColor = rowSupported
-                ? ([row[@"destructive"] boolValue] ? UIColor.systemRedColor : self.view.tintColor)
+                ? actionColor
                 : UIColor.tertiaryLabelColor;
-            cell.textLabel.font = [UIFont systemFontOfSize:17.0 weight:UIFontWeightRegular];
-            cell.backgroundColor = nil;
+            cell.textLabel.font = [UIFont systemFontOfSize:16.0 weight:UIFontWeightSemibold];
         }
+        cell.backgroundColor = nil;
         return cell;
     }
 
@@ -15128,6 +15537,7 @@ void cyanide_present_contact(UIViewController *host)
     }
     NSString *key = row[@"key"];
     [[NSUserDefaults standardUserDefaults] setBool:sender.isOn forKey:key];
+    [self updateTweakDetailHeaderSummary];
     log_user("[SETTINGS] %s (%s) set to %s%s%s.\n",
              [row[@"title"] UTF8String] ?: "Toggle",
              key.UTF8String ?: "unknown-key",
@@ -16295,6 +16705,7 @@ void cyanide_present_contact(UIViewController *host)
                 NSDictionary *bundle = bundles[indexPath.row];
                 NSInteger underlying = [bundle[@"section"] integerValue];
                 NSString *pushTitle = bundle[@"title"];
+                CYSelectionHaptic();
                 SettingsViewController *detail = [[SettingsViewController alloc] initWithUnderlyingSection:underlying
                                                                                               bundleTitle:pushTitle];
                 [self.navigationController pushViewController:detail animated:YES];
@@ -16302,7 +16713,7 @@ void cyanide_present_contact(UIViewController *host)
             }
             case RootSectionAbout: {
                 switch (indexPath.row) {
-                    case 0: [self openTwitter]; break;
+                    case 0: [self openProject]; break;
                     case 1: {
                         DocsViewController *docs = [[DocsViewController alloc] initWithStyle:UITableViewStyleInsetGrouped];
                         [self.navigationController pushViewController:docs animated:YES];
@@ -16319,7 +16730,10 @@ void cyanide_present_contact(UIViewController *host)
                 return;
         }
     } else {
-        indexPath = [NSIndexPath indexPathForRow:indexPath.row inSection:self.underlyingSection];
+        NSIndexPath *underlyingPath = [self underlyingIndexPathForDisplayedIndexPath:indexPath];
+        if (!underlyingPath) return;
+        indexPath = underlyingPath;
+        CYSelectionHaptic();
     }
 
     NSArray<NSDictionary *> *selectedRows = [self rowsForSection:indexPath.section];
@@ -17054,10 +17468,13 @@ void cyanide_present_contact(UIViewController *host)
 
         NSString *action = row[@"action"];
         if ([action isEqualToString:@"quickloader-run-js"]) {
-            // Opens the iOS Files App Picker to select a JS file
+            // Select several local modules and compile them into one isolated
+            // JavaScriptCore run so their timers share the same lifecycle.
             NSArray *types = @[UTTypeJavaScript.identifier, UTTypePlainText.identifier];
             UIDocumentPickerViewController *dp = [[UIDocumentPickerViewController alloc] initWithDocumentTypes:types inMode:UIDocumentPickerModeImport];
             dp.delegate = self;
+            dp.allowsMultipleSelection = YES;
+            self.pendingThemeImportMode = @"quickloader";
             [self presentViewController:dp animated:YES completion:nil];
             return;
         } else if ([action isEqualToString:@"quickloader-open-sources"]) {
@@ -17066,6 +17483,7 @@ void cyanide_present_contact(UIViewController *host)
         } else if ([action isEqualToString:@"quickloader-clear"]) {
             NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
             [d removeObjectForKey:@"QuickLoaderSourceScriptName"];
+            [d removeObjectForKey:@"QuickLoaderSourceScriptNames"];
             [d removeObjectForKey:@"QuickLoaderSourceRawJS"];
             [d removeObjectForKey:@"QuickLoaderSourceValues"];
             [d removeObjectForKey:@"QuickLoaderSourceRepoURL"];

@@ -4,13 +4,15 @@
 //
 
 #import "JSTweakDocsViewController.h"
+#import "CYIconBadge.h"
 
 @implementation JSTweakDocsViewController
 
 - (void)viewDidLoad
 {
     [super viewDidLoad];
-    self.view.backgroundColor = UIColor.systemGroupedBackgroundColor;
+    self.view.backgroundColor = CYCanvasColor();
+    CYApplyNavigationStyle(self.navigationController);
 
     BOOL repoMode = (self.docsMode == JSTweakDocsModeSetupRepo);
     self.title = repoMode ? @"Set Up a Repo" : @"Build a JS Tweak";
@@ -421,13 +423,7 @@
 - (UIView *)makeCard
 {
     UIView *v = [[UIView alloc] init];
-    v.backgroundColor = UIColor.secondarySystemGroupedBackgroundColor;
-    v.layer.cornerRadius = 14.0;
-    v.layer.cornerCurve = kCACornerCurveContinuous;
-    v.layer.shadowColor = UIColor.blackColor.CGColor;
-    v.layer.shadowOpacity = 0.04f;
-    v.layer.shadowRadius = 8.0;
-    v.layer.shadowOffset = CGSizeMake(0, 2);
+    CYApplyCardStyle(v, 18.0);
     return v;
 }
 

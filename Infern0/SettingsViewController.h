@@ -197,6 +197,11 @@ void settings_application_did_become_active(void);
 
 @interface SettingsViewController : UITableViewController
 
+// Canonical route used by Home, Sources, and package details. Keeping the
+// section identifier private prevents shortcuts from drifting when sections
+// are added or reordered.
++ (instancetype)quickLoaderSettingsController;
+
 // Detail-mode init: renders a single underlying section (one tweak bundle).
 // Pass underlyingSection == NSIntegerMax for root-mode (default storyboard path).
 - (instancetype)initWithUnderlyingSection:(NSInteger)underlyingSection

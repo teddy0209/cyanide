@@ -93,7 +93,7 @@ static NSString *quickloader_compiled_script_for_raw_script(NSString *rawScript,
     if (![rawScript isKindOfClass:NSString.class] || rawScript.length == 0) return nil;
     if (![values isKindOfClass:NSMutableDictionary.class]) values = [NSMutableDictionary dictionary];
 
-    NSMutableString *finalScript = [NSMutableString stringWithString:@"//Variables injected by Cyanide\n"];
+    NSMutableString *finalScript = [NSMutableString stringWithString:@"// Variables injected by Infern0\n"];
     NSArray *lines = [rawScript componentsSeparatedByString:@"\n"];
     for (NSString *line in lines) {
         if (![line containsString:@"@param:"]) continue;
@@ -143,6 +143,7 @@ static bool quickloader_save_repo_tweak_internal(NSString *repoURL,
     if (compiled.length == 0) return false;
 
     NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
+    [d removeObjectForKey:@"QuickLoaderSourceScriptNames"];
     [d setObject:safeName.length ? safeName : safeID forKey:@"QuickLoaderSourceScriptName"];
     [d setObject:rawScript forKey:@"QuickLoaderSourceRawJS"];
     [d setObject:mutableValues forKey:@"QuickLoaderSourceValues"];
@@ -184,6 +185,7 @@ void quickloader_clear_repo_tweak_if_matches(NSString *repoURL, NSString *tweakI
     if (!quickloader_is_repo_tweak_installed(repoURL, tweakID)) return;
     NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
     [d removeObjectForKey:@"QuickLoaderSourceScriptName"];
+    [d removeObjectForKey:@"QuickLoaderSourceScriptNames"];
     [d removeObjectForKey:@"QuickLoaderSourceRawJS"];
     [d removeObjectForKey:@"QuickLoaderSourceValues"];
     [d removeObjectForKey:kQuickLoaderSourceRepoURLKey];
@@ -343,7 +345,9 @@ bool quickloader_apply_in_session() {
             return false;
         }
     } else {
-        log_user("[QuickLoader] Active session detected. Checking manually selected JS tweak...\n");
+        NSArray *localNames = [d arrayForKey:@"QuickLoaderSourceScriptNames"];
+        log_user("[QuickLoader] Active session detected. Checking %lu local JS module%s...\n",
+                 (unsigned long)MAX(localNames.count, (NSUInteger)1), localNames.count == 1 ? "" : "s");
     }
 
     NSString *savedJS = [d stringForKey:@"QuickLoaderSavedJS"];
@@ -389,7 +393,9 @@ bool quickloader_apply_in_session() {
             log_user("[QuickLoader] Executing repo package: %s\n",
                      (activeName.length ? activeName : activeTweakID).UTF8String);
         } else {
-            log_user("[QuickLoader] Executing user-provided JS file...\n");
+            NSArray *localNames = [d arrayForKey:@"QuickLoaderSourceScriptNames"];
+            log_user("[QuickLoader] Executing %lu local JS module%s in an isolated wrapper set...\n",
+                     (unsigned long)MAX(localNames.count, (NSUInteger)1), localNames.count == 1 ? "" : "s");
         }
         return quickloader_run_js_string(savedJS);
     } else {

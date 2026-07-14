@@ -149,7 +149,7 @@ void log_user(const char *fmt, ...) {
 static NSURL *log_session_dir_url(void) {
     // Logs land at the root of the app's Documents, which Info.plist's
     // UIFileSharingEnabled exposes to Files.app under
-    // On My iPhone → Cyanide → chain-*.log.
+    // On My iPhone → Infern0 → chain-*.log.
     NSURL *docs = [[[NSFileManager defaultManager]
                     URLsForDirectory:NSDocumentDirectory
                            inDomains:NSUserDomainMask] firstObject];
@@ -212,7 +212,7 @@ void log_session_begin(void) {
         time_t t = time(NULL);
         struct tm tm; localtime_r(&t, &tm);
         fprintf(log_file,
-                "# Cyanide chain session %04d-%02d-%02d %02d:%02d:%02d\n",
+                "# Infern0 activity session %04d-%02d-%02d %02d:%02d:%02d\n",
                 tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
                 tm.tm_hour, tm.tm_min, tm.tm_sec);
         fflush(log_file);
@@ -316,7 +316,8 @@ static UIColor *colorForLogLine(NSString *line) {
     // ASCII banner (infern0 flame art)
     if ([line containsString:@"╭"] || [line containsString:@"╰"] ||
         [line containsString:@"│"] || [line containsString:@"├"] ||
-        [line containsString:@"C Y A N I D E"])
+        [line containsString:@"C Y A N I D E"] ||
+        [line containsString:@"I N F E R N 0"])
         return [UIColor colorWithRed:1.00 green:0.22 blue:0.08 alpha:1.0]; // hot infern0 red
 
     // Strip timestamp prefix if present: "[HH:MM:SS.mmm] " -> check what follows
@@ -388,6 +389,8 @@ static UIColor *colorForLogLine(NSString *line) {
 @property (nonatomic) int renderedTrimGen;
 @property (nonatomic) BOOL followTail;
 @property (nonatomic) BOOL pendingTailScroll;
+@property (nonatomic, copy) NSString *activeFilterText;
+@property (nonatomic) NSInteger activeSeverityFilter;
 @end
 
 @implementation LogTextView
@@ -406,9 +409,9 @@ static UIColor *colorForLogLine(NSString *line) {
 
 - (void)setup {
     self.editable   = NO;
-    self.font       = [UIFont systemFontOfSize:13.5 weight:UIFontWeightRegular];
-    self.backgroundColor = [UIColor colorWithRed:0.04 green:0.05 blue:0.07 alpha:1.0];
-    self.textColor  = [UIColor colorWithWhite:0.88 alpha:1.0];
+    self.font       = [UIFont monospacedSystemFontOfSize:12.75 weight:UIFontWeightRegular];
+    self.backgroundColor = [UIColor colorWithRed:0.025 green:0.020 blue:0.019 alpha:1.0];
+    self.textColor  = [UIColor colorWithRed:0.94 green:0.90 blue:0.86 alpha:1.0];
     self.textContainerInset = UIEdgeInsetsMake(14, 16, 24, 16);
     self.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentAlways;
     _followTail = YES;
@@ -431,6 +434,20 @@ static UIColor *colorForLogLine(NSString *line) {
     [self refreshLogTextForced:NO];
 }
 
+- (void)setLogFilterText:(NSString *)filterText {
+    NSString *normalized = [filterText stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet].lowercaseString ?: @"";
+    if ([self.activeFilterText isEqualToString:normalized]) return;
+    self.activeFilterText = normalized;
+    [self refreshLogTextForced:YES];
+}
+
+- (void)setLogSeverityFilter:(NSInteger)severityFilter {
+    severityFilter = MIN(2, MAX(0, severityFilter));
+    if (self.activeSeverityFilter == severityFilter) return;
+    self.activeSeverityFilter = severityFilter;
+    [self refreshLogTextForced:YES];
+}
+
 - (NSMutableAttributedString *)buildAttrStringForText:(NSString *)text {
     UIFont *font = self.font ?: [UIFont systemFontOfSize:13.5 weight:UIFontWeightRegular];
     UIFont *boldFont = [UIFont systemFontOfSize:13.5 weight:UIFontWeightSemibold];
@@ -444,6 +461,16 @@ static UIColor *colorForLogLine(NSString *line) {
         NSString *rawLine = lines[i];
         // skip the trailing empty element that follows the last \n
         if (i + 1 == lines.count && rawLine.length == 0) break;
+        NSString *searchable = rawLine.lowercaseString;
+        if (self.activeFilterText.length > 0 && [searchable rangeOfString:self.activeFilterText].location == NSNotFound) continue;
+        if (self.activeSeverityFilter == 1 &&
+            [searchable rangeOfString:@"warn"].location == NSNotFound &&
+            [searchable rangeOfString:@"error"].location == NSNotFound &&
+            [searchable rangeOfString:@"fail"].location == NSNotFound) continue;
+        if (self.activeSeverityFilter == 2 &&
+            [searchable rangeOfString:@"error"].location == NSNotFound &&
+            [searchable rangeOfString:@"fail"].location == NSNotFound &&
+            [searchable rangeOfString:@"panic"].location == NSNotFound) continue;
 
         UIColor *color = colorForLogLine(rawLine); // use raw line for color matching
 
@@ -514,7 +541,7 @@ static UIColor *colorForLogLine(NSString *line) {
     NSString *newText = log_snapshot_from(_renderedLineCount, &totalLines, &trimGen);
 
     // Buffer was trimmed: old rendered content is stale — full rebuild.
-    BOOL needsRebuild = (trimGen != _renderedTrimGen);
+    BOOL needsRebuild = force || (trimGen != _renderedTrimGen);
     if (needsRebuild) {
         _renderedLineCount = 0;
         _renderedTrimGen   = trimGen;
@@ -524,7 +551,13 @@ static UIColor *colorForLogLine(NSString *line) {
     if (!newText) return;
 
     NSMutableAttributedString *newAttr = [self buildAttrStringForText:newText];
-    if (newAttr.length == 0) return;
+    if (newAttr.length == 0) {
+        if (force || needsRebuild) {
+            [self.textStorage replaceCharactersInRange:NSMakeRange(0, self.textStorage.length) withString:@""];
+        }
+        _renderedLineCount = totalLines;
+        return;
+    }
 
     BOOL wasEmpty = (_renderedLineCount == 0);
     BOOL userScrolling = self.tracking || self.dragging || self.decelerating;

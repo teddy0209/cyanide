@@ -4,6 +4,7 @@
 //
 
 #import "DocsViewController.h"
+#import "../installer/CYIconBadge.h"
 
 #pragma mark - DocsSectionHeader
 
@@ -21,7 +22,7 @@
     if (!self) return nil;
 
     UIView *bg = [[UIView alloc] init];
-    bg.backgroundColor = UIColor.systemGroupedBackgroundColor;
+    bg.backgroundColor = CYCanvasColor();
     self.backgroundView = bg;
 
     _iconView = [[UIImageView alloc] init];
@@ -81,7 +82,7 @@
     self = [super initWithReuseIdentifier:reuseIdentifier];
     if (!self) return nil;
     UIView *bg = [[UIView alloc] init];
-    bg.backgroundColor = UIColor.systemGroupedBackgroundColor;
+    bg.backgroundColor = CYCanvasColor();
     self.backgroundView = bg;
 
     _body = [[UILabel alloc] init];
@@ -127,7 +128,7 @@
     if (!self) return nil;
 
     self.selectionStyle = UITableViewCellSelectionStyleNone;
-    self.backgroundColor = UIColor.secondarySystemGroupedBackgroundColor;
+    self.backgroundColor = CYSurfaceColor();
     self.contentView.backgroundColor = UIColor.clearColor;
 
     _codeBackground = [[UIView alloc] init];
@@ -252,6 +253,8 @@ static NSString * const kFooterID      = @"DocsFooter";
     [super viewDidLoad];
     self.title = @"Docs";
     self.navigationItem.title = @"Docs";
+    CYConfigureTableView(self.tableView);
+    CYApplyNavigationStyle(self.navigationController);
 
     self.tableView.rowHeight = UITableViewAutomaticDimension;
     self.tableView.estimatedRowHeight = 80.0;
@@ -504,7 +507,7 @@ static NSString * const kFooterID      = @"DocsFooter";
 
         @{ @"title": @"A minimal tweak",
            @"symbol": @"doc.text.fill",
-           @"tint": UIColor.systemOrangeColor,
+           @"tint": CYAccentColor(),
            @"footer": @"Drop both files in infern0/tweaks/. The Xcode project uses "
                       @"PBXFileSystemSynchronizedRootGroup, so new files are picked up "
                       @"automatically — no pbxproj edits needed.",
@@ -571,7 +574,7 @@ static NSString * const kFooterID      = @"DocsFooter";
                            @"build/. Sideload, test on device, attach Log-tab output to your "
                            @"PR." },
                @{ @"kind": @"prose",
-                  @"text": @"Source and issues: https://github.com/zeroxjf/cyanide" },
+                  @"text": @"Source and issues: https://github.com/Nnnnnnn274/Infern0" },
            ]},
     ];
 }

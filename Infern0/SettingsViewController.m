@@ -23,6 +23,7 @@
 #import "tweaks/snowboardlite.h"
 #import "tweaks/livewp.h"
 #import "tweaks/gravitylite.h"
+#import "tweaks/sb_walk.h"
 #import "tweaks/appswitchergrid.h"
 #import "tweaks/hide_home_bar.h"
 #import "tweaks/QuickLoader.h"

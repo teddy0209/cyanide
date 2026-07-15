@@ -319,8 +319,8 @@ static bool flx_blocked_by_low_power(void)
 
 static bool flx_pulse_biometric_retry(double intervalSeconds)
 {
-    if (!isfinite(intervalSeconds) || intervalSeconds <= 0.0) intervalSeconds = 0.3;
-    if (intervalSeconds < 0.1) intervalSeconds = 0.1;
+    if (!isfinite(intervalSeconds) || intervalSeconds <= 0.0) intervalSeconds = 0.75;
+    if (intervalSeconds < 0.75) intervalSeconds = 0.75;
     if (intervalSeconds > 2.0) intervalSeconds = 2.0;
 
     uint64_t resource = flx_shared_instance("SBUIBiometricResource");
@@ -1031,17 +1031,21 @@ void fastlockx_lite_forget_remote_state(void)
 bool fastlockx_lite_enable_always_on_in_session(FastLockXLiteConfig config)
 {
     double retry = config.retryIntervalSeconds;
-    if (!isfinite(retry) || retry <= 0.0) retry = 0.3;
-    if (retry < 0.2) retry = 0.2;
-    if (retry > 1.5) retry = 1.5;
+    // Repeated biometric off/on calls are unusually sensitive to timing.
+    // Sub-second repeating timers can overlap SpringBoard lock transitions and
+    // have caused watchdog resprings on slower devices. Keep the one-shot
+    // action configurable, but make the persistent mode deliberately calm.
+    if (!isfinite(retry) || retry <= 0.0) retry = 0.75;
+    if (retry < 0.75) retry = 0.75;
+    if (retry > 2.0) retry = 2.0;
 
     double unlockDelay = retry + 0.45;
     if (unlockDelay < 0.75) unlockDelay = 0.75;
     if (unlockDelay > 1.8) unlockDelay = 1.8;
 
-    double cycle = unlockDelay + 0.30;
-    if (cycle < 1.1) cycle = 1.1;
-    if (cycle > 2.4) cycle = 2.4;
+    double cycle = unlockDelay + 1.0;
+    if (cycle < 2.5) cycle = 2.5;
+    if (cycle > 4.0) cycle = 4.0;
 
     uint64_t manager = flx_shared_instance("SBLockScreenManager");
     uint64_t resource = flx_shared_instance("SBUIBiometricResource");

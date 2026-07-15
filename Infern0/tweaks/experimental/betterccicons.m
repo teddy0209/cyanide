@@ -19,26 +19,22 @@ static uint64_t betterccicons_key_window(void)
 
 static void betterccicons_class_name(uint64_t obj, char *out, size_t outLen)
 {
-    if (!out || outLen == 0) return;
-    out[0] = '\0';
-    if (!r_is_objc_ptr(obj)) return;
-    uint64_t cls = r_dlsym_call(R_TIMEOUT, "object_getClass", obj, 0, 0, 0, 0, 0, 0, 0);
-    uint64_t name = r_is_objc_ptr(cls) ? r_dlsym_call(R_TIMEOUT, "class_getName", cls, 0, 0, 0, 0, 0, 0, 0) : 0;
-    if (!name) return;
-    uint64_t buf = r_dlsym_call(R_TIMEOUT, "strdup", name, 0, 0, 0, 0, 0, 0, 0);
-    if (!buf) return;
-    remote_read(buf, out, outLen - 1);
-    out[outLen - 1] = '\0';
-    r_free(buf);
+    (void)sb_read_class_name(obj, out, outLen);
 }
 
-static void betterccicons_scan(uint64_t parent, double radius, int depth, int *hits)
+static void betterccicons_scan(uint64_t parent, double radius, int depth, int *visited, int *hits)
 {
-    if (!r_is_objc_ptr(parent) || depth > 12) return;
+    if (!r_is_objc_ptr(parent) || depth > 10 || !visited || *visited >= 320 ||
+        (hits && *hits >= 48)) return;
+    (*visited)++;
     char cls[160] = {0};
     betterccicons_class_name(parent, cls, sizeof(cls));
-    bool target = strstr(cls, "CCUIRound") || strstr(cls, "ControlCenterButton") ||
-                  strstr(cls, "GlyphPackage") || strstr(cls, "ButtonView") ||
+    // Restrict clipping to actual button/toggle backgrounds. Applying
+    // masksToBounds to glyph-package or generic ButtonView layers clipped
+    // symbols and produced the torn-looking Control Center overlay.
+    bool target = strstr(cls, "CCUIRoundButton") ||
+                  strstr(cls, "CCUIButtonModuleView") ||
+                  strstr(cls, "ControlCenterButton") ||
                   strstr(cls, "ToggleView");
     uint64_t layer = target ? r_msg2_main(parent, "layer", 0, 0, 0, 0) : 0;
     if (r_is_objc_ptr(layer)) {
@@ -50,7 +46,7 @@ static void betterccicons_scan(uint64_t parent, double radius, int depth, int *h
     if (!r_is_objc_ptr(subviews)) return;
     uint64_t count = r_msg2_main(subviews, "count", 0, 0, 0, 0);
     if (count > 120) count = 120;
-    for (uint64_t i = 0; i < count; i++) betterccicons_scan(r_msg2_main(subviews, "objectAtIndex:", i, 0, 0, 0), radius, depth + 1, hits);
+    for (uint64_t i = 0; i < count; i++) betterccicons_scan(r_msg2_main(subviews, "objectAtIndex:", i, 0, 0, 0), radius, depth + 1, visited, hits);
 }
 
 bool betterccicons_apply_in_session(void)
@@ -58,8 +54,9 @@ bool betterccicons_apply_in_session(void)
     printf("[BETTERCCICONS] apply\n");
     uint64_t win = sb_control_center_window();
     if (!r_is_objc_ptr(win)) return false;
-    int hits = 0;
-    betterccicons_scan(win, (double)gBetterCCIconsCornerRadius, 0, &hits);
+    int visited = 0, hits = 0;
+    betterccicons_scan(win, (double)gBetterCCIconsCornerRadius, 0, &visited, &hits);
+    printf("[BETTERCCICONS] visited=%d hits=%d budget=320\n", visited, hits);
     gBetterCCIconsApplied = hits > 0;
     return gBetterCCIconsApplied;
 }

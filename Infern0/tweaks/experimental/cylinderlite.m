@@ -47,24 +47,12 @@ static bool cy_get_rect(uint64_t obj, const char *selector, CYRect *out)
                                   NULL, 0, NULL, 0, NULL, 0, NULL, 0);
 }
 
-static void cy_class_name(uint64_t obj, char *out, size_t outLen)
-{
-    if (!out || outLen == 0) return;
-    out[0] = '\0';
-    uint64_t cls = r_is_objc_ptr(obj)
-        ? r_dlsym_call(R_TIMEOUT, "object_getClass", obj, 0, 0, 0, 0, 0, 0, 0) : 0;
-    uint64_t name = r_is_objc_ptr(cls)
-        ? r_dlsym_call(R_TIMEOUT, "class_getName", cls, 0, 0, 0, 0, 0, 0, 0) : 0;
-    if (name) remote_read(name, out, outLen - 1);
-    out[outLen - 1] = '\0';
-}
-
 static bool cy_list_is_excluded(uint64_t list)
 {
     uint64_t view = list;
     for (int depth = 0; r_is_objc_ptr(view) && depth < 10; depth++) {
         char cls[160] = {0};
-        cy_class_name(view, cls, sizeof(cls));
+        (void)sb_read_class_name(view, cls, sizeof(cls));
         if (strstr(cls, "Dock") || strstr(cls, "Library")) return true;
         view = r_msg2_main(view, "superview", 0, 0, 0, 0);
     }
@@ -139,11 +127,12 @@ static void cy_discover_pages(void)
         for (int k = 0; k < gCyListCount; k++) if (gCyLists[k] == lists[i]) { known = true; break; }
         if (!known) {
             gCyLists[gCyListCount++] = lists[i];
+            r_msg2_main(lists[i], "retain", 0, 0, 0, 0);
             uint64_t layer = r_msg2_main(lists[i], "layer", 0, 0, 0, 0);
             cy_apply_perspective_to_layer(layer, true);
         }
         uint64_t pageIcons[256] = {0};
-        int count = sb_collect_views(lists[i], iconClass, pageIcons, 256);
+        int count = sb_collect_icon_views_from_list(lists[i], pageIcons, 256);
         for (int j = 0; j < count && gCyIconCount < gCyMaxIcons; j++) {
             bool iconKnown = false;
             for (int k = 0; k < gCyIconCount; k++) if (gCyIcons[k] == pageIcons[j]) { iconKnown = true; break; }
@@ -151,6 +140,7 @@ static void cy_discover_pages(void)
                 gCyIcons[gCyIconCount] = pageIcons[j];
                 gCyIconLists[gCyIconCount] = lists[i];
                 gCyIconCount++;
+                r_msg2_main(pageIcons[j], "retain", 0, 0, 0, 0);
             }
         }
     }
@@ -206,6 +196,10 @@ bool cylinderlite_stop_in_session(void)
     printf("[CYLINDER] stop\n");
     int iconCount = gCyIconCount, listCount = gCyListCount;
     int restored = sb_cc_restore_owner("cylinderlite");
+    for (int i = 0; i < gCyIconCount; i++)
+        if (r_is_objc_ptr(gCyIcons[i])) r_msg2_main(gCyIcons[i], "release", 0, 0, 0, 0);
+    for (int i = 0; i < gCyListCount; i++)
+        if (r_is_objc_ptr(gCyLists[i])) r_msg2_main(gCyLists[i], "release", 0, 0, 0, 0);
     memset(gCyLists, 0, sizeof(gCyLists));
     memset(gCyIcons, 0, sizeof(gCyIcons));
     memset(gCyIconLists, 0, sizeof(gCyIconLists));
@@ -223,7 +217,7 @@ void cylinderlite_configure(int depth, int perspectiveDistance, int maxIcons)
     if (depth < -80) depth = -80;
     if (perspectiveDistance < 250) perspectiveDistance = 250;
     if (perspectiveDistance > 1600) perspectiveDistance = 1600;
-    if (maxIcons < 512) maxIcons = 512;
+    if (maxIcons < 32) maxIcons = 32;
     if (maxIcons > 512) maxIcons = 512;
     gCyDepth = depth;
     gCyPerspectiveDistance = perspectiveDistance;

@@ -10,9 +10,10 @@
 static bool gHllApplied = false;
 static int gHllChanged = 0;
 
-static void hll_scan_icon_views(uint64_t parent, int depth)
+static void hll_scan_icon_views(uint64_t parent, int depth, int *visited)
 {
-    if (!r_is_objc_ptr(parent) || depth > 10) return;
+    if (!r_is_objc_ptr(parent) || depth > 10 || !visited || *visited >= 768) return;
+    (*visited)++;
 
     uint64_t subviews = r_msg2_main(parent, "subviews", 0, 0, 0, 0);
     if (!r_is_objc_ptr(subviews)) return;
@@ -24,20 +25,10 @@ static void hll_scan_icon_views(uint64_t parent, int depth)
         if (!r_is_objc_ptr(sv)) continue;
 
         char cls[128] = {0};
-        uint64_t rCls = r_dlsym_call(R_TIMEOUT, "object_getClass", sv, 0, 0, 0, 0, 0, 0, 0);
-        if (r_is_objc_ptr(rCls)) {
-            uint64_t name = r_dlsym_call(R_TIMEOUT, "class_getName", rCls, 0, 0, 0, 0, 0, 0, 0);
-            if (name) {
-                uint64_t buf = r_dlsym_call(R_TIMEOUT, "strdup", name, 0, 0, 0, 0, 0, 0, 0);
-                if (buf) {
-                    remote_read(buf, cls, sizeof(cls) - 1);
-                    r_free(buf);
-                }
-            }
-        }
+        (void)sb_read_class_name(sv, cls, sizeof(cls));
 
         if (strstr(cls, "SBIconView") && !strstr(cls, "Label")) {
-            hll_scan_icon_views(sv, depth + 1);
+            hll_scan_icon_views(sv, depth + 1, visited);
             continue;
         }
 
@@ -53,7 +44,7 @@ static void hll_scan_icon_views(uint64_t parent, int depth)
             }
         }
 
-        hll_scan_icon_views(sv, depth + 1);
+        hll_scan_icon_views(sv, depth + 1, visited);
     }
 }
 
@@ -62,44 +53,21 @@ bool hidellabels_apply_in_session(void)
     printf("[HLL] apply\n");
     gHllChanged = 0;
 
-    uint64_t UIApplication = r_class("UIApplication");
-    if (!r_is_objc_ptr(UIApplication)) return false;
-    uint64_t app = r_msg2_main(UIApplication, "sharedApplication", 0, 0, 0, 0);
-    if (!r_is_objc_ptr(app)) return false;
-
-    uint64_t windows = r_msg2_main(app, "windows", 0, 0, 0, 0);
-    if (!r_is_objc_ptr(windows)) return false;
-    uint64_t winCount = r_msg2_main(windows, "count", 0, 0, 0, 0);
-    if (winCount > 64) winCount = 64;
-
-    for (uint64_t i = 0; i < winCount; i++) {
-        uint64_t win = r_msg2_main(windows, "objectAtIndex:", i, 0, 0, 0);
-        if (!r_is_objc_ptr(win)) continue;
-        uint64_t root = r_msg2_main(win, "rootViewController", 0, 0, 0, 0);
-        if (!r_is_objc_ptr(root)) continue;
-
-        char cls[128] = {0};
-        uint64_t rCls = r_dlsym_call(R_TIMEOUT, "object_getClass", root, 0, 0, 0, 0, 0, 0, 0);
-        if (r_is_objc_ptr(rCls)) {
-            uint64_t name = r_dlsym_call(R_TIMEOUT, "class_getName", rCls, 0, 0, 0, 0, 0, 0, 0);
-            if (name) {
-                uint64_t buf = r_dlsym_call(R_TIMEOUT, "strdup", name, 0, 0, 0, 0, 0, 0, 0);
-                if (buf) {
-                    remote_read(buf, cls, sizeof(cls) - 1);
-                    r_free(buf);
-                }
-            }
-        }
-
-        if (strstr(cls, "SBIconController") || strstr(cls, "SBRootFolder") ||
-            strstr(cls, "SBIconListView") || strstr(cls, "SBFolderView")) {
-            hll_scan_icon_views(root, 0);
-        }
+    uint64_t listClass = r_class("SBIconListView");
+    if (!r_is_objc_ptr(listClass)) return false;
+    uint64_t lists[64] = {0};
+    int listCount = sb_collect_views_in_windows(listClass, lists, 64);
+    int visited = 0;
+    for (int i = 0; i < listCount && visited < 768; i++) {
+        uint64_t icons[256] = {0};
+        int iconCount = sb_collect_icon_views_from_list(lists[i], icons, 256);
+        for (int j = 0; j < iconCount && visited < 768; j++)
+            hll_scan_icon_views(icons[j], 0, &visited);
     }
 
     gHllApplied = gHllChanged > 0;
-    log_user("[HIDELABELS][APPLY] hiddenLabels=%d result=%s.\n",
-             gHllChanged, gHllApplied ? "active" : "no-labels-found");
+    log_user("[HIDELABELS][APPLY] lists=%d visited=%d hiddenLabels=%d result=%s.\n",
+             listCount, visited, gHllChanged, gHllApplied ? "active" : "no-labels-found");
     return gHllApplied;
 }
 

@@ -159,16 +159,8 @@ static void pullover_add_icon_slot(uint64_t tray, double x, double y, double sid
 static bool pullover_is_excluded_icon(uint64_t view)
 {
     for (int depth = 0; r_is_objc_ptr(view) && depth < 12; depth++) {
-        uint64_t cls = r_dlsym_call(R_TIMEOUT, "object_getClass", view, 0, 0, 0, 0, 0, 0, 0);
-        uint64_t name = r_is_objc_ptr(cls)
-            ? r_dlsym_call(R_TIMEOUT, "class_getName", cls, 0, 0, 0, 0, 0, 0, 0) : 0;
-        uint64_t len = name ? r_dlsym_call(R_TIMEOUT, "strlen", name, 0, 0, 0, 0, 0, 0, 0) : 0;
         char buffer[160] = {0};
-        if (len) {
-            if (len > sizeof(buffer) - 1) len = sizeof(buffer) - 1;
-            uint64_t copy = r_dlsym_call(R_TIMEOUT, "strdup", name, 0, 0, 0, 0, 0, 0, 0);
-            if (copy) { remote_read(copy, buffer, len); r_free(copy); buffer[len] = '\0'; }
-        }
+        (void)sb_read_class_name(view, buffer, sizeof(buffer));
         if (strstr(buffer, "Dock") || strstr(buffer, "Library") || strstr(buffer, "Folder")) return true;
         view = r_msg2_main(view, "superview", 0, 0, 0, 0);
     }
@@ -179,8 +171,22 @@ static int pullover_attach_live_icons(uint64_t tray, double trayWidth, double tr
 {
     uint64_t iconClass = r_class("SBIconView");
     uint64_t icons[512] = {0};
-    int discovered = r_is_objc_ptr(iconClass)
-        ? sb_collect_views_in_windows(iconClass, icons, 512) : 0;
+    int discovered = 0;
+    uint64_t listClass = r_class("SBIconListView"), lists[64] = {0};
+    int listCount = r_is_objc_ptr(listClass)
+        ? sb_collect_views_in_windows(listClass, lists, 64) : 0;
+    for (int l = 0; l < listCount && discovered < 512; l++) {
+        uint64_t pageIcons[256] = {0};
+        int pageCount = sb_collect_icon_views_from_list(lists[l], pageIcons, 256);
+        for (int i = 0; i < pageCount && discovered < 512; i++) {
+            bool duplicate = false;
+            for (int k = 0; k < discovered; k++)
+                if (icons[k] == pageIcons[i]) { duplicate = true; break; }
+            if (!duplicate) icons[discovered++] = pageIcons[i];
+        }
+    }
+    if (discovered == 0 && r_is_objc_ptr(iconClass))
+        discovered = sb_collect_views_in_windows(iconClass, icons, 512);
     double side = trayWidth - 24.0;
     if (side < 36.0) side = 36.0;
     if (side > 64.0) side = 64.0;
@@ -188,7 +194,7 @@ static int pullover_attach_live_icons(uint64_t tray, double trayWidth, double tr
 
     for (int i = 0; i < discovered && gPullOverIconCount < 4; i++) {
         uint64_t icon = icons[i];
-        if (pullover_is_excluded_icon(icon)) continue;
+        if (!sb_view_is_visible_in_window(icon) || pullover_is_excluded_icon(icon)) continue;
         uint64_t parent = r_is_objc_ptr(icon) ? r_msg2_main(icon, "superview", 0, 0, 0, 0) : 0;
         PullOverRect frame = {0};
         if (!r_is_objc_ptr(parent) ||
@@ -209,12 +215,12 @@ static int pullover_attach_live_icons(uint64_t tray, double trayWidth, double tr
         PullOverRect trayFrame = { (trayWidth - side) * 0.5, y, side, side };
         r_msg2_main_raw(icon, "setFrame:", &trayFrame, sizeof(trayFrame),
                         NULL, 0, NULL, 0, NULL, 0);
-        sb_cc_override_bool("pullover", icon, "userInteractionEnabled",
+        sb_cc_override_bool("pullover", icon, "isUserInteractionEnabled",
                             "setUserInteractionEnabled:", true);
         y += side + 14.0;
     }
-    log_user("[PULLOVER][ICONS] discovered=%d attached=%d capacity=4 tapsPreserved=1.\n",
-             discovered, gPullOverIconCount);
+    log_user("[PULLOVER][ICONS] discoveredLists=%d discoveredIcons=%d visibleAttached=%d capacity=4 tapsPreserved=1.\n",
+             listCount, discovered, gPullOverIconCount);
     return gPullOverIconCount;
 }
 

@@ -6491,6 +6491,8 @@ void stagestrip_start_control_loop(void)
     gStripControlLoopStop = 0;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         uint32_t oldSettle = r_settle_us(0);
+        int sessionPID = remote_call_current_pid();
+        unsigned consecutiveTransportFailures = 0;
         // Per-slot gesture state. `activeCorner` tracks which of the 4 resize
         // corners is currently driving the resize (-1 = none).
         bool moveActive[kStripMaxFloatSlots] = {false};
@@ -6503,6 +6505,7 @@ void stagestrip_start_control_loop(void)
         int resizeRelayoutTick[kStripMaxFloatSlots] = {0};
 
         bool loggedReady = false;
+        bool wasScreenInactiveHidden = false;
         int pickerPollTick = 0;
         uint64_t pickerBlockedUntilMS = 0;
 
@@ -6511,6 +6514,10 @@ void stagestrip_start_control_loop(void)
 
         printf("[STAGE] control: loop started selState=0x%llx\n", selState);
         while (!gStripControlLoopStop) {
+            if (sessionPID <= 0 || remote_call_current_pid() != sessionPID) {
+                printf("[STAGE] control: stopped because RemoteCall session changed\n");
+                break;
+            }
             bool havePicker = r_is_objc_ptr(gStripPickerPanel);
             bool anyFloatAlive = false;
             for (int s = 0; s < kStripMaxFloatSlots; s++) {
@@ -6528,7 +6535,6 @@ void stagestrip_start_control_loop(void)
             }
 
             bool screenInactive = stagestrip_screen_inactive();
-            static bool wasScreenInactiveHidden = false;
             if (screenInactive && !wasScreenInactiveHidden) {
                 for (int s = 0; s < kStripMaxFloatSlots; s++) {
                     if (r_is_objc_ptr(gStripFloatSlots[s].window))
@@ -6826,6 +6832,15 @@ void stagestrip_start_control_loop(void)
             // whenever the user is mid-gesture so resize/move stays responsive.
             if (!gestureBusy && !gStripPickerApplyBusy) {
                 stagestrip_control_loop_progress_library_build();
+            }
+
+            if (remote_call_current_success()) {
+                consecutiveTransportFailures = 0;
+            } else if (++consecutiveTransportFailures >= 5) {
+                printf("[STAGE] control: circuit breaker after %u RemoteCall failures\n",
+                       consecutiveTransportFailures);
+                log_user("[MILKYWAY][SAFETY] Control loop stopped after repeated RemoteCall failures; Run again to rebuild.\n");
+                break;
             }
 
             usleep(anyActive ? 16000 : 50000);

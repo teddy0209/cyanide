@@ -5,6 +5,7 @@
 
 #import "axonlite.h"
 #import "remote_objc.h"
+#import "sb_walk.h"
 #import "../TaskRop/RemoteCall.h"
 #import "../LogTextView.h"
 
@@ -320,20 +321,7 @@ static uint64_t axn_msg1_cached(uint64_t obj, AXNSelSlot slot, const char *name,
 
 static bool axn_object_class_name(uint64_t obj, char *out, size_t outLen)
 {
-    if (!r_is_objc_ptr(obj) || !out || outLen == 0) return false;
-    out[0] = '\0';
-
-    uint64_t cls = r_dlsym_call(R_TIMEOUT, "object_getClass", obj, 0, 0, 0, 0, 0, 0, 0);
-    if (!r_is_objc_ptr(cls)) return false;
-    uint64_t name = r_dlsym_call(R_TIMEOUT, "class_getName", cls, 0, 0, 0, 0, 0, 0, 0);
-    if (!name) return false;
-
-    uint64_t heapName = r_dlsym_call(R_TIMEOUT, "strdup", name, 0, 0, 0, 0, 0, 0, 0);
-    if (!heapName) return false;
-    bool ok = remote_read(heapName, out, outLen - 1);
-    r_free(heapName);
-    if (ok) out[outLen - 1] = '\0';
-    return ok && out[0] != '\0';
+    return sb_read_class_name(obj, out, outLen);
 }
 
 static bool axn_object_class_contains(uint64_t obj, const char *needle)

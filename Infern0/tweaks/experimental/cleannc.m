@@ -6,6 +6,7 @@
 
 #import <Foundation/Foundation.h>
 #import <math.h>
+#import <string.h>
 
 static bool gCleanncApplied = false;
 static int gCleanncChanged = 0;
@@ -31,15 +32,8 @@ bool cleannc_apply_in_session(void)
         uint64_t root = r_msg2_main(win, "rootViewController", 0, 0, 0, 0);
         if (!r_is_objc_ptr(root)) continue;
 
-        uint64_t rCls = r_dlsym_call(R_TIMEOUT, "object_getClass", root, 0, 0, 0, 0, 0, 0, 0);
-        if (!r_is_objc_ptr(rCls)) continue;
-        uint64_t name = r_dlsym_call(R_TIMEOUT, "class_getName", rCls, 0, 0, 0, 0, 0, 0, 0);
-        if (!name) continue;
-        uint64_t buf = r_dlsym_call(R_TIMEOUT, "strdup", name, 0, 0, 0, 0, 0, 0, 0);
-        if (!buf) continue;
         char cls[128] = {0};
-        remote_read(buf, cls, sizeof(cls) - 1);
-        r_free(buf);
+        if (!sb_read_class_name(root, cls, sizeof(cls))) continue;
 
         if (strstr(cls, "CoverSheet") || strstr(cls, "NCNotification")) {
             uint64_t listView = r_ivar_value(root, "_listView");
@@ -56,17 +50,7 @@ bool cleannc_apply_in_session(void)
                 if (!r_is_objc_ptr(sv)) continue;
 
                 char svCls[128] = {0};
-                uint64_t svRCls = r_dlsym_call(R_TIMEOUT, "object_getClass", sv, 0, 0, 0, 0, 0, 0, 0);
-                if (r_is_objc_ptr(svRCls)) {
-                    uint64_t svName = r_dlsym_call(R_TIMEOUT, "class_getName", svRCls, 0, 0, 0, 0, 0, 0, 0);
-                    if (svName) {
-                        uint64_t svBuf = r_dlsym_call(R_TIMEOUT, "strdup", svName, 0, 0, 0, 0, 0, 0, 0);
-                        if (svBuf) {
-                            remote_read(svBuf, svCls, sizeof(svCls) - 1);
-                            r_free(svBuf);
-                        }
-                    }
-                }
+                (void)sb_read_class_name(sv, svCls, sizeof(svCls));
 
                 if (strstr(svCls, "Search") || strstr(svCls, "search")) {
                     if (sb_cc_override_bool("cleannc", sv, "isHidden", "setHidden:", true)) gCleanncChanged++;

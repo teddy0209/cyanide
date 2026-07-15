@@ -10,22 +10,12 @@ static bool gHapticCCApplied = false;
 static int gHapticCCFeedbackStyle = 1;
 static uint64_t gHapticCCControls[64] = {0};
 static uint8_t gHapticCCStates[64] = {0};
+static uint8_t gHapticCCSeen[64] = {0};
 static int gHapticCCControlCount = 0;
 
 static void hapticcc_class_name(uint64_t obj, char *out, size_t outLen)
 {
-    if (!out || outLen == 0) return;
-    out[0] = '\0';
-    uint64_t cls = r_is_objc_ptr(obj) ?
-        r_dlsym_call(R_TIMEOUT, "object_getClass", obj, 0, 0, 0, 0, 0, 0, 0) : 0;
-    uint64_t name = r_is_objc_ptr(cls) ?
-        r_dlsym_call(R_TIMEOUT, "class_getName", cls, 0, 0, 0, 0, 0, 0, 0) : 0;
-    if (!name) return;
-    uint64_t copy = r_dlsym_call(R_TIMEOUT, "strdup", name, 0, 0, 0, 0, 0, 0, 0);
-    if (!copy) return;
-    remote_read(copy, out, outLen - 1);
-    out[outLen - 1] = '\0';
-    r_free(copy);
+    (void)sb_read_class_name(obj, out, outLen);
 }
 
 static void hapticcc_fire(void)
@@ -39,9 +29,11 @@ static void hapticcc_fire(void)
     r_msg2_main(gen, "release", 0, 0, 0, 0);
 }
 
-static void hapticcc_scan(uint64_t view, int depth, int *hits, bool *fired)
+static void hapticcc_scan(uint64_t view, int depth, int *visited, int *hits, bool *fired)
 {
-    if (!r_is_objc_ptr(view) || depth > 14) return;
+    if (!r_is_objc_ptr(view) || depth > 10 || !visited || *visited >= 320 ||
+        (hits && *hits >= 64)) return;
+    (*visited)++;
     char cls[160] = {0};
     hapticcc_class_name(view, cls, sizeof(cls));
     bool ccView = strstr(cls, "CCUI") || strstr(cls, "ControlCenter");
@@ -61,28 +53,51 @@ static void hapticcc_scan(uint64_t view, int depth, int *hits, bool *fired)
             gHapticCCStates[index] = state;
             if (fired && !*fired) { hapticcc_fire(); *fired = true; }
         }
+        if (index >= 0) gHapticCCSeen[index] = 1;
         if (hits) (*hits)++;
     }
     uint64_t subviews = r_msg2_main(view, "subviews", 0, 0, 0, 0);
     uint64_t count = r_is_objc_ptr(subviews) ? r_msg2_main(subviews, "count", 0, 0, 0, 0) : 0;
     if (count > 160) count = 160;
     for (uint64_t i = 0; i < count; i++)
-        hapticcc_scan(r_msg2_main(subviews, "objectAtIndex:", i, 0, 0, 0), depth + 1, hits, fired);
+        hapticcc_scan(r_msg2_main(subviews, "objectAtIndex:", i, 0, 0, 0), depth + 1, visited, hits, fired);
 }
 
 bool hapticcc_apply_in_session(void)
 {
     uint64_t win = sb_control_center_window();
-    if (!r_is_objc_ptr(win)) return false;
-    int hits = 0;
-    bool fired = false;
-    hapticcc_scan(win, 0, &hits, &fired);
-    if (hits == 0) {
+    if (!r_is_objc_ptr(win)) {
         memset(gHapticCCControls, 0, sizeof(gHapticCCControls));
         memset(gHapticCCStates, 0, sizeof(gHapticCCStates));
+        memset(gHapticCCSeen, 0, sizeof(gHapticCCSeen));
         gHapticCCControlCount = 0;
+        gHapticCCApplied = false;
+        return false;
     }
+    int visited = 0, hits = 0;
+    bool fired = false;
+    memset(gHapticCCSeen, 0, sizeof(gHapticCCSeen));
+    hapticcc_scan(win, 0, &visited, &hits, &fired);
+
+    // Control Center rebuilds its module views on every presentation. Compact
+    // away addresses not observed in this scan so stale views cannot fill the
+    // fixed cache and suppress haptics after opening CC several times.
+    int write = 0;
+    for (int read = 0; read < gHapticCCControlCount; read++) {
+        if (!gHapticCCSeen[read]) continue;
+        gHapticCCControls[write] = gHapticCCControls[read];
+        gHapticCCStates[write] = gHapticCCStates[read];
+        write++;
+    }
+    for (int i = write; i < 64; i++) {
+        gHapticCCControls[i] = 0;
+        gHapticCCStates[i] = 0;
+    }
+    memset(gHapticCCSeen, 0, sizeof(gHapticCCSeen));
+    gHapticCCControlCount = write;
     gHapticCCApplied = hits > 0;
+    printf("[HAPTICCC] visited=%d controls=%d fired=%d cached=%d\n",
+           visited, hits, fired, gHapticCCControlCount);
     return gHapticCCApplied;
 }
 
@@ -91,6 +106,7 @@ bool hapticcc_stop_in_session(void)
     printf("[HAPTICCC] stop\n");
     memset(gHapticCCControls, 0, sizeof(gHapticCCControls));
     memset(gHapticCCStates, 0, sizeof(gHapticCCStates));
+    memset(gHapticCCSeen, 0, sizeof(gHapticCCSeen));
     gHapticCCControlCount = 0;
     gHapticCCApplied = false;
     return true;
@@ -107,6 +123,7 @@ void hapticcc_forget_remote_state(void)
 {
     memset(gHapticCCControls, 0, sizeof(gHapticCCControls));
     memset(gHapticCCStates, 0, sizeof(gHapticCCStates));
+    memset(gHapticCCSeen, 0, sizeof(gHapticCCSeen));
     gHapticCCControlCount = 0;
     gHapticCCApplied = false;
 }

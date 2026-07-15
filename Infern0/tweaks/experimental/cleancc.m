@@ -30,23 +30,15 @@ static uint64_t cleancc_key_window(void)
 
 static void cleancc_class_name(uint64_t obj, char *out, size_t outLen)
 {
-    if (!out || outLen == 0) return;
-    out[0] = '\0';
-    if (!r_is_objc_ptr(obj)) return;
-    uint64_t cls = r_dlsym_call(R_TIMEOUT, "object_getClass", obj, 0, 0, 0, 0, 0, 0, 0);
-    uint64_t name = r_is_objc_ptr(cls) ? r_dlsym_call(R_TIMEOUT, "class_getName", cls, 0, 0, 0, 0, 0, 0, 0) : 0;
-    if (!name) return;
-    uint64_t buf = r_dlsym_call(R_TIMEOUT, "strdup", name, 0, 0, 0, 0, 0, 0, 0);
-    if (!buf) return;
-    remote_read(buf, out, outLen - 1);
-    out[outLen - 1] = '\0';
-    r_free(buf);
+    (void)sb_read_class_name(obj, out, outLen);
 }
 
 static void cleancc_scan(uint64_t parent, uint64_t color, double alpha,
-                         bool ccContext, int depth, int *hits)
+                         bool ccContext, int depth, int *visited, int *hits)
 {
-    if (!r_is_objc_ptr(parent) || depth > 12) return;
+    if (!r_is_objc_ptr(parent) || depth > 10 || !visited || *visited >= 320 ||
+        (hits && *hits >= 64)) return;
+    (*visited)++;
     char cls[160] = {0};
     cleancc_class_name(parent, cls, sizeof(cls));
     ccContext = ccContext || strstr(cls, "CCUI") || strstr(cls, "ControlCenter");
@@ -68,7 +60,7 @@ static void cleancc_scan(uint64_t parent, uint64_t color, double alpha,
     if (count > 160) count = 160;
     for (uint64_t i = 0; i < count; i++) {
         cleancc_scan(r_msg2_main(subviews, "objectAtIndex:", i, 0, 0, 0),
-                     color, alpha, ccContext, depth + 1, hits);
+                     color, alpha, ccContext, depth + 1, visited, hits);
     }
 }
 
@@ -82,9 +74,9 @@ bool cleancc_apply_in_session(void)
     if (materialAlpha < 0.05) materialAlpha = 0.05;
     if (materialAlpha > 1.0) materialAlpha = 1.0;
     gCleanCCTint = cleancc_color(1, 1, 1, tintAlpha);
-    int hits = 0;
-    cleancc_scan(win, gCleanCCTint, materialAlpha, false, 0, &hits);
-    printf("[CLEANCC] adjusted %d CC views\n", hits);
+    int visited = 0, hits = 0;
+    cleancc_scan(win, gCleanCCTint, materialAlpha, false, 0, &visited, &hits);
+    printf("[CLEANCC] visited=%d adjusted=%d\n", visited, hits);
     return hits > 0;
 }
 

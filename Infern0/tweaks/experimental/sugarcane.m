@@ -35,17 +35,7 @@ static uint64_t sugarcane_color(double red, double green, double blue, double al
 
 static void sugarcane_class_name(uint64_t obj, char *out, size_t outLen)
 {
-    if (!out || outLen == 0) return;
-    out[0] = '\0';
-    if (!r_is_objc_ptr(obj)) return;
-    uint64_t cls = r_dlsym_call(R_TIMEOUT, "object_getClass", obj, 0, 0, 0, 0, 0, 0, 0);
-    uint64_t name = r_is_objc_ptr(cls) ? r_dlsym_call(R_TIMEOUT, "class_getName", cls, 0, 0, 0, 0, 0, 0, 0) : 0;
-    if (!name) return;
-    uint64_t buf = r_dlsym_call(R_TIMEOUT, "strdup", name, 0, 0, 0, 0, 0, 0, 0);
-    if (!buf) return;
-    remote_read(buf, out, outLen - 1);
-    out[outLen - 1] = '\0';
-    r_free(buf);
+    (void)sb_read_class_name(obj, out, outLen);
 }
 
 static SugarCaneRect sugarcane_bounds(uint64_t view)
@@ -146,9 +136,11 @@ static uint64_t sugarcane_alloc_percent_label(uint64_t host, const char *text)
     return label;
 }
 
-static void sugarcane_scan_sliders(uint64_t parent, int depth, int *hits)
+static void sugarcane_scan_sliders(uint64_t parent, int depth, int *visited, int *hits)
 {
-    if (!r_is_objc_ptr(parent) || depth > 14 || gSugarCaneLabelCount >= 8) return;
+    if (!r_is_objc_ptr(parent) || depth > 10 || !visited || *visited >= 320 ||
+        gSugarCaneLabelCount >= 8) return;
+    (*visited)++;
     char cls[160] = {0};
     sugarcane_class_name(parent, cls, sizeof(cls));
     bool isBrightness = strstr(cls, "Brightness") != NULL;
@@ -174,7 +166,7 @@ static void sugarcane_scan_sliders(uint64_t parent, int depth, int *hits)
     uint64_t count = r_msg2_main(subviews, "count", 0, 0, 0, 0);
     if (count > 160) count = 160;
     for (uint64_t i = 0; i < count; i++) {
-        sugarcane_scan_sliders(r_msg2_main(subviews, "objectAtIndex:", i, 0, 0, 0), depth + 1, hits);
+        sugarcane_scan_sliders(r_msg2_main(subviews, "objectAtIndex:", i, 0, 0, 0), depth + 1, visited, hits);
     }
 }
 
@@ -193,9 +185,9 @@ bool sugarcane_apply_in_session(void)
     sugarcane_remove_labels();
     uint64_t win = sb_control_center_window();
     if (!r_is_objc_ptr(win)) return false;
-    int hits = 0;
-    sugarcane_scan_sliders(win, 0, &hits);
-    if (hits > 0) printf("[SUGARCANE] added %d slider percent labels\n", hits);
+    int visited = 0, hits = 0;
+    sugarcane_scan_sliders(win, 0, &visited, &hits);
+    if (hits > 0) printf("[SUGARCANE] added=%d visited=%d\n", hits, visited);
     return hits > 0;
 }
 

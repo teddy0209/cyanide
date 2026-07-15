@@ -62,6 +62,7 @@ static uint64_t gRSSIApplyTick = 0;
 static bool gRSSIDiscoveredOnce = false;
 static bool gDiscoverNeedWifi = false;
 static bool gDiscoverNeedCell = false;
+static int gDiscoverVisited = 0;
 
 #define kRSSIMaxFound 16
 static uint64_t gFoundWifi[kRSSIMaxFound];
@@ -329,7 +330,8 @@ static void rssidisplay_record_found(uint64_t *list, int *count, uint64_t view)
 
 static void rssidisplay_walk(uint64_t view, int depth)
 {
-    if (!r_is_objc_ptr(view) || depth > 12) return;
+    if (!r_is_objc_ptr(view) || depth > 10 || gDiscoverVisited >= 768) return;
+    gDiscoverVisited++;
     if (rssidisplay_found_needed(gDiscoverNeedWifi, gDiscoverNeedCell)) return;
 
     if (gDiscoverNeedWifi &&
@@ -364,6 +366,7 @@ static void rssidisplay_discover(bool needWifi, bool needCell)
 {
     gFoundWifiCount = 0;
     gFoundCellCount = 0;
+    gDiscoverVisited = 0;
     if (!rssidisplay_ensure_classes()) return;
     gRSSIDiscoveredOnce = true;
     gDiscoverNeedWifi = needWifi;
@@ -437,8 +440,8 @@ static void rssidisplay_discover(bool needWifi, bool needCell)
 
     rssidisplay_store_known_views();
     if (rssidisplay_first_tick()) {
-        printf("[RSSI] discovered wifi=%d cell=%d signal views\n",
-               gFoundWifiCount, gFoundCellCount);
+        printf("[RSSI] discovery visited=%d wifi=%d cell=%d signal views\n",
+               gDiscoverVisited, gFoundWifiCount, gFoundCellCount);
     }
     gDiscoverNeedWifi = false;
     gDiscoverNeedCell = false;

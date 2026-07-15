@@ -8,6 +8,7 @@
 #import "../TaskRop/RemoteCall.h"
 #import "../LogTextView.h"
 #import <stdio.h>
+#import <string.h>
 
 // Manually flip to true when collecting detailed App Switcher Grid logs.
 static const bool kAppSwitcherGridDebugLogging = false;
@@ -25,6 +26,22 @@ static uint64_t asg_instance_method(uint64_t cls, uint64_t sel)
     if (!r_is_objc_ptr(cls) || sel == 0) return 0;
     return r_dlsym_call(R_TIMEOUT, "class_getInstanceMethod",
                         cls, sel, 0, 0, 0, 0, 0, 0);
+}
+
+static bool asg_methods_have_matching_types(uint64_t first, uint64_t second)
+{
+    char firstType[64] = {0};
+    char secondType[64] = {0};
+    uint64_t firstPtr = r_dlsym_call(R_TIMEOUT, "method_getTypeEncoding",
+                                     first, 0, 0, 0, 0, 0, 0, 0);
+    uint64_t secondPtr = r_dlsym_call(R_TIMEOUT, "method_getTypeEncoding",
+                                      second, 0, 0, 0, 0, 0, 0, 0);
+    if (!firstPtr || !secondPtr ||
+        !remote_read(firstPtr, firstType, sizeof(firstType) - 1) ||
+        !remote_read(secondPtr, secondType, sizeof(secondType) - 1)) {
+        return false;
+    }
+    return strcmp(firstType, secondType) == 0;
 }
 
 bool appswitchergrid_apply_in_session(void)
@@ -50,6 +67,14 @@ bool appswitchergrid_apply_in_session(void)
         printf("[ASG] missing methods switcherStyle=0x%llx dockUpdateMode=0x%llx\n",
                switcherStyleMethod, dockUpdateModeMethod);
         log_user("[ASG] Grid App Switcher methods were not found.\n");
+        return false;
+    }
+
+    // Reusing another method's IMP is only ABI-safe when both Objective-C
+    // methods have exactly the same return/argument encoding.
+    if (!asg_methods_have_matching_types(switcherStyleMethod, dockUpdateModeMethod)) {
+        printf("[ASG] incompatible switcherStyle/dockUpdateMode signatures\n");
+        log_user("[ASG] This iOS build uses incompatible App Switcher method signatures; no runtime method was changed.\n");
         return false;
     }
 

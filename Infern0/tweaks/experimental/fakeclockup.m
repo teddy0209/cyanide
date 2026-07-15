@@ -14,7 +14,12 @@ bool fakeclockup_apply_in_session(double speedMultiplier)
 {
     printf("[FAKECLOCKUP] apply multiplier=%.2f\n", speedMultiplier);
 
-    if (speedMultiplier <= 0.0) speedMultiplier = 1.0;
+    if (!isfinite(speedMultiplier)) speedMultiplier = 1.0;
+    // CALayer speed on SpringBoard windows is only a lightweight visual
+    // approximation of the original injected duration hooks. Extreme values
+    // jump beginTime/timeOffset and can freeze or tear system transitions.
+    if (speedMultiplier < 0.5) speedMultiplier = 0.5;
+    if (speedMultiplier > 2.0) speedMultiplier = 2.0;
 
     uint64_t windows[64] = {0};
     int windowCount = sb_collect_windows(windows, 64), changed = 0;

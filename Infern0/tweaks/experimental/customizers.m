@@ -54,21 +54,11 @@ static int gMetalLockLightIntensity = 72;
 static int gMetalLockLightThickness = 5;
 static int gMetalLockLightStyle = 0;
 static uint64_t gMetalLockLightOverlay = 0;
+static bool gLockConfigDirty = false;
 
 static void cus_class_name(uint64_t obj, char *out, size_t outLen)
 {
-    if (!out || outLen == 0) return;
-    out[0] = '\0';
-    if (!r_is_objc_ptr(obj)) return;
-    uint64_t cls = r_dlsym_call(R_TIMEOUT, "object_getClass", obj, 0, 0, 0, 0, 0, 0, 0);
-    uint64_t name = r_is_objc_ptr(cls)
-        ? r_dlsym_call(R_TIMEOUT, "class_getName", cls, 0, 0, 0, 0, 0, 0, 0) : 0;
-    if (!name) return;
-    uint64_t copy = r_dlsym_call(R_TIMEOUT, "strdup", name, 0, 0, 0, 0, 0, 0, 0);
-    if (!copy) return;
-    remote_read(copy, out, outLen - 1);
-    out[outLen - 1] = '\0';
-    r_free(copy);
+    (void)sb_read_class_name(obj, out, outLen);
 }
 
 static void cus_set_alpha(uint64_t view, double alpha)
@@ -124,9 +114,11 @@ static bool cus_is_inside_dock(uint64_t view)
     return false;
 }
 
-static void homecustom_scan(uint64_t view, int depth, int *changed)
+static void homecustom_scan(uint64_t view, int depth, int *visited, int *changed)
 {
-    if (!r_is_objc_ptr(view) || depth > 16) return;
+    if (!r_is_objc_ptr(view) || depth > 12 || !visited || *visited >= 768 ||
+        (changed && *changed >= 256)) return;
+    (*visited)++;
     char cls[160] = {0};
     cus_class_name(view, cls, sizeof(cls));
     bool touched = false;
@@ -154,7 +146,7 @@ static void homecustom_scan(uint64_t view, int depth, int *changed)
     uint64_t count = r_is_objc_ptr(subs) ? r_msg2_main(subs, "count", 0, 0, 0, 0) : 0;
     if (count > 256) count = 256;
     for (uint64_t i = 0; i < count; i++)
-        homecustom_scan(r_msg2_main(subs, "objectAtIndex:", i, 0, 0, 0), depth + 1, changed);
+        homecustom_scan(r_msg2_main(subs, "objectAtIndex:", i, 0, 0, 0), depth + 1, visited, changed);
 }
 
 void homecustom_configure(bool hideBadges, bool hidePageDots, bool hideFolderBackground,
@@ -181,17 +173,17 @@ bool homecustom_apply_in_session(void)
          gHomeAppliedIconAlpha != gHomeIconAlpha);
     if (configChanged) sb_cc_restore_owner("homecustom");
     uint64_t windows[64] = {0};
-    int windowCount = sb_collect_windows(windows, 64), changed = 0;
-    for (int i = 0; i < windowCount; i++) homecustom_scan(windows[i], 0, &changed);
+    int windowCount = sb_collect_windows(windows, 64), visited = 0, changed = 0;
+    for (int i = 0; i < windowCount; i++) homecustom_scan(windows[i], 0, &visited, &changed);
     gHomeHasAppliedConfig = true;
     gHomeAppliedHideBadges = gHomeHideBadges;
     gHomeAppliedHideDots = gHomeHideDots;
     gHomeAppliedHideFolderBackground = gHomeHideFolderBackground;
     gHomeAppliedHideDockBackground = gHomeHideDockBackground;
     gHomeAppliedIconAlpha = gHomeIconAlpha;
-    printf("[HOMECUSTOM] badges=%d dots=%d folders=%d dock=%d iconAlpha=%d changed=%d windows=%d\n",
+    printf("[HOMECUSTOM] badges=%d dots=%d folders=%d dock=%d iconAlpha=%d visited=%d changed=%d windows=%d\n",
            gHomeHideBadges, gHomeHideDots, gHomeHideFolderBackground,
-           gHomeHideDockBackground, gHomeIconAlpha, changed, windowCount);
+           gHomeHideDockBackground, gHomeIconAlpha, visited, changed, windowCount);
     log_user("[HOMECUSTOM][APPLY] windows=%d matchedViews=%d hideBadges=%d hideDots=%d hideFolders=%d hideDock=%d iconAlpha=%d%% result=%s.\n",
              windowCount, changed, gHomeHideBadges, gHomeHideDots,
              gHomeHideFolderBackground, gHomeHideDockBackground, gHomeIconAlpha,
@@ -249,12 +241,13 @@ bool freeplacement_apply_in_session(void)
         uint64_t icons[256] = {0};
         CUSRect pageBounds = {0};
         cus_get_rect(lists[page], "bounds", &pageBounds);
-        int pageIconCount = sb_collect_views(lists[page], iconClass, icons, 256);
+        int pageIconCount = sb_collect_icon_views_from_list(lists[page], icons, 256);
         int pageMoved = 0;
         discovered += pageIconCount;
         for (int ordinal = 0; ordinal < pageIconCount; ordinal++) {
             uint64_t icon = icons[ordinal];
-            if (cus_is_inside_app_library(icon) || cus_is_inside_dock(icon)) continue;
+            // The owning list was classified above. Re-walking every icon's
+            // ancestor class chain caused hundreds of redundant remote reads.
             CUSRect frame;
             if (!cus_get_rect(icon, "frame", &frame) || frame.width <= 0 || frame.height <= 0) continue;
             int saved = free_saved_index(icon);
@@ -262,6 +255,10 @@ bool freeplacement_apply_in_session(void)
                 saved = gFreeIconCount;
                 gFreeIcons[gFreeIconCount] = icon;
                 gFreeFrames[gFreeIconCount++] = frame;
+                // Page icon views are lazy and can be torn down while the
+                // user scrolls. Keep every cached frame target alive until
+                // restore so a later refresh never messages a stale pointer.
+                r_msg2_main(icon, "retain", 0, 0, 0, 0);
             }
             if (saved >= 0) frame = gFreeFrames[saved];
             int columnPhase = (ordinal % 5) - 2;
@@ -305,6 +302,7 @@ bool freeplacement_stop_in_session(void)
     for (int i = 0; i < gFreeIconCount; i++) {
         if (!r_is_objc_ptr(gFreeIcons[i])) continue;
         cus_set_rect(gFreeIcons[i], gFreeFrames[i]);
+        r_msg2_main(gFreeIcons[i], "release", 0, 0, 0, 0);
         restored++;
     }
     memset(gFreeIcons, 0, sizeof(gFreeIcons));
@@ -337,9 +335,11 @@ static bool applibrary_label_is_saved(uint64_t label)
 }
 
 static void applibrarystudio_scan(uint64_t view, int depth, bool libraryContext,
-                                  int *ordinal, int *iconsChanged, int *labelsChanged)
+                                  int *visited, int *ordinal, int *iconsChanged, int *labelsChanged)
 {
-    if (!r_is_objc_ptr(view) || depth > 20) return;
+    if (!r_is_objc_ptr(view) || depth > 12 || !visited || *visited >= 1024 ||
+        (ordinal && *ordinal >= 512)) return;
+    (*visited)++;
     char cls[160] = {0};
     cus_class_name(view, cls, sizeof(cls));
     bool libraryClass = cus_contains(cls, "SBHLibrary") || cus_contains(cls, "AppLibrary") ||
@@ -356,6 +356,7 @@ static void applibrarystudio_scan(uint64_t view, int depth, bool libraryContext,
                 saved = gAppLibraryIconCount;
                 gAppLibraryIcons[gAppLibraryIconCount] = view;
                 gAppLibraryFrames[gAppLibraryIconCount++] = current;
+                r_msg2_main(view, "retain", 0, 0, 0, 0);
             }
             if (saved >= 0) {
                 CUSRect frame = gAppLibraryFrames[saved];
@@ -378,10 +379,12 @@ static void applibrarystudio_scan(uint64_t view, int depth, bool libraryContext,
     } else if (libraryContext && (cus_contains(cls, "IconLabel") || cus_contains(cls, "TitleLabel"))) {
         if (!applibrary_label_is_saved(view) && gAppLibraryLabelCount < 512)
             gAppLibraryLabels[gAppLibraryLabelCount++] = view;
-        double alpha = gAppLibraryHideLabels ? 0.0 : 1.0;
-        sb_cc_override_bytes("applibrarystudio", view, "alpha", "setAlpha:",
-                             &alpha, sizeof(alpha));
-        if (labelsChanged) (*labelsChanged)++;
+        if (gAppLibraryHideLabels) {
+            double alpha = 0.0;
+            if (sb_cc_override_bytes("applibrarystudio", view, "alpha", "setAlpha:",
+                                     &alpha, sizeof(alpha)) && labelsChanged)
+                (*labelsChanged)++;
+        }
     }
 
     uint64_t subs = r_msg2_main(view, "subviews", 0, 0, 0, 0);
@@ -389,7 +392,7 @@ static void applibrarystudio_scan(uint64_t view, int depth, bool libraryContext,
     if (count > 256) count = 256;
     for (uint64_t i = 0; i < count; i++)
         applibrarystudio_scan(r_msg2_main(subs, "objectAtIndex:", i, 0, 0, 0), depth + 1,
-                              libraryContext, ordinal, iconsChanged, labelsChanged);
+                              libraryContext, visited, ordinal, iconsChanged, labelsChanged);
 }
 
 void applibrarystudio_configure(int iconScalePercent, int horizontalSpacing,
@@ -417,9 +420,9 @@ bool applibrarystudio_apply_in_session(void)
     if (!gAppLibraryHideLabels) sb_cc_restore_owner("applibrarystudio");
     uint64_t windows[64] = {0};
     int windowCount = sb_collect_windows(windows, 64);
-    int ordinal = 0, iconsChanged = 0, labelsChanged = 0;
+    int visited = 0, ordinal = 0, iconsChanged = 0, labelsChanged = 0;
     for (int i = 0; i < windowCount; i++)
-        applibrarystudio_scan(windows[i], 0, false, &ordinal, &iconsChanged, &labelsChanged);
+        applibrarystudio_scan(windows[i], 0, false, &visited, &ordinal, &iconsChanged, &labelsChanged);
     bool todayOK = true;
     if (gAppLibraryDisableTodayView && !gAppLibraryTodayRemoved) {
         todayOK = darksword_tweak_disable_today_view_in_session();
@@ -431,10 +434,10 @@ bool applibrarystudio_apply_in_session(void)
     bool todayRequested = gAppLibraryDisableTodayView;
     bool todayApplied = !todayRequested || gAppLibraryTodayRemoved;
     bool applied = todayOK && todayApplied && layoutOK;
-    printf("[APPLIBRARY] scale=%d%% spacing=%d/%d labelsHidden=%d disableToday=%d todayResult=%d todayRemoved=%d icons=%d labels=%d saved=%d windows=%d taps=preserved\n",
+    printf("[APPLIBRARY] scale=%d%% spacing=%d/%d labelsHidden=%d disableToday=%d todayResult=%d todayRemoved=%d visited=%d icons=%d labels=%d saved=%d windows=%d taps=preserved\n",
            gAppLibraryScale, gAppLibraryHorizontalSpacing, gAppLibraryVerticalSpacing,
            gAppLibraryHideLabels, gAppLibraryDisableTodayView, todayOK,
-           gAppLibraryTodayRemoved, iconsChanged, labelsChanged, gAppLibraryIconCount, windowCount);
+           gAppLibraryTodayRemoved, visited, iconsChanged, labelsChanged, gAppLibraryIconCount, windowCount);
     log_user("[APPLIBRARY][APPLY] windows=%d iconsChanged=%d labelsChanged=%d savedFrames=%d scale=%d%% spacing=%d/%dpt hideLabels=%d disableToday=%d todayResult=%d todayRemoved=%d tapsPreserved=1 result=%s.\n",
              windowCount, iconsChanged, labelsChanged, gAppLibraryIconCount,
              gAppLibraryScale, gAppLibraryHorizontalSpacing, gAppLibraryVerticalSpacing,
@@ -450,6 +453,7 @@ bool applibrarystudio_stop_in_session(void)
     for (int i = 0; i < gAppLibraryIconCount; i++) {
         if (!r_is_objc_ptr(gAppLibraryIcons[i])) continue;
         cus_set_rect(gAppLibraryIcons[i], gAppLibraryFrames[i]);
+        r_msg2_main(gAppLibraryIcons[i], "release", 0, 0, 0, 0);
         restored++;
     }
     int labelProperties = sb_cc_restore_owner("applibrarystudio");
@@ -474,14 +478,65 @@ void applibrarystudio_forget_remote_state(void)
     sb_cc_forget_owner("applibrarystudio");
 }
 
-static void lockcustomizer_scan(uint64_t view, int depth, bool lockContext, bool restore, int *changed)
+static bool lockcustomizer_window_visible(uint64_t window)
 {
-    if (!r_is_objc_ptr(view) || depth > 18) return;
+    if (!r_is_objc_ptr(window)) return false;
+    if (r_responds_main(window, "isHidden") &&
+        (r_msg2_main(window, "isHidden", 0, 0, 0, 0) & 0xff)) return false;
+    double alpha = 1.0;
+    if (r_responds_main(window, "alpha") &&
+        !r_msg2_main_struct_ret(window, "alpha", &alpha, sizeof(alpha),
+                                NULL, 0, NULL, 0, NULL, 0, NULL, 0))
+        return false;
+    return alpha > 0.01;
+}
+
+static bool lockcustomizer_matches_window(uint64_t window)
+{
+    if (!r_is_objc_ptr(window)) return false;
+    char cls[160] = {0};
+    cus_class_name(window, cls, sizeof(cls));
+    if (cus_contains(cls, "CoverSheet") || cus_contains(cls, "LockScreen") ||
+        cus_contains(cls, "DashBoard")) return true;
+    uint64_t controller = r_responds_main(window, "rootViewController")
+        ? r_msg2_main(window, "rootViewController", 0, 0, 0, 0) : 0;
+    cus_class_name(controller, cls, sizeof(cls));
+    return cus_contains(cls, "CoverSheet") || cus_contains(cls, "LockScreen") ||
+           cus_contains(cls, "DashBoard") || cus_contains(cls, "CSCombined");
+}
+
+static uint64_t lockcustomizer_window(bool *visible)
+{
+    if (visible) *visible = false;
+    uint64_t windows[64] = {0};
+    int count = sb_collect_windows(windows, 64);
+    for (int i = count - 1; i >= 0; i--) {
+        if (lockcustomizer_matches_window(windows[i]) &&
+            lockcustomizer_window_visible(windows[i])) {
+            if (visible) *visible = true;
+            return windows[i];
+        }
+    }
+    // SpringBoard normally builds and retains the Cover Sheet window before
+    // it becomes visible. Pre-arming only this class-verified hierarchy makes
+    // lock-screen settings survive the Settings app being suspended on lock.
+    for (int i = count - 1; i >= 0; i--)
+        if (lockcustomizer_matches_window(windows[i])) return windows[i];
+    return 0;
+}
+
+static void lockcustomizer_scan(uint64_t view, int depth, bool lockContext,
+                                int *visited, int *changed)
+{
+    if (!r_is_objc_ptr(view) || depth > 12 || !visited || *visited >= 384 ||
+        (changed && *changed >= 64)) return;
+    (*visited)++;
     char cls[160] = {0};
     cus_class_name(view, cls, sizeof(cls));
     bool isLock = cus_contains(cls, "LockScreen") || cus_contains(cls, "CoverSheet") ||
                   cus_contains(cls, "CSPageControl") || cus_contains(cls, "CSCoverSheet") ||
-                  cus_contains(cls, "CSMainPage") || cus_contains(cls, "SBDashBoard");
+                  cus_contains(cls, "CSMainPage") || cus_contains(cls, "SBDashBoard") ||
+                  cus_contains(cls, "CSCombined");
     lockContext = lockContext || isLock;
     bool isClock = cus_contains(cls, "LockScreenDateView") || cus_contains(cls, "CSDateView") ||
                    cus_contains(cls, "CoverSheetDateView") || cus_contains(cls, "ClockView");
@@ -490,35 +545,32 @@ static void lockcustomizer_scan(uint64_t view, int depth, bool lockContext, bool
     bool isMedia = cus_contains(cls, "MediaControlsPanelView") || cus_contains(cls, "NowPlayingContainer");
     bool isArtwork = cus_contains(cls, "Artwork") || cus_contains(cls, "CoverArt");
     if (isClock && lockContext) {
-        double scale = restore ? 1.0 : (double)gLockClockScale / 100.0;
-        CUSAffine t = {scale, 0, 0, scale, restore ? 0.0 : gLockXOffset, restore ? 0.0 : gLockYOffset};
-        sb_cc_override_bytes("lockcustomizer", view, "transform", "setTransform:", &t, sizeof(t));
+        double scale = (double)gLockClockScale / 100.0;
+        CUSAffine t = {scale, 0, 0, scale, gLockXOffset, gLockYOffset};
+        bool didChange = sb_cc_override_bytes("lockcustomizer", view, "transform", "setTransform:", &t, sizeof(t));
         double alpha = (double)gLockContentAlpha / 100.0;
-        sb_cc_override_bytes("lockcustomizer", view, "alpha", "setAlpha:", &alpha, sizeof(alpha));
-        if (changed) (*changed)++;
-    } else if (isQuick && lockContext) {
-        double alpha = gLockHideQuickActions ? 0.0 : 1.0;
-        sb_cc_override_bytes("lockcustomizer", view, "alpha", "setAlpha:", &alpha, sizeof(alpha));
-        if (changed) (*changed)++;
-    } else if (isDots && lockContext) {
-        double alpha = gLockHideDots ? 0.0 : 1.0;
-        sb_cc_override_bytes("lockcustomizer", view, "alpha", "setAlpha:", &alpha, sizeof(alpha));
-        if (changed) (*changed)++;
-    } else if (isArtwork && lockContext) {
-        double alpha = gLockHideMediaArtwork ? 0.0 : 1.0;
-        sb_cc_override_bytes("lockcustomizer", view, "alpha", "setAlpha:", &alpha, sizeof(alpha));
-        if (changed) (*changed)++;
+        didChange = sb_cc_override_bytes("lockcustomizer", view, "alpha", "setAlpha:", &alpha, sizeof(alpha)) || didChange;
+        if (didChange && changed) (*changed)++;
+    } else if (isQuick && lockContext && gLockHideQuickActions) {
+        double alpha = 0.0;
+        if (sb_cc_override_bytes("lockcustomizer", view, "alpha", "setAlpha:", &alpha, sizeof(alpha)) && changed) (*changed)++;
+    } else if (isDots && lockContext && gLockHideDots) {
+        double alpha = 0.0;
+        if (sb_cc_override_bytes("lockcustomizer", view, "alpha", "setAlpha:", &alpha, sizeof(alpha)) && changed) (*changed)++;
+    } else if (isArtwork && lockContext && gLockHideMediaArtwork) {
+        double alpha = 0.0;
+        if (sb_cc_override_bytes("lockcustomizer", view, "alpha", "setAlpha:", &alpha, sizeof(alpha)) && changed) (*changed)++;
     } else if (isMedia && lockContext) {
-        double scale = restore ? 1.0 : (double)gLockMediaScale / 100.0;
+        double scale = (double)gLockMediaScale / 100.0;
         CUSAffine t = { scale, 0, 0, scale, 0, 0 };
-        sb_cc_override_bytes("lockcustomizer", view, "transform", "setTransform:", &t, sizeof(t));
-        if (changed) (*changed)++;
+        if (sb_cc_override_bytes("lockcustomizer", view, "transform", "setTransform:", &t, sizeof(t)) && changed) (*changed)++;
     }
     uint64_t subs = r_msg2_main(view, "subviews", 0, 0, 0, 0);
     uint64_t count = r_is_objc_ptr(subs) ? r_msg2_main(subs, "count", 0, 0, 0, 0) : 0;
-    if (count > 256) count = 256;
+    if (count > 96) count = 96;
     for (uint64_t i = 0; i < count; i++)
-        lockcustomizer_scan(r_msg2_main(subs, "objectAtIndex:", i, 0, 0, 0), depth + 1, lockContext, restore, changed);
+        lockcustomizer_scan(r_msg2_main(subs, "objectAtIndex:", i, 0, 0, 0),
+                            depth + 1, lockContext, visited, changed);
 }
 
 void lockcustomizer_configure(int clockScalePercent, int horizontalOffset, int verticalOffset,
@@ -537,6 +589,22 @@ void lockcustomizer_configure(int clockScalePercent, int horizontalOffset, int v
     if (contentAlphaPercent > 100) contentAlphaPercent = 100;
     if (mediaScalePercent < 65) mediaScalePercent = 65;
     if (mediaScalePercent > 115) mediaScalePercent = 115;
+    if (metalLightIntensityPercent < 10) metalLightIntensityPercent = 10;
+    if (metalLightIntensityPercent > 100) metalLightIntensityPercent = 100;
+    if (metalLightThickness < 1) metalLightThickness = 1;
+    if (metalLightThickness > 18) metalLightThickness = 18;
+    if (metalLightStyle < 0) metalLightStyle = 0;
+    if (metalLightStyle > 2) metalLightStyle = 2;
+    if (gLockClockScale != clockScalePercent || gLockXOffset != horizontalOffset ||
+        gLockYOffset != verticalOffset || gLockHideQuickActions != hideQuickActions ||
+        gLockHideDots != hidePageDots || gLockContentAlpha != contentAlphaPercent ||
+        gLockMediaScale != mediaScalePercent || gLockHideMediaArtwork != hideMediaArtwork ||
+        gMetalLockLightEnabled != metalLightEnabled ||
+        gMetalLockLightIntensity != metalLightIntensityPercent ||
+        gMetalLockLightThickness != metalLightThickness ||
+        gMetalLockLightStyle != metalLightStyle) {
+        gLockConfigDirty = true;
+    }
     gLockClockScale = clockScalePercent;
     gLockXOffset = horizontalOffset;
     gLockYOffset = verticalOffset;
@@ -546,9 +614,9 @@ void lockcustomizer_configure(int clockScalePercent, int horizontalOffset, int v
     gLockMediaScale = mediaScalePercent;
     gLockHideMediaArtwork = hideMediaArtwork;
     gMetalLockLightEnabled = metalLightEnabled;
-    gMetalLockLightIntensity = metalLightIntensityPercent < 10 ? 10 : (metalLightIntensityPercent > 100 ? 100 : metalLightIntensityPercent);
-    gMetalLockLightThickness = metalLightThickness < 1 ? 1 : (metalLightThickness > 18 ? 18 : metalLightThickness);
-    gMetalLockLightStyle = metalLightStyle < 0 ? 0 : (metalLightStyle > 2 ? 2 : metalLightStyle);
+    gMetalLockLightIntensity = metalLightIntensityPercent;
+    gMetalLockLightThickness = metalLightThickness;
+    gMetalLockLightStyle = metalLightStyle;
     log_user("[LOCKCUSTOM][CONFIG] clockScale=%d%% offset=%d/%dpt hideQuickActions=%d hidePageDots=%d clockAlpha=%d%% mediaScale=%d%% hideArtwork=%d metalLight=%d metalIntensity=%d%% metalThickness=%dpt metalStyle=%d.\n",
              gLockClockScale, gLockXOffset, gLockYOffset, gLockHideQuickActions,
              gLockHideDots, gLockContentAlpha, gLockMediaScale,
@@ -568,7 +636,7 @@ static uint64_t metal_lock_light_color(void)
                           &blue, sizeof(blue), &alpha, sizeof(alpha)) : 0;
 }
 
-static bool metal_lock_light_apply(void)
+static bool metal_lock_light_apply(uint64_t lockWindow)
 {
     if (!gMetalLockLightEnabled) {
         bool removed = r_is_objc_ptr(gMetalLockLightOverlay);
@@ -580,19 +648,9 @@ static bool metal_lock_light_apply(void)
         log_user("[METALLOCK][DISABLED] overlayRemoved=%d result=stock-edge-light.\n", removed);
         return false;
     }
-    uint64_t windows[64] = {0}, lockWindow = 0;
-    int count = sb_collect_windows(windows, 64);
-    for (int i = 0; i < count; i++) {
-        char cls[160] = {0};
-        cus_class_name(windows[i], cls, sizeof(cls));
-        if (cus_contains(cls, "CoverSheet") || cus_contains(cls, "LockScreen") || cus_contains(cls, "DashBoard")) {
-            lockWindow = windows[i];
-            break;
-        }
-    }
     if (!r_is_objc_ptr(lockWindow)) {
         printf("[METALLOCK] lock window not visible yet\n");
-        log_user("[METALLOCK][WARN] scannedWindows=%d but no CoverSheet/LockScreen/DashBoard window is currently visible; apply can retry on the next visual refresh.\n", count);
+        log_user("[METALLOCK][WAIT] no visible CoverSheet window; apply will retry while the lock screen is presented.\n");
         return false;
     }
     CUSRect bounds;
@@ -646,16 +704,28 @@ static bool lockcustomizer_run(bool restore)
                  restored, overlayRemoved, (restored > 0 || overlayRemoved) ? "success" : "nothing-owned");
         return restored > 0 || overlayRemoved;
     }
-    uint64_t windows[64] = {0};
-    int windowCount = sb_collect_windows(windows, 64), changed = 0;
-    for (int i = 0; i < windowCount; i++) lockcustomizer_scan(windows[i], 0, false, restore, &changed);
-    bool metalOK = metal_lock_light_apply();
-    printf("[LOCKCUSTOM] restore=%d scale=%d%% x=%d y=%d quick=%d dots=%d alpha=%d%% mediaScale=%d%% hideArtwork=%d metal=%d metalOK=%d changed=%d\n",
+    if (gLockConfigDirty) {
+        int restored = sb_cc_restore_owner("lockcustomizer");
+        log_user("[LOCKCUSTOM][RECONFIGURE] restoredPriorProperties=%d before applying the new selection.\n",
+                 restored);
+        gLockConfigDirty = false;
+    }
+    bool windowVisible = false;
+    uint64_t lockWindow = lockcustomizer_window(&windowVisible);
+    if (!r_is_objc_ptr(lockWindow)) {
+        log_user("[LOCKCUSTOM][WAIT] no class-verified Cover Sheet window exists yet; no hierarchy was touched.\n");
+        return false;
+    }
+    int visited = 0, changed = 0;
+    lockcustomizer_scan(lockWindow, 0, true, &visited, &changed);
+    bool metalOK = metal_lock_light_apply(lockWindow);
+    printf("[LOCKCUSTOM] restore=%d scale=%d%% x=%d y=%d quick=%d dots=%d alpha=%d%% mediaScale=%d%% hideArtwork=%d metal=%d metalOK=%d visited=%d changed=%d\n",
            restore, gLockClockScale, gLockXOffset, gLockYOffset,
            gLockHideQuickActions, gLockHideDots, gLockContentAlpha,
-           gLockMediaScale, gLockHideMediaArtwork, gMetalLockLightEnabled, metalOK, changed);
-    log_user("[LOCKCUSTOM][%s] windows=%d matchedViews=%d clockScale=%d%% offset=%d/%dpt hideQuick=%d hideDots=%d alpha=%d%% mediaScale=%d%% hideArtwork=%d metalEnabled=%d metalResult=%d result=%s.\n",
-             restore ? "RESTORE" : "APPLY", windowCount, changed,
+           gLockMediaScale, gLockHideMediaArtwork, gMetalLockLightEnabled, metalOK, visited, changed);
+    log_user("[LOCKCUSTOM][%s] window=0x%llx presentation=%s visited=%d matchedViews=%d clockScale=%d%% offset=%d/%dpt hideQuick=%d hideDots=%d alpha=%d%% mediaScale=%d%% hideArtwork=%d metalEnabled=%d metalResult=%d result=%s.\n",
+             restore ? "RESTORE" : "APPLY", lockWindow,
+             windowVisible ? "visible" : "prearmed-hidden", visited, changed,
              gLockClockScale, gLockXOffset, gLockYOffset,
              gLockHideQuickActions, gLockHideDots, gLockContentAlpha,
              gLockMediaScale, gLockHideMediaArtwork, gMetalLockLightEnabled,
@@ -669,6 +739,7 @@ void lockcustomizer_forget_remote_state(void)
 {
     bool hadOverlay = r_is_objc_ptr(gMetalLockLightOverlay);
     gMetalLockLightOverlay = 0;
+    gLockConfigDirty = false;
     sb_cc_forget_owner("lockcustomizer");
     log_user("[LOCKCUSTOM][FORGET] cleared remote state; hadMetalOverlay=%d.\n", hadOverlay);
 }

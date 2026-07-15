@@ -1,10 +1,12 @@
 #import "undertime.h"
 #import "../remote_objc.h"
+#import "../sb_walk.h"
 #import "../../TaskRop/RemoteCall.h"
 #import "../../LogTextView.h"
 
 #import <Foundation/Foundation.h>
 #import <math.h>
+#import <string.h>
 
 static bool gUtApplied = false;
 
@@ -44,17 +46,7 @@ bool undertime_apply_in_session(void)
                 uint64_t item = r_msg2_main(items, "objectAtIndex:", j, 0, 0, 0);
                 if (!r_is_objc_ptr(item)) continue;
                 char itemCls[128] = {0};
-                uint64_t icls = r_dlsym_call(R_TIMEOUT, "object_getClass", item, 0, 0, 0, 0, 0, 0, 0);
-                if (r_is_objc_ptr(icls)) {
-                    uint64_t iname = r_dlsym_call(R_TIMEOUT, "class_getName", icls, 0, 0, 0, 0, 0, 0, 0);
-                    if (iname) {
-                        uint64_t ibuf = r_dlsym_call(R_TIMEOUT, "strdup", iname, 0, 0, 0, 0, 0, 0, 0);
-                        if (ibuf) {
-                            remote_read(ibuf, itemCls, sizeof(itemCls) - 1);
-                            r_free(ibuf);
-                        }
-                    }
-                }
+                (void)sb_read_class_name(item, itemCls, sizeof(itemCls));
                 if (strstr(itemCls, "Time") || strstr(itemCls, "Clock")) {
                     timeItem = item;
                     break;
@@ -64,18 +56,15 @@ bool undertime_apply_in_session(void)
     }
     if (!r_is_objc_ptr(timeItem)) return false;
 
-    uint64_t stringClass = r_class("NSString");
-    if (!r_is_objc_ptr(stringClass)) return false;
-
-    const char *fmt = "HH:mm\n%.1f GB";
-    uint64_t fmtStr = r_alloc_str(fmt);
-    if (!fmtStr) return false;
-
-    uint64_t formatStr = r_msg2_main(stringClass, "stringWithUTF8String:", fmtStr, 0, 0, 0);
-    r_free(fmtStr);
+    // DateUnderTime-style safe date format. The old "%.1f GB" placeholder
+    // was neither a valid date component nor supplied with an argument and
+    // could leave the status item in an invalid formatting state.
+    uint64_t formatStr = r_nsstr_retained("HH:mm\nMMM d");
     if (!r_is_objc_ptr(formatStr)) return false;
-
-    r_msg2_main(timeItem, "setFormat:", formatStr, 0, 0, 0);
+    bool changed = sb_cc_override_object("undertime", timeItem,
+                                         "format", "setFormat:", formatStr);
+    r_msg2_main(formatStr, "release", 0, 0, 0, 0);
+    if (!changed) return false;
     printf("[UNDERTIME] set double-line clock format\n");
 
     gUtApplied = true;
@@ -85,11 +74,14 @@ bool undertime_apply_in_session(void)
 bool undertime_stop_in_session(void)
 {
     printf("[UNDERTIME] stop\n");
+    int restored = sb_cc_restore_owner("undertime");
     gUtApplied = false;
-    return true;
+    log_user("[UNDERTIME][RESTORE] exactFormatProperties=%d.\n", restored);
+    return restored > 0;
 }
 
 void undertime_forget_remote_state(void)
 {
     gUtApplied = false;
+    sb_cc_forget_owner("undertime");
 }

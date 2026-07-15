@@ -116,7 +116,7 @@ static bool demo_hello_apply(void)
     uint64_t str = r_nsstr_retained("[TweakLoader] Hello from RemoteCall!");
     if (r_is_objc_ptr(str)) {
         printf("[TWEAKLOADER] demo_hello: RemoteCall OK\n");
-        r_free(str);
+        r_msg2_main(str, "release", 0, 0, 0, 0);
         return true;
     }
     printf("[TWEAKLOADER] demo_hello: RemoteCall failed\n");
@@ -150,10 +150,8 @@ static bool demo_log_stop(void)
 
 void tweakloader_register_builtins(void)
 {
-    static bool registered = false;
-    if (registered) return;
-    registered = true;
-
+    // reload_list clears the registry first, so built-ins must be registered
+    // on every reload rather than guarded for the lifetime of the app process.
     tweakloader_register("Hello RemoteCall", demo_hello_apply, demo_hello_stop);
     tweakloader_register("Log SpringBoard Windows", demo_log_apply, demo_log_stop);
     printf("[TWEAKLOADER] built-in tweaks registered\n");

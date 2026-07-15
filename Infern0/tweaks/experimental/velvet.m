@@ -1,5 +1,6 @@
 #import "velvet.h"
 #import "../remote_objc.h"
+#import "../sb_walk.h"
 #import "../../TaskRop/RemoteCall.h"
 #import "../../LogTextView.h"
 
@@ -13,7 +14,8 @@ static VelvetStyle gVelvetGlobalStyle;
 static bool gVelvetGlobalDirty = true;
 
 static const int kVelvetMaxStyledViews = 128;
-static const int kVelvetMaxDepth = 16;
+static const int kVelvetMaxDepth = 10;
+static const int kVelvetMaxVisitedPerPass = 384;
 
 typedef struct {
     uint64_t view;
@@ -27,6 +29,7 @@ static uint64_t gVelvetBannerView = 0;
 static uint64_t gVelvetEdgeOverlay = 0;
 static uint64_t gVelvetEdgeBanner = 0;
 static uint64_t gVelvetEdgeWindow = 0;
+static int gVelvetVisitedThisPass = 0;
 
 typedef struct {
     double x, y, width, height;
@@ -115,17 +118,18 @@ static bool vl_apply_style_to_view(uint64_t view, const VelvetStyle *style)
     if (style->bgColor.hasValue) {
         uint64_t color = vl_remote_color(&style->bgColor);
         if (r_is_objc_ptr(color)) {
-            r_msg2_main(view, "setBackgroundColor:", color, 0, 0, 0);
-            applied = true;
+            applied = sb_cc_override_object("velvet", view,
+                                            "backgroundColor", "setBackgroundColor:", color) || applied;
         }
     }
 
     if (style->hasCornerRadius && r_is_objc_ptr(layer)) {
         double cr = style->cornerRadius;
-        r_msg2_main_raw(layer, "setCornerRadius:",
-                        &cr, sizeof(cr), NULL, 0, NULL, 0, NULL, 0);
-        r_msg2_main(layer, "setMasksToBounds:", 1, 0, 0, 0);
-        applied = true;
+        applied = sb_cc_override_bytes("velvet", layer,
+                                       "cornerRadius", "setCornerRadius:",
+                                       &cr, sizeof(cr)) || applied;
+        applied = sb_cc_override_bool("velvet", layer,
+                                      "masksToBounds", "setMasksToBounds:", true) || applied;
     }
 
     if (style->borderColor.hasValue && style->borderWidth > 0.0 && r_is_objc_ptr(layer)) {
@@ -137,9 +141,9 @@ static bool vl_apply_style_to_view(uint64_t view, const VelvetStyle *style)
             }
         }
         double bw = style->borderWidth;
-        r_msg2_main_raw(layer, "setBorderWidth:",
-                        &bw, sizeof(bw), NULL, 0, NULL, 0, NULL, 0);
-        applied = true;
+        applied = sb_cc_override_bytes("velvet", layer,
+                                       "borderWidth", "setBorderWidth:",
+                                       &bw, sizeof(bw)) || applied;
     }
 
     return applied;
@@ -153,9 +157,11 @@ static void vl_apply_banner_geometry(uint64_t view, const VelvetStyle *style)
     double alpha = style->bannerAlpha > 0.0 ? style->bannerAlpha : 1.0;
     struct { double a, b, c, d, tx, ty; } transform = { scale, 0, 0, scale, 0, 0 };
     if (r_responds_main(view, "setTransform:"))
-        r_msg2_main_raw(view, "setTransform:", &transform, sizeof(transform), NULL, 0, NULL, 0, NULL, 0);
+        sb_cc_override_bytes("velvet", view, "transform", "setTransform:",
+                             &transform, sizeof(transform));
     if (r_responds_main(view, "setAlpha:"))
-        r_msg2_main_raw(view, "setAlpha:", &alpha, sizeof(alpha), NULL, 0, NULL, 0, NULL, 0);
+        sb_cc_override_bytes("velvet", view, "alpha", "setAlpha:",
+                             &alpha, sizeof(alpha));
 }
 
 static bool vl_apply_style_to_label(uint64_t label, const VelvetRGBA *color)
@@ -163,8 +169,8 @@ static bool vl_apply_style_to_label(uint64_t label, const VelvetRGBA *color)
     if (!r_is_objc_ptr(label) || !color || !color->hasValue) return false;
     uint64_t textColor = vl_remote_color(color);
     if (!r_is_objc_ptr(textColor)) return false;
-    r_msg2_main(label, "setTextColor:", textColor, 0, 0, 0);
-    return true;
+    return sb_cc_override_object("velvet", label,
+                                 "textColor", "setTextColor:", textColor);
 }
 
 static bool vl_is_styled(uint64_t view)
@@ -181,12 +187,6 @@ static void vl_mark_styled(uint64_t view)
     if (!view) return;
     if (vl_is_styled(view)) return;
     if (gVelvetStyledCount >= kVelvetMaxStyledViews) {
-        int oldest = 0;
-        for (int i = 1; i < gVelvetStyledCount; i++) {
-            if (gVelvetStyled[i].tick < gVelvetStyled[oldest].tick) oldest = i;
-        }
-        gVelvetStyled[oldest].view = view;
-        gVelvetStyled[oldest].tick = gVelvetTick;
         return;
     }
     gVelvetStyled[gVelvetStyledCount].view = view;
@@ -198,18 +198,7 @@ static void vl_mark_styled(uint64_t view)
 
 static void vl_read_class_name(uint64_t obj, char *out, size_t outLen)
 {
-    if (!out || outLen == 0) return;
-    out[0] = '\0';
-    if (!r_is_objc_ptr(obj)) return;
-    uint64_t cls = r_dlsym_call(R_TIMEOUT, "object_getClass", obj, 0, 0, 0, 0, 0, 0, 0);
-    if (!r_is_objc_ptr(cls)) return;
-    uint64_t name = r_dlsym_call(R_TIMEOUT, "class_getName", cls, 0, 0, 0, 0, 0, 0, 0);
-    if (!name) return;
-    uint64_t buf = r_dlsym_call(R_TIMEOUT, "strdup", name, 0, 0, 0, 0, 0, 0, 0);
-    if (!buf) return;
-    remote_read(buf, out, outLen - 1);
-    r_free(buf);
-    out[outLen - 1] = '\0';
+    (void)sb_read_class_name(obj, out, outLen);
 }
 
 static bool vl_str_contains(const char *str, const char *needle)
@@ -220,7 +209,9 @@ static bool vl_str_contains(const char *str, const char *needle)
 
 static void vl_scan_subviews(uint64_t parent, const VelvetStyle *style, int depth, bool reapply)
 {
-    if (!r_is_objc_ptr(parent) || depth > kVelvetMaxDepth) return;
+    if (!r_is_objc_ptr(parent) || depth > kVelvetMaxDepth ||
+        gVelvetVisitedThisPass >= kVelvetMaxVisitedPerPass) return;
+    gVelvetVisitedThisPass++;
 
     uint64_t subviews = r_msg2_main(parent, "subviews", 0, 0, 0, 0);
     if (!r_is_objc_ptr(subviews)) return;
@@ -421,17 +412,7 @@ static uint64_t vl_find_list_controller(void)
         if (!r_is_objc_ptr(root)) continue;
 
         char cls[128] = {0};
-        uint64_t rCls = r_dlsym_call(R_TIMEOUT, "object_getClass", root, 0, 0, 0, 0, 0, 0, 0);
-        if (r_is_objc_ptr(rCls)) {
-            uint64_t name = r_dlsym_call(R_TIMEOUT, "class_getName", rCls, 0, 0, 0, 0, 0, 0, 0);
-            if (name) {
-                uint64_t buf = r_dlsym_call(R_TIMEOUT, "strdup", name, 0, 0, 0, 0, 0, 0, 0);
-                if (buf) {
-                    remote_read(buf, cls, sizeof(cls) - 1);
-                    r_free(buf);
-                }
-            }
-        }
+        (void)sb_read_class_name(root, cls, sizeof(cls));
 
         if (strstr(cls, "CoverSheet") || strstr(cls, "NCNotification")) {
             uint64_t listView = r_ivar_value(root, "_listView");
@@ -470,17 +451,7 @@ static void vl_scan_list_cells(uint64_t listView, const VelvetStyle *style, bool
         bool alreadyStyled = vl_is_styled(sv);
 
         char cls[128] = {0};
-        uint64_t rCls = r_dlsym_call(R_TIMEOUT, "object_getClass", sv, 0, 0, 0, 0, 0, 0, 0);
-        if (r_is_objc_ptr(rCls)) {
-            uint64_t name = r_dlsym_call(R_TIMEOUT, "class_getName", rCls, 0, 0, 0, 0, 0, 0, 0);
-            if (name) {
-                uint64_t buf = r_dlsym_call(R_TIMEOUT, "strdup", name, 0, 0, 0, 0, 0, 0, 0);
-                if (buf) {
-                    remote_read(buf, cls, sizeof(cls) - 1);
-                    r_free(buf);
-                }
-            }
-        }
+        (void)sb_read_class_name(sv, cls, sizeof(cls));
 
         if (strstr(cls, "NCNotificationListCell") || strstr(cls, "NCNotificationRequest") ||
             strstr(cls, "Cell") || strstr(cls, "cell")) {
@@ -498,8 +469,15 @@ static void vl_scan_list_cells(uint64_t listView, const VelvetStyle *style, bool
 bool velvet_apply_in_session(void)
 {
     printf("[VELVET] apply\n");
+    gVelvetVisitedThisPass = 0;
 
     if (!gVelvetGlobalDirty) return true;
+    int priorProperties = sb_cc_restore_owner("velvet");
+    memset(gVelvetStyled, 0, sizeof(gVelvetStyled));
+    gVelvetStyledCount = 0;
+    if (priorProperties > 0)
+        log_user("[VELVET][RECONFIGURE] exactPriorProperties=%d cacheReset=1.\n",
+                 priorProperties);
 
     const VelvetStyle *style = &gVelvetGlobalStyle;
 
@@ -526,12 +504,24 @@ bool velvet_apply_in_session(void)
     }
 
     gVelvetGlobalDirty = false;
+    printf("[VELVET] apply visited=%d styled=%d\n",
+           gVelvetVisitedThisPass, gVelvetStyledCount);
     return true;
 }
 
 bool velvet_tick_in_session(void)
 {
     gVelvetTick++;
+    gVelvetVisitedThisPass = 0;
+
+    if ((gVelvetTick % 300) == 0) {
+        int restored = sb_cc_restore_owner("velvet");
+        memset(gVelvetStyled, 0, sizeof(gVelvetStyled));
+        gVelvetStyledCount = 0;
+        gVelvetGlobalDirty = true;
+        log_user("[VELVET][CACHE-ROTATE] tick=%llu exactPropertiesRestored=%d result=fresh-visible-scan.\n",
+                 (unsigned long long)gVelvetTick, restored);
+    }
 
     if (gVelvetGlobalDirty) {
         velvet_apply_in_session();
@@ -573,26 +563,12 @@ bool velvet_tick_in_session(void)
 bool velvet_stop_in_session(void)
 {
     printf("[VELVET] stop\n");
-    for (int i = 0; i < gVelvetStyledCount; i++) {
-        uint64_t view = gVelvetStyled[i].view;
-        if (!r_is_objc_ptr(view)) continue;
-        uint64_t layer = r_msg2_main(view, "layer", 0, 0, 0, 0);
-        if (r_is_objc_ptr(layer)) {
-            double zero = 0.0;
-            r_msg2_main_raw(layer, "setBorderWidth:", &zero, sizeof(zero), NULL, 0, NULL, 0, NULL, 0);
-        }
-    }
-    if (r_is_objc_ptr(gVelvetBannerView)) {
-        double alpha = 1.0;
-        struct { double a, b, c, d, tx, ty; } identity = { 1, 0, 0, 1, 0, 0 };
-        if (r_responds_main(gVelvetBannerView, "setAlpha:"))
-            r_msg2_main_raw(gVelvetBannerView, "setAlpha:", &alpha, sizeof(alpha), NULL, 0, NULL, 0, NULL, 0);
-        if (r_responds_main(gVelvetBannerView, "setTransform:"))
-            r_msg2_main_raw(gVelvetBannerView, "setTransform:", &identity, sizeof(identity), NULL, 0, NULL, 0, NULL, 0);
-    }
+    int restored = sb_cc_restore_owner("velvet");
     gVelvetBannerView = 0;
     vl_remove_edge_overlay();
     gVelvetStyledCount = 0;
+    log_user("[VELVET][RESTORE] exactProperties=%d styledCacheCleared=1 edgeOverlayRemoved=1.\n",
+             restored);
     return true;
 }
 
@@ -605,6 +581,8 @@ void velvet_forget_remote_state(void)
     gVelvetEdgeBanner = 0;
     gVelvetEdgeWindow = 0;
     gVelvetGlobalDirty = true;
+    gVelvetVisitedThisPass = 0;
+    sb_cc_forget_owner("velvet");
 }
 
 bool velvet_has_remote_state(void)

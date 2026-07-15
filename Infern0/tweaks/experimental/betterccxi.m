@@ -23,26 +23,21 @@ static uint64_t betterccxi_key_window(void)
 
 static void betterccxi_class_name(uint64_t obj, char *out, size_t outLen)
 {
-    if (!out || outLen == 0) return;
-    out[0] = '\0';
-    if (!r_is_objc_ptr(obj)) return;
-    uint64_t cls = r_dlsym_call(R_TIMEOUT, "object_getClass", obj, 0, 0, 0, 0, 0, 0, 0);
-    uint64_t name = r_is_objc_ptr(cls) ? r_dlsym_call(R_TIMEOUT, "class_getName", cls, 0, 0, 0, 0, 0, 0, 0) : 0;
-    if (!name) return;
-    uint64_t buf = r_dlsym_call(R_TIMEOUT, "strdup", name, 0, 0, 0, 0, 0, 0, 0);
-    if (!buf) return;
-    remote_read(buf, out, outLen - 1);
-    out[outLen - 1] = '\0';
-    r_free(buf);
+    (void)sb_read_class_name(obj, out, outLen);
 }
 
-static void betterccxi_scan(uint64_t parent, double scale, int depth, int *hits)
+static void betterccxi_scan(uint64_t parent, double scale, int depth, int *visited, int *hits)
 {
-    if (!r_is_objc_ptr(parent) || depth > gBetterCCXIDepthLimit) return;
+    if (!r_is_objc_ptr(parent) || depth > gBetterCCXIDepthLimit || !visited ||
+        *visited >= 320 || (hits && *hits >= 48)) return;
+    (*visited)++;
     char cls[160] = {0};
     betterccxi_class_name(parent, cls, sizeof(cls));
+    // Never lift every generic ControlCenter ancestor: that changes stacking
+    // for overlays, gestures, and dismissal chrome. Only module/media layers
+    // participate in this compact presentation.
     bool target = strstr(cls, "CCUIModule") || strstr(cls, "MediaControls") ||
-                  strstr(cls, "NowPlaying") || strstr(cls, "ControlCenter");
+                  strstr(cls, "NowPlaying");
     bool scaleTarget = strstr(cls, "CCUIModuleContainer") || strstr(cls, "MediaControlsPanelView") ||
                        strstr(cls, "NowPlayingContainer");
     uint64_t layer = target ? r_msg2_main(parent, "layer", 0, 0, 0, 0) : 0;
@@ -60,7 +55,7 @@ static void betterccxi_scan(uint64_t parent, double scale, int depth, int *hits)
     uint64_t count = r_msg2_main(subviews, "count", 0, 0, 0, 0);
     if (count > 80) count = 80;
     for (uint64_t i = 0; i < count; i++) {
-        betterccxi_scan(r_msg2_main(subviews, "objectAtIndex:", i, 0, 0, 0), scale, depth + 1, hits);
+        betterccxi_scan(r_msg2_main(subviews, "objectAtIndex:", i, 0, 0, 0), scale, depth + 1, visited, hits);
     }
 }
 
@@ -69,9 +64,9 @@ bool betterccxi_apply_in_session(void)
     printf("[BETTERCCXI] apply\n");
     uint64_t win = sb_control_center_window();
     if (!r_is_objc_ptr(win)) return false;
-    int hits = 0;
-    betterccxi_scan(win, (double)gBetterCCXIModuleScalePercent / 100.0, 0, &hits);
-    printf("[BETTERCCXI] lift=%d scale=%d%% depth=%d hits=%d\n", gBetterCCXIZLift, gBetterCCXIModuleScalePercent, gBetterCCXIDepthLimit, hits);
+    int visited = 0, hits = 0;
+    betterccxi_scan(win, (double)gBetterCCXIModuleScalePercent / 100.0, 0, &visited, &hits);
+    printf("[BETTERCCXI] lift=%d scale=%d%% depth=%d visited=%d hits=%d\n", gBetterCCXIZLift, gBetterCCXIModuleScalePercent, gBetterCCXIDepthLimit, visited, hits);
     gBetterCCXIApplied = hits > 0;
     return gBetterCCXIApplied;
 }

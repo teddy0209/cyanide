@@ -48,16 +48,7 @@ static bool is_class_name(uint64_t obj, char *out, size_t outLen, ISClassNameCac
         }
     }
 
-    uint64_t name = r_dlsym_call(R_TIMEOUT, "class_getName", cls, 0, 0, 0, 0, 0, 0, 0);
-    uint64_t remoteLength = name
-        ? r_dlsym_call(R_TIMEOUT, "strlen", name, 0, 0, 0, 0, 0, 0, 0) : 0;
-    size_t readLength = (size_t)remoteLength;
-    if (readLength >= outLen) readLength = outLen - 1;
-    uint64_t heapName = readLength
-        ? r_dlsym_call(R_TIMEOUT, "strdup", name, 0, 0, 0, 0, 0, 0, 0) : 0;
-    bool ok = heapName && remote_read(heapName, out, readLength);
-    if (heapName) r_free(heapName);
-    out[readLength] = '\0';
+    bool ok = sb_read_class_name(obj, out, outLen);
 
     if (cache) {
         if (!ok) cache->readFailures++;
@@ -129,6 +120,31 @@ static bool is_round_view(uint64_t view, double radius, const char *owner)
     return radiusOK && maskOK;
 }
 
+static int is_collect_home_icons(uint64_t *icons, int cap, int *outListCount)
+{
+    if (!icons || cap <= 0) return 0;
+    uint64_t listClass = r_class("SBIconListView");
+    uint64_t lists[64] = {0};
+    int listCount = r_is_objc_ptr(listClass)
+        ? sb_collect_views_in_windows(listClass, lists, 64) : 0;
+    int count = 0;
+    for (int listIndex = 0; listIndex < listCount && count < cap; listIndex++) {
+        uint64_t pageIcons[256] = {0};
+        int pageCount = sb_collect_icon_views_from_list(lists[listIndex], pageIcons, 256);
+        for (int i = 0; i < pageCount && count < cap; i++) {
+            bool duplicate = false;
+            for (int known = 0; known < count; known++)
+                if (icons[known] == pageIcons[i]) { duplicate = true; break; }
+            if (!duplicate) icons[count++] = pageIcons[i];
+        }
+    }
+    uint64_t iconClass = r_class("SBIconView");
+    if (count == 0 && r_is_objc_ptr(iconClass))
+        count = sb_collect_views_in_windows(iconClass, icons, cap);
+    if (outListCount) *outListCount = listCount;
+    return count;
+}
+
 void roundedicons_configure(int cornerRadius)
 {
     if (cornerRadius < 0) cornerRadius = 0;
@@ -140,9 +156,9 @@ void roundedicons_configure(int cornerRadius)
 
 bool roundedicons_apply_in_session(void)
 {
-    uint64_t iconClass = r_class("SBIconView");
     uint64_t icons[512] = {0};
-    int count = r_is_objc_ptr(iconClass) ? sb_collect_views_in_windows(iconClass, icons, 512) : 0;
+    int listCount = 0;
+    int count = is_collect_home_icons(icons, 512, &listCount);
     int rounded = 0;
     for (int i = 0; i < count; i++) {
         uint64_t icon = icons[i];
@@ -154,8 +170,8 @@ bool roundedicons_apply_in_session(void)
     }
     printf("[ROUNDEDICONS] radius=%d applied=%d discovered=%d taps=preserved\n",
            gRoundedRadius, rounded, count);
-    log_user("[ROUNDEDICONS][APPLY] radius=%dpt discovered=%d changed=%d interactionEnabled=%d result=%s.\n",
-             gRoundedRadius, count, rounded, rounded, rounded > 0 ? "active" : "no matching icons");
+    log_user("[ROUNDEDICONS][APPLY] radius=%dpt discoveredLists=%d discoveredIcons=%d changed=%d interactionEnabled=%d result=%s.\n",
+             gRoundedRadius, listCount, count, rounded, rounded, rounded > 0 ? "active" : "no matching icons");
     return rounded > 0;
 }
 
@@ -193,18 +209,21 @@ static int is_saved_watch_icon_index(uint64_t icon)
 
 bool watchlayout_apply_in_session(void)
 {
-    uint64_t iconClass = r_class("SBIconView");
     uint64_t icons[512] = {0};
-    int count = r_is_objc_ptr(iconClass) ? sb_collect_views_in_windows(iconClass, icons, 512) : 0;
+    int listCount = 0;
+    int count = is_collect_home_icons(icons, 512, &listCount);
     uint64_t validIcons[512] = {0}, parents[512] = {0};
     ISRect original[512] = {{0}};
     ISClassNameCache classCache = {0};
-    int validCount = 0, skippedLibrary = 0, skippedDock = 0, invalidGeometry = 0;
+    int validCount = 0, skippedLibrary = 0, skippedDock = 0, skippedOffscreen = 0, invalidGeometry = 0;
     double compact = (double)gWatchCompactPercent / 100.0;
     double scale = (double)gWatchScalePercent / 100.0;
     ISAffineTransform transform = { scale, 0, 0, scale, 0, 0 };
     for (int i = 0; i < count; i++) {
         uint64_t icon = icons[i];
+        // SpringBoard only guarantees useful live geometry for the current
+        // page. The visual refresh loop will attach each other page on visit.
+        if (!sb_view_is_visible_in_window(icon)) { skippedOffscreen++; continue; }
         bool insideAppLibrary = false, insideDock = false;
         is_icon_context(icon, &classCache, &insideAppLibrary, &insideDock);
         if (insideAppLibrary) { skippedLibrary++; continue; }
@@ -222,6 +241,9 @@ bool watchlayout_apply_in_session(void)
             gWatchFrames[gWatchIconCount] = frame;
             savedIndex = gWatchIconCount;
             gWatchIconCount++;
+            // SpringBoard lazily replaces offscreen page views. Retaining a
+            // cached frame owner makes refresh/restore safe across page swaps.
+            r_msg2_main(icon, "retain", 0, 0, 0, 0);
         }
         if (savedIndex >= 0) frame = gWatchFrames[savedIndex];
         validIcons[validCount] = icon;
@@ -342,9 +364,10 @@ bool watchlayout_apply_in_session(void)
     }
     printf("[WATCHLAYOUT] geometry=honeycomb compact=%d%% scale=%d%% icons=%d pages=%d taps=preserved\n",
            gWatchCompactPercent, gWatchScalePercent, changed, pageCount);
-    log_user("[WATCHLAYOUT][APPLY] geometry=honeycomb discovered=%d eligible=%d changed=%d pages=%d skippedAppLibrary=%d skippedDock=%d invalidGeometry=%d uniqueAncestorClasses=%d classNameReadFailures=%d savedStockFrames=%d tapsPreserved=1 result=%s.\n",
-             count, validCount, changed, pageCount, skippedLibrary, skippedDock,
-             invalidGeometry, classCache.count, classCache.readFailures, gWatchIconCount,
+    log_user("[WATCHLAYOUT][APPLY] geometry=honeycomb discoveredLists=%d discoveredIcons=%d eligible=%d changed=%d pages=%d skippedOffscreen=%d skippedAppLibrary=%d skippedDock=%d invalidGeometry=%d uniqueAncestorClasses=%d classNameReadFailures=%d savedStockFrames=%d lazyPageAttach=1 tapsPreserved=1 result=%s.\n",
+             listCount, count, validCount, changed, pageCount, skippedOffscreen,
+             skippedLibrary, skippedDock, invalidGeometry,
+             classCache.count, classCache.readFailures, gWatchIconCount,
              changed > 0 ? "active" : "no eligible icons");
     return changed > 0;
 }
@@ -356,6 +379,7 @@ bool watchlayout_stop_in_session(void)
         uint64_t icon = gWatchIcons[i];
         if (!r_is_objc_ptr(icon)) continue;
         is_set_rect(icon, "setFrame:", gWatchFrames[i]);
+        r_msg2_main(icon, "release", 0, 0, 0, 0);
         restored++;
     }
     int properties = sb_cc_restore_owner("watchlayout");

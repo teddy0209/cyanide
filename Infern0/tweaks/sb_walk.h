@@ -21,6 +21,17 @@ int sb_collect_views(uint64_t root, uint64_t klass, uint64_t *out, int cap);
 // returns empty) and collects views of `klass` across all of them.
 int sb_collect_views_in_windows(uint64_t klass, uint64_t *out, int cap);
 
+// Collects real SBIconView instances owned by one SBIconListView. Newer iOS
+// versions may vend these through icon APIs without making them descendants.
+int sb_collect_icon_views_from_list(uint64_t listView, uint64_t *out, int cap);
+
+// Geometry-only visibility check used to defer expensive work for offscreen
+// SpringBoard pages until they enter the window.
+bool sb_view_is_visible_in_window(uint64_t view);
+// Reads the Objective-C runtime class name without allocating a temporary
+// string in SpringBoard. Safe for bounded diagnostic/classification buffers.
+bool sb_read_class_name(uint64_t object, char *out, size_t outLen);
+
 // Bridge-only variant: BFS via the vphone bridge using a class name string.
 int sb_collect_views_in_windows_by_name(const char *className, uint64_t *out, int cap);
 

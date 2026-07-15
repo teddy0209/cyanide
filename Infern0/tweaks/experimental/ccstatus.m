@@ -33,22 +33,29 @@ static uint64_t ccstatus_key_window(void)
 bool ccstatus_apply_in_session(void)
 {
     printf("[CCSTATUS] apply\n");
-    if (r_is_objc_ptr(gCCStatusLabel)) {
+    uint64_t win = sb_control_center_window();
+    if (!r_is_objc_ptr(win)) return false;
+    uint64_t currentParent = r_is_objc_ptr(gCCStatusLabel)
+        ? r_msg2_main(gCCStatusLabel, "superview", 0, 0, 0, 0) : 0;
+    if (r_is_objc_ptr(gCCStatusLabel) && currentParent != win) {
         r_msg2_main(gCCStatusLabel, "removeFromSuperview", 0, 0, 0, 0);
         r_msg2_main(gCCStatusLabel, "release", 0, 0, 0, 0);
         gCCStatusLabel = 0;
     }
-    uint64_t win = sb_control_center_window();
     uint64_t UILabel = r_class("UILabel");
-    if (!r_is_objc_ptr(win) || !r_is_objc_ptr(UILabel)) return false;
-    uint64_t label = r_msg2_main(UILabel, "alloc", 0, 0, 0, 0);
+    if (!r_is_objc_ptr(UILabel)) return false;
+    bool created = !r_is_objc_ptr(gCCStatusLabel);
+    uint64_t label = created ? r_msg2_main(UILabel, "alloc", 0, 0, 0, 0) : gCCStatusLabel;
     CCStatusRect frame = { 18, (double)gCCStatusYOffset, 330, 30 };
-    label = r_msg2_main_raw(label, "initWithFrame:", &frame, sizeof(frame), NULL, 0, NULL, 0, NULL, 0);
+    if (created)
+        label = r_msg2_main_raw(label, "initWithFrame:", &frame, sizeof(frame), NULL, 0, NULL, 0, NULL, 0);
+    else
+        r_msg2_main_raw(label, "setFrame:", &frame, sizeof(frame), NULL, 0, NULL, 0, NULL, 0);
     if (!r_is_objc_ptr(label)) return false;
     const char *text = "CCStatus";
-    if (gCCStatusShowWifi && gCCStatusShowIP) text = "Wi-Fi Active  |  IP --";
-    else if (gCCStatusShowWifi) text = "Wi-Fi Active";
-    else if (gCCStatusShowIP) text = "IP --";
+    if (gCCStatusShowWifi && gCCStatusShowIP) text = "Wi-Fi  |  IP";
+    else if (gCCStatusShowWifi) text = "Wi-Fi";
+    else if (gCCStatusShowIP) text = "IP";
     uint64_t str = r_nsstr_retained(text);
     if (r_is_objc_ptr(str)) {
         r_msg2_main(label, "setText:", str, 0, 0, 0);
@@ -74,10 +81,12 @@ bool ccstatus_apply_in_session(void)
         r_msg2_main_raw(layer, "setCornerRadius:", &radius, sizeof(radius), NULL, 0, NULL, 0, NULL, 0);
         r_msg2_main(layer, "setMasksToBounds:", 1, 0, 0, 0);
     }
-    r_msg2_main(win, "addSubview:", label, 0, 0, 0);
+    if (created) r_msg2_main(win, "addSubview:", label, 0, 0, 0);
+    else r_msg2_main(win, "bringSubviewToFront:", label, 0, 0, 0);
     gCCStatusLabel = label;
-    log_user("[CCSTATUS][APPLY] wifi=%d ip=%d y=%d overlayInstalled=1.\n",
-             gCCStatusShowWifi, gCCStatusShowIP, gCCStatusYOffset);
+    log_user("[CCSTATUS][APPLY] wifiLabel=%d ipLabel=%d y=%d overlay=%s liveNetworkLookup=0.\n",
+             gCCStatusShowWifi, gCCStatusShowIP, gCCStatusYOffset,
+             created ? "created" : "reused");
     return true;
 }
 

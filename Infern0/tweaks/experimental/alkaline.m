@@ -23,65 +23,37 @@ static uint64_t alkaline_color(double red, double green, double blue, double alp
                            &alpha, sizeof(alpha));
 }
 
-static uint64_t alkaline_key_window(void)
+static void alkaline_tint_view(uint64_t view, uint64_t color, int *hits)
 {
-    uint64_t UIApplication = r_class("UIApplication");
-    if (!r_is_objc_ptr(UIApplication)) return 0;
-    uint64_t app = r_msg2_main(UIApplication, "sharedApplication", 0, 0, 0, 0);
-    if (!r_is_objc_ptr(app)) return 0;
-    return r_msg2_main(app, "keyWindow", 0, 0, 0, 0);
-}
-
-static void alkaline_class_name(uint64_t obj, char *out, size_t outLen)
-{
-    if (!out || outLen == 0) return;
-    out[0] = '\0';
-    if (!r_is_objc_ptr(obj)) return;
-    uint64_t cls = r_dlsym_call(R_TIMEOUT, "object_getClass", obj, 0, 0, 0, 0, 0, 0, 0);
-    if (!r_is_objc_ptr(cls)) return;
-    uint64_t name = r_dlsym_call(R_TIMEOUT, "class_getName", cls, 0, 0, 0, 0, 0, 0, 0);
-    if (!name) return;
-    uint64_t buf = r_dlsym_call(R_TIMEOUT, "strdup", name, 0, 0, 0, 0, 0, 0, 0);
-    if (!buf) return;
-    remote_read(buf, out, outLen - 1);
-    out[outLen - 1] = '\0';
-    r_free(buf);
-}
-
-static void alkaline_scan_and_tint(uint64_t parent, uint64_t color, int depth, int *hits)
-{
-    if (!r_is_objc_ptr(parent) || !r_is_objc_ptr(color) || depth > 12) return;
-
-    char cls[128] = {0};
-    alkaline_class_name(parent, cls, sizeof(cls));
-    if (strstr(cls, "Battery")) {
-        sb_cc_override_object("alkaline", parent, "tintColor", "setTintColor:", color);
-        if (r_responds_main(parent, "setTextColor:")) sb_cc_override_object("alkaline", parent, "textColor", "setTextColor:", color);
-        if (r_responds_main(parent, "setBackgroundColor:")) sb_cc_override_object("alkaline", parent, "backgroundColor", "setBackgroundColor:", color);
-        if (hits) (*hits)++;
-    }
-
-    uint64_t subviews = r_msg2_main(parent, "subviews", 0, 0, 0, 0);
-    if (!r_is_objc_ptr(subviews)) return;
-    uint64_t count = r_msg2_main(subviews, "count", 0, 0, 0, 0);
-    if (count > 128) count = 128;
-    for (uint64_t i = 0; i < count; i++) {
-        uint64_t sv = r_msg2_main(subviews, "objectAtIndex:", i, 0, 0, 0);
-        alkaline_scan_and_tint(sv, color, depth + 1, hits);
-    }
+    if (!r_is_objc_ptr(view) || !r_is_objc_ptr(color)) return;
+    bool changed = sb_cc_override_object("alkaline", view, "tintColor", "setTintColor:", color);
+    if (r_responds_main(view, "setTextColor:"))
+        changed = sb_cc_override_object("alkaline", view, "textColor", "setTextColor:", color) || changed;
+    if (r_responds_main(view, "setBackgroundColor:"))
+        changed = sb_cc_override_object("alkaline", view, "backgroundColor", "setBackgroundColor:", color) || changed;
+    if (changed && hits) (*hits)++;
 }
 
 bool alkaline_apply_in_session(void)
 {
     printf("[ALKALINE] apply\n");
-    uint64_t win = sb_frontmost_window();
-    if (!r_is_objc_ptr(win)) return false;
     gAlkalineTint = alkaline_color((double)gAlkalineRed / 255.0,
                                    (double)gAlkalineGreen / 255.0,
                                    (double)gAlkalineBlue / 255.0,
                                    (double)gAlkalineAlphaPercent / 100.0);
     int hits = 0;
-    alkaline_scan_and_tint(win, gAlkalineTint, 0, &hits);
+    const char *batteryClasses[] = {
+        "_UIBatteryView", "UIStatusBarBatteryItemView",
+        "_UIStatusBarBatteryItemView", "BCUIBatteryView", NULL
+    };
+    for (int c = 0; batteryClasses[c] && hits < 64; c++) {
+        uint64_t cls = r_class(batteryClasses[c]);
+        if (!r_is_objc_ptr(cls)) continue;
+        uint64_t views[64] = {0};
+        int count = sb_collect_views_in_windows(cls, views, 64);
+        for (int i = 0; i < count && hits < 64; i++)
+            alkaline_tint_view(views[i], gAlkalineTint, &hits);
+    }
     printf("[ALKALINE] tinted %d battery-ish views\n", hits);
     return hits > 0;
 }

@@ -12,6 +12,7 @@
 #import "../LogTextView.h"
 
 #import <sys/socket.h>
+#import <sys/time.h>
 #import <sys/un.h>
 #import <unistd.h>
 #import <errno.h>
@@ -84,6 +85,17 @@ static SBCCProperty *sb_cc_property(const char *owner, uint64_t object,
             return NULL;
         }
     }
+    // Existing coordinated properties were validated when first captured.
+    // Only probe selectors for a new property; otherwise every idempotent
+    // refresh would still perform two needless RemoteCall messages.
+    bool getterReady = r_responds_main(object, getter);
+    bool setterReady = r_responds_main(object, setter);
+    if (!getterReady || !setterReady) {
+        if (gSBCCFailureLogs++ < 12)
+            log_user("[PROPERTY-COORDINATOR][SELECTOR-MISSING] owner=%s object=0x%llx getter=%s getterReady=%d setter=%s setterReady=%d result=rejected.\n",
+                     owner, object, getter, getterReady, setter, setterReady);
+        return NULL;
+    }
     if (!freeSlot) {
         if (gSBCCFailureLogs++ < 12)
             log_user("[PROPERTY-COORDINATOR][CAPACITY] owner=%s object=0x%llx setter=%s cap=%d result=rejected.\n",
@@ -145,6 +157,7 @@ bool sb_cc_override_object(const char *owner, uint64_t object,
     SBCCProperty *p = sb_cc_property(owner, object, getter, setter, SBCCValueObject, sizeof(uint64_t));
     SBCCOwnerValue *slot = p ? sb_cc_owner_slot(p, owner) : NULL;
     if (!slot) return false;
+    if (slot->sequence != 0 && slot->objectValue == value) return true;
     if (slot->objectValue != value) {
         if (r_is_objc_ptr(value)) r_msg2_main(value, "retain", 0, 0, 0, 0);
         if (r_is_objc_ptr(slot->objectValue)) r_msg2_main(slot->objectValue, "release", 0, 0, 0, 0);
@@ -163,6 +176,7 @@ bool sb_cc_override_bytes(const char *owner, uint64_t object,
     SBCCProperty *p = sb_cc_property(owner, object, getter, setter, SBCCValueBytes, valueSize);
     SBCCOwnerValue *slot = p ? sb_cc_owner_slot(p, owner) : NULL;
     if (!slot) return false;
+    if (slot->sequence != 0 && memcmp(slot->bytes, value, valueSize) == 0) return true;
     memcpy(slot->bytes, value, valueSize);
     slot->sequence = gSBCCSequence++;
     sb_cc_apply_property(p);
@@ -175,7 +189,9 @@ bool sb_cc_override_bool(const char *owner, uint64_t object,
     SBCCProperty *p = sb_cc_property(owner, object, getter, setter, SBCCValueBool, sizeof(uint64_t));
     SBCCOwnerValue *slot = p ? sb_cc_owner_slot(p, owner) : NULL;
     if (!slot) return false;
-    slot->objectValue = value ? 1 : 0;
+    uint64_t boolValue = value ? 1 : 0;
+    if (slot->sequence != 0 && slot->objectValue == boolValue) return true;
+    slot->objectValue = boolValue;
     slot->sequence = gSBCCSequence++;
     sb_cc_apply_property(p);
     return true;
@@ -284,6 +300,30 @@ typedef struct __attribute__((packed)) {
 
 static const char *sbw_class_name_from_ptr(uint64_t klass);
 
+bool sb_read_class_name(uint64_t object, char *out, size_t outLen)
+{
+    if (!out || outLen == 0) return false;
+    out[0] = '\0';
+    if (!r_is_objc_ptr(object)) return false;
+    uint64_t klass = r_dlsym_call(R_TIMEOUT, "object_getClass",
+                                  object, 0, 0, 0, 0, 0, 0, 0);
+    uint64_t name = r_is_objc_ptr(klass)
+        ? r_dlsym_call(R_TIMEOUT, "class_getName", klass, 0, 0, 0, 0, 0, 0, 0)
+        : 0;
+    if (!name || !remote_read(name, out, outLen - 1)) return false;
+    out[outLen - 1] = '\0';
+    return out[0] != '\0';
+}
+
+static void sbw_set_socket_deadline(int fd)
+{
+    // Never let one unavailable/half-responsive bridge freeze the entire tweak
+    // Apply pipeline. Generic RemoteCall remains available as the fallback.
+    struct timeval timeout = { .tv_sec = 2, .tv_usec = 0 };
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+}
+
 static bool sbw_read_full(int fd, void *buf, size_t len) {
     uint8_t *p = buf;
     while (len) { ssize_t n = read(fd, p, len); if (n <= 0) { if (n < 0 && errno == EINTR) continue; return false; } p += n; len -= n; }
@@ -300,6 +340,7 @@ static int sb_collect_views_via_bridge_root(uint64_t root, const char *className
     if (!root || !className || !className[0]) return 0;
     int fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (fd < 0) return -1;
+    sbw_set_socket_deadline(fd);
 
     struct sockaddr_un sun = {0};
     sun.sun_family = AF_UNIX;
@@ -332,7 +373,7 @@ static int sb_collect_views_via_bridge_root(uint64_t root, const char *className
 
 int sb_collect_views(uint64_t root, uint64_t klass, uint64_t *out, int cap)
 {
-    if (!root || !klass || cap <= 0) return 0;
+    if (!root || !klass || !out || cap <= 0) return 0;
 
     if (remote_call_uses_vphone_bridge()) {
         const char *name = sbw_class_name_from_ptr(klass);
@@ -370,10 +411,113 @@ int sb_collect_views(uint64_t root, uint64_t klass, uint64_t *out, int cap)
     return found;
 }
 
+static bool sbw_ptr_seen(uint64_t value, const uint64_t *items, int count)
+{
+    for (int i = 0; i < count; i++) if (items[i] == value) return true;
+    return false;
+}
+
+static uint64_t sbw_indexable_collection(uint64_t collection)
+{
+    if (!r_is_objc_ptr(collection)) return 0;
+    if (r_responds_main(collection, "objectAtIndex:")) return collection;
+    const char *normalizers[] = { "allObjects", "allValues", NULL };
+    for (int i = 0; normalizers[i]; i++) {
+        uint64_t normalized = sw_safe_msg(collection, normalizers[i], 0, 0, 0, 0);
+        if (r_is_objc_ptr(normalized) && r_responds_main(normalized, "objectAtIndex:"))
+            return normalized;
+    }
+    return 0;
+}
+
+int sb_collect_icon_views_from_list(uint64_t listView, uint64_t *out, int cap)
+{
+    if (!r_is_objc_ptr(listView) || !out || cap <= 0) return 0;
+    uint64_t iconViewClass = r_class("SBIconView");
+    if (!r_is_objc_ptr(iconViewClass)) return 0;
+    int found = 0;
+
+    const char *viewCollections[] = {
+        "visibleIconViews", "displayedIconViews", "orderedIconViews",
+        "allIconViews", "iconViews", "_visibleIconViews", "_iconViews", NULL
+    };
+    for (int s = 0; viewCollections[s] && found < cap; s++) {
+        if (!r_responds_main(listView, viewCollections[s])) continue;
+        uint64_t collection = sbw_indexable_collection(
+            r_msg2_main(listView, viewCollections[s], 0, 0, 0, 0));
+        uint64_t count = r_is_objc_ptr(collection)
+            ? r_msg2_main(collection, "count", 0, 0, 0, 0) : 0;
+        if (count > 256) count = 256;
+        for (uint64_t i = 0; i < count && found < cap; i++) {
+            uint64_t view = r_msg2_main(collection, "objectAtIndex:", i, 0, 0, 0);
+            bool typed = r_is_objc_ptr(view) &&
+                         r_msg2_main(view, "isKindOfClass:", iconViewClass, 0, 0, 0);
+            if (typed && !sbw_ptr_seen(view, out, found)) out[found++] = view;
+        }
+    }
+
+    const char *iconCollections[] = { "visibleIcons", "icons", NULL };
+    const char *viewSelectors[] = {
+        "displayedIconViewForIcon:", "iconViewForIcon:",
+        "_iconViewForIcon:", "viewForIcon:", NULL
+    };
+    for (int a = 0; iconCollections[a] && found < cap; a++) {
+        if (!r_responds_main(listView, iconCollections[a])) continue;
+        uint64_t icons = sbw_indexable_collection(
+            r_msg2_main(listView, iconCollections[a], 0, 0, 0, 0));
+        uint64_t count = r_is_objc_ptr(icons)
+            ? r_msg2_main(icons, "count", 0, 0, 0, 0) : 0;
+        if (count > 256) count = 256;
+        for (int s = 0; viewSelectors[s] && found < cap; s++) {
+            if (!r_responds_main(listView, viewSelectors[s])) continue;
+            for (uint64_t i = 0; i < count && found < cap; i++) {
+                uint64_t icon = r_msg2_main(icons, "objectAtIndex:", i, 0, 0, 0);
+                uint64_t view = r_is_objc_ptr(icon)
+                    ? r_msg2_main(listView, viewSelectors[s], icon, 0, 0, 0) : 0;
+                bool typed = r_is_objc_ptr(view) &&
+                             r_msg2_main(view, "isKindOfClass:", iconViewClass, 0, 0, 0);
+                if (typed && !sbw_ptr_seen(view, out, found)) out[found++] = view;
+            }
+        }
+    }
+
+    if (found == 0)
+        found = sb_collect_views(listView, iconViewClass, out, cap);
+    return found;
+}
+
+typedef struct { double x, y, width, height; } SBWRect;
+
+bool sb_view_is_visible_in_window(uint64_t view)
+{
+    if (!r_is_objc_ptr(view)) return false;
+    if (r_responds_main(view, "isHidden") &&
+        r_msg2_main(view, "isHidden", 0, 0, 0, 0)) return false;
+    uint64_t window = sw_safe_msg(view, "window", 0, 0, 0, 0);
+    if (!r_is_objc_ptr(window)) return false;
+
+    SBWRect bounds = {0}, windowBounds = {0}, inWindow = {0};
+    if (!r_msg2_main_struct_ret(view, "bounds", &bounds, sizeof(bounds),
+                                NULL, 0, NULL, 0, NULL, 0, NULL, 0) ||
+        !r_msg2_main_struct_ret(window, "bounds", &windowBounds, sizeof(windowBounds),
+                                NULL, 0, NULL, 0, NULL, 0, NULL, 0)) return false;
+    uint64_t target = window;
+    if (!r_msg2_main_struct_ret(view, "convertRect:toView:", &inWindow, sizeof(inWindow),
+                                &bounds, sizeof(bounds), &target, sizeof(target),
+                                NULL, 0, NULL, 0)) return false;
+    if (bounds.width <= 1.0 || bounds.height <= 1.0 ||
+        windowBounds.width <= 1.0 || windowBounds.height <= 1.0) return false;
+    return inWindow.x + inWindow.width > windowBounds.x + 1.0 &&
+           inWindow.y + inWindow.height > windowBounds.y + 1.0 &&
+           inWindow.x < windowBounds.x + windowBounds.width - 1.0 &&
+           inWindow.y < windowBounds.y + windowBounds.height - 1.0;
+}
+
 static int sb_collect_views_via_bridge(const char *className, uint64_t *out, int cap)
 {
     int fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (fd < 0) return -1;
+    sbw_set_socket_deadline(fd);
 
     struct sockaddr_un sun = {0};
     sun.sun_family = AF_UNIX;
@@ -554,6 +698,16 @@ int sb_collect_control_center_windows(uint64_t *out, int cap)
     int windowCount = sb_collect_windows(windows, 64);
     int found = 0;
     for (int i = 0; i < windowCount && found < cap; i++) {
+        // Check cheap window state before touching its controller/view tree.
+        // Hidden CC windows are commonly mid-teardown.
+        uint64_t hidden = sw_safe_msg(windows[i], "isHidden", 0, 0, 0, 0);
+        if (hidden & 0xff) continue;
+        double alpha = 1.0;
+        if (r_responds_main(windows[i], "alpha") &&
+            !r_msg2_main_struct_ret(windows[i], "alpha", &alpha, sizeof(alpha),
+                                    NULL, 0, NULL, 0, NULL, 0, NULL, 0))
+            continue;
+        if (alpha <= 0.01) continue;
         if (sbw_window_hosts_control_center(windows[i])) out[found++] = windows[i];
     }
     static int lastFound = -1;
@@ -578,5 +732,8 @@ uint64_t sb_control_center_window(void)
         }
         if (!(hidden & 0xff) && alpha > 0.01) return windows[i];
     }
-    return count > 0 ? windows[count - 1] : 0;
+    // Never hand a tweak a hidden persistent CC window. SpringBoard keeps
+    // these objects around while dismissing/rebuilding Control Center; walking
+    // or styling them during teardown is a common respring trigger.
+    return 0;
 }

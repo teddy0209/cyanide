@@ -626,16 +626,30 @@ bool repotweaks_run_isolated_js(NSString *tweakID, NSString *tweakName, NSString
 
         JSContext *context = [[JSContext alloc] init];
         g_repo_contexts[safeID] = context;
+        __block BOOL scriptFaulted = NO;
 
         context.exceptionHandler = ^(JSContext *ctx, JSValue *exception) {
+            if (scriptFaulted) return;
+            scriptFaulted = YES;
             log_user("[RepoTweaks ERROR][%s] %s\n", safeName.UTF8String, [[exception toString] UTF8String]);
+            log_user("[RepoTweaks][SAFETY] %s timers stopped after the first unhandled exception. Fix or disable the package before running it again.\n",
+                     safeName.UTF8String);
+            for (id timerSource in tweakTimers.allValues) {
+                dispatch_source_cancel((dispatch_source_t)timerSource);
+            }
+            [tweakTimers removeAllObjects];
         };
 
         context[@"setInterval"] = ^JSValue*(JSValue *func, JSValue *delay) {
             if (!repotweaks_generation_is_active(runGeneration)) return [JSValue valueWithInt32:0 inContext:[JSContext currentContext]];
+            if (tweakTimers.count >= 32) {
+                log_user("[RepoTweaks][SAFETY] %s refused setInterval: 32 active timers is the limit.\n",
+                         safeName.UTF8String);
+                return [JSValue valueWithInt32:0 inContext:[JSContext currentContext]];
+            }
             int tId = ++g_repo_timer_id_counter;
             uint64_t ms = [delay toUInt32];
-            if (ms < 16) ms = 16;
+            if (ms < 50) ms = 50;
 
             dispatch_source_t timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, repotweaks_js_queue());
             dispatch_source_set_timer(timer, dispatch_time(DISPATCH_TIME_NOW, ms * NSEC_PER_MSEC),
@@ -661,8 +675,14 @@ bool repotweaks_run_isolated_js(NSString *tweakID, NSString *tweakName, NSString
 
         context[@"setTimeout"] = ^JSValue*(JSValue *func, JSValue *delay) {
             if (!repotweaks_generation_is_active(runGeneration)) return [JSValue valueWithInt32:0 inContext:[JSContext currentContext]];
+            if (tweakTimers.count >= 32) {
+                log_user("[RepoTweaks][SAFETY] %s refused setTimeout: 32 active timers is the limit.\n",
+                         safeName.UTF8String);
+                return [JSValue valueWithInt32:0 inContext:[JSContext currentContext]];
+            }
             int tId = ++g_repo_timer_id_counter;
             uint64_t ms = [delay toUInt32];
+            if (ms < 16) ms = 16;
 
             dispatch_source_t timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, repotweaks_js_queue());
             dispatch_source_set_timer(timer, dispatch_time(DISPATCH_TIME_NOW, ms * NSEC_PER_MSEC),

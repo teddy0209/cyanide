@@ -28,34 +28,27 @@ static bool securecc_is_locked(bool *locked)
 
 static void securecc_class_name(uint64_t obj, char *out, size_t outLen)
 {
-    if (!out || outLen == 0) return;
-    out[0] = '\0';
-    uint64_t cls = r_is_objc_ptr(obj) ? r_dlsym_call(R_TIMEOUT, "object_getClass", obj, 0, 0, 0, 0, 0, 0, 0) : 0;
-    uint64_t name = r_is_objc_ptr(cls) ? r_dlsym_call(R_TIMEOUT, "class_getName", cls, 0, 0, 0, 0, 0, 0, 0) : 0;
-    if (!name) return;
-    uint64_t copy = r_dlsym_call(R_TIMEOUT, "strdup", name, 0, 0, 0, 0, 0, 0, 0);
-    if (!copy) return;
-    remote_read(copy, out, outLen - 1);
-    out[outLen - 1] = '\0';
-    r_free(copy);
+    (void)sb_read_class_name(obj, out, outLen);
 }
 
-static void securecc_lock_controls(uint64_t view, int depth, int *hits)
+static void securecc_lock_controls(uint64_t view, int depth, int *visited, int *hits)
 {
-    if (!r_is_objc_ptr(view) || depth > 14) return;
+    if (!r_is_objc_ptr(view) || depth > 10 || !visited || *visited >= 320 ||
+        (hits && *hits >= 64)) return;
+    (*visited)++;
     char cls[160] = {0};
     securecc_class_name(view, cls, sizeof(cls));
     bool ccControl = (strstr(cls, "CCUI") || strstr(cls, "ControlCenter")) &&
                      (strstr(cls, "Button") || strstr(cls, "Module") || strstr(cls, "Control"));
     if (ccControl && r_responds_main(view, "setUserInteractionEnabled:")) {
-        if (sb_cc_override_bool("securecc", view, "userInteractionEnabled",
+        if (sb_cc_override_bool("securecc", view, "isUserInteractionEnabled",
                                 "setUserInteractionEnabled:", false) && hits) (*hits)++;
     }
     uint64_t subviews = r_msg2_main(view, "subviews", 0, 0, 0, 0);
     uint64_t count = r_is_objc_ptr(subviews) ? r_msg2_main(subviews, "count", 0, 0, 0, 0) : 0;
     if (count > 160) count = 160;
     for (uint64_t i = 0; i < count; i++)
-        securecc_lock_controls(r_msg2_main(subviews, "objectAtIndex:", i, 0, 0, 0), depth + 1, hits);
+        securecc_lock_controls(r_msg2_main(subviews, "objectAtIndex:", i, 0, 0, 0), depth + 1, visited, hits);
 }
 
 static uint64_t securecc_color(double red, double green, double blue, double alpha)
@@ -80,8 +73,8 @@ bool securecc_apply_in_session(void)
     bool locked = false;
     if (!securecc_is_locked(&locked)) return false;
     uint64_t win = sb_control_center_window();
-    int controls = 0;
-    if (locked && r_is_objc_ptr(win)) securecc_lock_controls(win, 0, &controls);
+    int visited = 0, controls = 0;
+    if (locked && r_is_objc_ptr(win)) securecc_lock_controls(win, 0, &visited, &controls);
     if (!locked) sb_cc_restore_owner("securecc");
     if (!locked || !gSecureCCShowIndicator) {
         if (r_is_objc_ptr(gSecureCCBanner)) {
@@ -129,8 +122,8 @@ bool securecc_apply_in_session(void)
     }
     r_msg2_main(win, "addSubview:", label, 0, 0, 0);
     gSecureCCBanner = label;
-    log_user("[SECURECC][APPLY] locked=1 controlsProtected=%d indicator=1 policy=block-while-locked.\n",
-             controls);
+    log_user("[SECURECC][APPLY] locked=1 visited=%d controlsProtected=%d indicator=1 policy=block-while-locked.\n",
+             visited, controls);
     return true;
 }
 

@@ -13,6 +13,7 @@ static int gBlurryBadgesBlue = 255;
 static int gBlurryBadgesAlphaPercent = 92;
 static bool gBlurryBadgesGrowEnabled = true;
 static int gBlurryBadgesMaxScalePercent = 160;
+static bool gBlurryBadgesConfigDirty = false;
 typedef struct { double a, b, c, d, tx, ty; } BlurryBadgesAffine;
 
 static uint64_t blurrybadges_color(double red, double green, double blue, double alpha)
@@ -49,18 +50,7 @@ static uint64_t blurrybadges_key_window(void)
 
 static void blurrybadges_class_name(uint64_t obj, char *out, size_t outLen)
 {
-    if (!out || outLen == 0) return;
-    out[0] = '\0';
-    if (!r_is_objc_ptr(obj)) return;
-    uint64_t cls = r_dlsym_call(R_TIMEOUT, "object_getClass", obj, 0, 0, 0, 0, 0, 0, 0);
-    if (!r_is_objc_ptr(cls)) return;
-    uint64_t name = r_dlsym_call(R_TIMEOUT, "class_getName", cls, 0, 0, 0, 0, 0, 0, 0);
-    if (!name) return;
-    uint64_t buf = r_dlsym_call(R_TIMEOUT, "strdup", name, 0, 0, 0, 0, 0, 0, 0);
-    if (!buf) return;
-    remote_read(buf, out, outLen - 1);
-    out[outLen - 1] = '\0';
-    r_free(buf);
+    (void)sb_read_class_name(obj, out, outLen);
 }
 
 static int blurrybadges_count(uint64_t badge)
@@ -77,9 +67,12 @@ static int blurrybadges_count(uint64_t badge)
     return 1;
 }
 
-static void blurrybadges_scan_and_tint(uint64_t parent, uint64_t color, bool restore, int depth, int *hits, int *grown)
+static void blurrybadges_scan_and_tint(uint64_t parent, uint64_t color, bool restore,
+                                       int depth, int *visited, int *hits, int *grown)
 {
-    if (!r_is_objc_ptr(parent) || !r_is_objc_ptr(color) || depth > 12) return;
+    if (!r_is_objc_ptr(parent) || !r_is_objc_ptr(color) || depth > 10 ||
+        !visited || *visited >= 640 || (hits && *hits >= 128)) return;
+    (*visited)++;
 
     char cls[128] = {0};
     blurrybadges_class_name(parent, cls, sizeof(cls));
@@ -87,7 +80,7 @@ static void blurrybadges_scan_and_tint(uint64_t parent, uint64_t color, bool res
         sb_cc_override_object("blurrybadges", parent, "tintColor", "setTintColor:", color);
         if (r_responds_main(parent, "setTextColor:")) sb_cc_override_object("blurrybadges", parent, "textColor", "setTextColor:", color);
         if (r_responds_main(parent, "setBackgroundColor:")) sb_cc_override_object("blurrybadges", parent, "backgroundColor", "setBackgroundColor:", color);
-        if (r_responds_main(parent, "setTransform:")) {
+        if (gBlurryBadgesGrowEnabled && r_responds_main(parent, "setTransform:")) {
             int count = restore ? 1 : blurrybadges_count(parent);
             if (count > 99) count = 99;
             double scale = (!restore && gBlurryBadgesGrowEnabled)
@@ -106,22 +99,27 @@ static void blurrybadges_scan_and_tint(uint64_t parent, uint64_t color, bool res
     if (count > 128) count = 128;
     for (uint64_t i = 0; i < count; i++) {
         uint64_t sv = r_msg2_main(subviews, "objectAtIndex:", i, 0, 0, 0);
-        blurrybadges_scan_and_tint(sv, color, restore, depth + 1, hits, grown);
+        blurrybadges_scan_and_tint(sv, color, restore, depth + 1, visited, hits, grown);
     }
 }
 
 bool blurrybadges_apply_in_session(void)
 {
     printf("[BLURRYBADGES] apply\n");
+    if (gBlurryBadgesConfigDirty) {
+        int restored = sb_cc_restore_owner("blurrybadges");
+        log_user("[BLURRYBADGES][RECONFIGURE] exactPriorProperties=%d.\n", restored);
+        gBlurryBadgesConfigDirty = false;
+    }
     gBlurryBadgesTint = blurrybadges_color((double)gBlurryBadgesRed / 255.0,
                                            (double)gBlurryBadgesGreen / 255.0,
                                            (double)gBlurryBadgesBlue / 255.0,
                                            (double)gBlurryBadgesAlphaPercent / 100.0);
     uint64_t windows[64] = {0};
-    int windowCount = sb_collect_windows(windows, 64), hits = 0, grown = 0;
+    int windowCount = sb_collect_windows(windows, 64), visited = 0, hits = 0, grown = 0;
     for (int i = 0; i < windowCount; i++)
-        blurrybadges_scan_and_tint(windows[i], gBlurryBadgesTint, false, 0, &hits, &grown);
-    printf("[BLURRYBADGES] tinted=%d grown=%d maxScale=%d%% windows=%d\n", hits, grown, gBlurryBadgesMaxScalePercent, windowCount);
+        blurrybadges_scan_and_tint(windows[i], gBlurryBadgesTint, false, 0, &visited, &hits, &grown);
+    printf("[BLURRYBADGES] visited=%d tinted=%d grown=%d maxScale=%d%% windows=%d\n", visited, hits, grown, gBlurryBadgesMaxScalePercent, windowCount);
     return hits > 0;
 }
 
@@ -140,14 +138,19 @@ void blurrybadges_configure(int red, int green, int blue, int alphaPercent,
     if (green < 0) green = 0; if (green > 255) green = 255;
     if (blue < 0) blue = 0; if (blue > 255) blue = 255;
     if (alphaPercent < 10) alphaPercent = 10; if (alphaPercent > 100) alphaPercent = 100;
+    if (maxScalePercent < 100) maxScalePercent = 100;
+    if (maxScalePercent > 220) maxScalePercent = 220;
+    if (gBlurryBadgesRed != red || gBlurryBadgesGreen != green ||
+        gBlurryBadgesBlue != blue || gBlurryBadgesAlphaPercent != alphaPercent ||
+        gBlurryBadgesGrowEnabled != growEnabled ||
+        gBlurryBadgesMaxScalePercent != maxScalePercent)
+        gBlurryBadgesConfigDirty = true;
     gBlurryBadgesRed = red;
     gBlurryBadgesGreen = green;
     gBlurryBadgesBlue = blue;
     gBlurryBadgesAlphaPercent = alphaPercent;
-    if (maxScalePercent < 100) maxScalePercent = 100;
-    if (maxScalePercent > 220) maxScalePercent = 220;
     gBlurryBadgesGrowEnabled = growEnabled;
     gBlurryBadgesMaxScalePercent = maxScalePercent;
 }
 
-void blurrybadges_forget_remote_state(void) { gBlurryBadgesTint = 0; sb_cc_forget_owner("blurrybadges"); }
+void blurrybadges_forget_remote_state(void) { gBlurryBadgesTint = 0; gBlurryBadgesConfigDirty = false; sb_cc_forget_owner("blurrybadges"); }

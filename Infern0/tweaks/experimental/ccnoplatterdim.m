@@ -19,22 +19,14 @@ static uint64_t ccnoplatterdim_key_window(void)
 
 static void ccnoplatterdim_class_name(uint64_t obj, char *out, size_t outLen)
 {
-    if (!out || outLen == 0) return;
-    out[0] = '\0';
-    if (!r_is_objc_ptr(obj)) return;
-    uint64_t cls = r_dlsym_call(R_TIMEOUT, "object_getClass", obj, 0, 0, 0, 0, 0, 0, 0);
-    uint64_t name = r_is_objc_ptr(cls) ? r_dlsym_call(R_TIMEOUT, "class_getName", cls, 0, 0, 0, 0, 0, 0, 0) : 0;
-    if (!name) return;
-    uint64_t buf = r_dlsym_call(R_TIMEOUT, "strdup", name, 0, 0, 0, 0, 0, 0, 0);
-    if (!buf) return;
-    remote_read(buf, out, outLen - 1);
-    out[outLen - 1] = '\0';
-    r_free(buf);
+    (void)sb_read_class_name(obj, out, outLen);
 }
 
-static void ccnoplatterdim_scan(uint64_t parent, double alpha, int depth, int *hits)
+static void ccnoplatterdim_scan(uint64_t parent, double alpha, int depth, int *visited, int *hits)
 {
-    if (!r_is_objc_ptr(parent) || depth > 12) return;
+    if (!r_is_objc_ptr(parent) || depth > 10 || !visited || *visited >= 320 ||
+        (hits && *hits >= 32)) return;
+    (*visited)++;
     char cls[160] = {0};
     ccnoplatterdim_class_name(parent, cls, sizeof(cls));
     bool dimTarget = strstr(cls, "Dimming") || strstr(cls, "PlatterOverlay") ||
@@ -47,7 +39,7 @@ static void ccnoplatterdim_scan(uint64_t parent, double alpha, int depth, int *h
     if (!r_is_objc_ptr(subviews)) return;
     uint64_t count = r_msg2_main(subviews, "count", 0, 0, 0, 0);
     if (count > 80) count = 80;
-    for (uint64_t i = 0; i < count; i++) ccnoplatterdim_scan(r_msg2_main(subviews, "objectAtIndex:", i, 0, 0, 0), alpha, depth + 1, hits);
+    for (uint64_t i = 0; i < count; i++) ccnoplatterdim_scan(r_msg2_main(subviews, "objectAtIndex:", i, 0, 0, 0), alpha, depth + 1, visited, hits);
 }
 
 bool ccnoplatterdim_apply_in_session(void)
@@ -55,8 +47,13 @@ bool ccnoplatterdim_apply_in_session(void)
     printf("[CCNOPLATTERDIM] apply\n");
     uint64_t win = sb_control_center_window();
     if (!r_is_objc_ptr(win)) return false;
-    int hits = 0;
-    ccnoplatterdim_scan(win, (double)gCCNoPlatterDimVisibleAlphaPercent / 100.0, 0, &hits);
+    int visited = 0, hits = 0;
+    // The target is the dimming overlay, so "expanded brightness" is the
+    // inverse of its alpha. The previous direct mapping made 96% brightness
+    // produce a 96%-opaque dim layer—the exact opposite of the setting.
+    double dimAlpha = 1.0 - (double)gCCNoPlatterDimVisibleAlphaPercent / 100.0;
+    ccnoplatterdim_scan(win, dimAlpha, 0, &visited, &hits);
+    printf("[CCNOPLATTERDIM] visited=%d hits=%d\n", visited, hits);
     gCCNoPlatterDimApplied = hits > 0;
     return gCCNoPlatterDimApplied;
 }

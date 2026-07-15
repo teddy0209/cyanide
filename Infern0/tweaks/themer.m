@@ -279,17 +279,7 @@ static void themer_reset_icon_bundle_cache(void)
 // Read a remote ObjC object's class name into a local C buffer.
 static void themer_read_class_name(uint64_t obj, char *out, size_t outLen)
 {
-    if (!out || outLen == 0) return;
-    out[0] = '\0';
-    if (!r_is_objc_ptr(obj)) return;
-    uint64_t cls = r_dlsym_call(R_TIMEOUT, "object_getClass", obj, 0, 0, 0, 0, 0, 0, 0);
-    if (!r_is_objc_ptr(cls)) return;
-    uint64_t name = r_dlsym_call(R_TIMEOUT, "class_getName", cls, 0, 0, 0, 0, 0, 0, 0);
-    if (!name) return;
-    uint64_t heap = r_dlsym_call(R_TIMEOUT, "strdup", name, 0, 0, 0, 0, 0, 0, 0);
-    if (!heap) return;
-    if (remote_read(heap, out, outLen - 1)) out[outLen - 1] = '\0';
-    r_free(heap);
+    (void)sb_read_class_name(obj, out, outLen);
 }
 
 static void themer_read_class_object_name(uint64_t cls, char *out, size_t outLen)
@@ -300,11 +290,7 @@ static void themer_read_class_object_name(uint64_t cls, char *out, size_t outLen
     uint64_t name = r_dlsym_call(R_TIMEOUT, "class_getName",
                                  cls, 0, 0, 0, 0, 0, 0, 0);
     if (!name) return;
-    uint64_t heap = r_dlsym_call(R_TIMEOUT, "strdup",
-                                 name, 0, 0, 0, 0, 0, 0, 0);
-    if (!heap) return;
-    if (remote_read(heap, out, outLen - 1)) out[outLen - 1] = '\0';
-    r_free(heap);
+    if (remote_read(name, out, outLen - 1)) out[outLen - 1] = '\0';
 }
 
 static uint64_t themer_lookup_class(const char *name)

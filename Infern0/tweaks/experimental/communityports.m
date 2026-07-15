@@ -24,6 +24,7 @@ static int gFlowCount = 0, gLastLookCount = 0;
 static int gFlowLastReported = -1, gLastLookLastReported = -1;
 static uint64_t gChargeLastState = UINT64_MAX;
 static char gProfileLastBundle[192] = {0};
+static int gProfileLastBrightness = -1;
 static int gDockVisibleIcons = 5, gBarThickness = 5, gProfileBrightness = 82;
 static int gChargeThickness = 5, gHUDYOffset = 58, gLastLookAlpha = 92;
 
@@ -85,18 +86,7 @@ static void cp_round_owned(const char *owner, uint64_t view, double radius, doub
 
 static bool cp_class_name(uint64_t obj, char *out, size_t outLen)
 {
-    if (!r_is_objc_ptr(obj) || !out || outLen < 2) return false;
-    out[0] = '\0';
-    uint64_t cls = r_dlsym_call(R_TIMEOUT, "object_getClass", obj, 0, 0, 0, 0, 0, 0, 0);
-    uint64_t name = r_is_objc_ptr(cls) ? r_dlsym_call(R_TIMEOUT, "class_getName", cls, 0, 0, 0, 0, 0, 0, 0) : 0;
-    uint64_t len = name ? r_dlsym_call(R_TIMEOUT, "strlen", name, 0, 0, 0, 0, 0, 0, 0) : 0;
-    if (!len) return false;
-    if (len >= outLen) len = outLen - 1;
-    uint64_t copy = r_dlsym_call(R_TIMEOUT, "strdup", name, 0, 0, 0, 0, 0, 0, 0);
-    bool ok = copy && remote_read(copy, out, len);
-    if (copy) r_free(copy);
-    out[len] = '\0';
-    return ok;
+    return sb_read_class_name(obj, out, outLen);
 }
 
 static bool cp_has_ancestor(uint64_t view, const char *needle)
@@ -216,7 +206,7 @@ static bool cp_apply_scrolling_dock(void)
         CPRect f = { step * i + (step - side) * 0.5, (parentBounds.height - side) * 0.5, side, side };
         cp_set_rect(gDockIcons[i], f);
         sb_cc_override_bool("community.scrollingdock", gDockIcons[i],
-                            "userInteractionEnabled", "setUserInteractionEnabled:", true);
+                            "isUserInteractionEnabled", "setUserInteractionEnabled:", true);
     }
     CPSize content = { step * gDockIconCount, parentBounds.height };
     r_msg2_main_raw(scroll, "setContentSize:", &content, sizeof(content), NULL, 0, NULL, 0, NULL, 0);
@@ -295,10 +285,17 @@ static bool cp_apply_app_profiles(void)
     uint64_t app = r_is_objc_ptr(controller) && r_responds_main(controller, "frontmostApplication") ? r_msg2_main(controller, "frontmostApplication", 0, 0, 0, 0) : 0;
     uint64_t bid = r_is_objc_ptr(app) && r_responds_main(app, "bundleIdentifier") ? r_msg2_main(app, "bundleIdentifier", 0, 0, 0, 0) : 0;
     char bundle[192] = "SpringBoard";
-    if (r_is_objc_ptr(bid)) { uint64_t c = r_msg2_main(bid, "UTF8String", 0, 0, 0, 0); uint64_t len = c ? r_dlsym_call(R_TIMEOUT, "strlen", c,0,0,0,0,0,0,0) : 0; if (len) { if (len > 191) len=191; uint64_t copy=r_dlsym_call(R_TIMEOUT,"strdup",c,0,0,0,0,0,0,0); if(copy){remote_read(copy,bundle,len);r_free(copy);bundle[len]='\0';}} }
+    if (r_is_objc_ptr(bid)) {
+        uint64_t c = r_msg2_main(bid, "UTF8String", 0, 0, 0, 0);
+        uint64_t len = c ? r_dlsym_call(R_TIMEOUT, "strlen", c, 0, 0, 0, 0, 0, 0, 0) : 0;
+        if (len) {
+            if (len > sizeof(bundle) - 1) len = sizeof(bundle) - 1;
+            if (remote_read(c, bundle, len)) bundle[len] = '\0';
+        }
+    }
     int pct = gProfileBrightness;
     if (strstr(bundle, "camera")) pct = 100; else if (strstr(bundle, "Maps") || strstr(bundle, "maps")) pct = 92;
-    if (strcmp(bundle, gProfileLastBundle) == 0) return true;
+    if (strcmp(bundle, gProfileLastBundle) == 0 && pct == gProfileLastBrightness) return true;
     uint64_t screenClass = r_class("UIScreen"), screen = r_is_objc_ptr(screenClass) ? r_msg2_main(screenClass, "mainScreen",0,0,0,0) : 0;
     double brightness = (double)pct / 100.0;
     if (r_is_objc_ptr(screen))
@@ -306,6 +303,7 @@ static bool cp_apply_app_profiles(void)
                              &brightness, sizeof(brightness));
     log_user("[APPPROFILES][APPLY] foreground=%s profileBrightness=%d%% rule=%s.\n", bundle, pct, pct==100?"camera":(pct==92?"maps":"default"));
     strncpy(gProfileLastBundle, bundle, sizeof(gProfileLastBundle)-1);
+    gProfileLastBrightness = pct;
     return r_is_objc_ptr(screen);
 }
 
@@ -313,7 +311,8 @@ static bool cp_apply_chargefx(void)
 {
     uint64_t deviceClass=r_class("UIDevice"), device=r_is_objc_ptr(deviceClass)?r_msg2_main(deviceClass,"currentDevice",0,0,0,0):0;
     if (!r_is_objc_ptr(device)) return false;
-    r_msg2_main(device,"setBatteryMonitoringEnabled:",1,0,0,0);
+    sb_cc_override_bool("community.chargefx", device,
+                        "isBatteryMonitoringEnabled", "setBatteryMonitoringEnabled:", true);
     uint64_t state=r_msg2_main(device,"batteryState",0,0,0,0);
     if (state == gChargeLastState && r_is_objc_ptr(gCPViews[CommunityPortChargeFX])) return true;
     if (r_is_objc_ptr(gCPViews[CommunityPortChargeFX])) {
@@ -343,7 +342,10 @@ static bool cp_apply_keepeye(void)
 {
     uint64_t win=cp_window(); CPRect b={0}; if(!cp_rect(win,"bounds",&b)) return false;
     uint64_t deviceClass=r_class("UIDevice"), device=r_is_objc_ptr(deviceClass)?r_msg2_main(deviceClass,"currentDevice",0,0,0,0):0;
-    r_msg2_main(device,"setBatteryMonitoringEnabled:",1,0,0,0);
+    // KeepEye only reads battery state; restore the monitoring flag exactly
+    // when this port stops instead of leaving a hidden global side effect.
+    sb_cc_override_bool("community.keepeye", device,
+                        "isBatteryMonitoringEnabled", "setBatteryMonitoringEnabled:", true);
     uint64_t batteryState=r_msg2_main(device,"batteryState",0,0,0,0);
     uint64_t processClass=r_class("NSProcessInfo"), process=r_is_objc_ptr(processClass)?r_msg2_main(processClass,"processInfo",0,0,0,0):0;
     uint64_t cores=r_is_objc_ptr(process)?r_msg2_main(process,"activeProcessorCount",0,0,0,0):0;
@@ -356,10 +358,36 @@ static bool cp_apply_keepeye(void)
 
 static bool cp_apply_lastlook(void)
 {
-    uint64_t viewClass=r_class("UIView"), views[1024]={0}; int count=r_is_objc_ptr(viewClass)?sb_collect_views_in_windows(viewClass,views,1024):0;
-    gLastLookCount=0; double alpha=(double)gLastLookAlpha/100.0; CPTransform t={0.96,0,0,0.96,0,0};
-    for(int i=0;i<count&&gLastLookCount<256;i++){char name[160]={0};if(!cp_class_name(views[i],name,sizeof(name)))continue;if(!strstr(name,"Notification")&&!strstr(name,"ShortLook")&&!strstr(name,"Platter"))continue;gLastLookViews[gLastLookCount++]=views[i];sb_cc_override_bytes("community.lastlook",views[i],"alpha","setAlpha:",&alpha,sizeof(alpha));if(r_responds_main(views[i],"setTransform:"))sb_cc_override_bytes("community.lastlook",views[i],"transform","setTransform:",&t,sizeof(t));cp_round_owned("community.lastlook",views[i],18,1);}
-    if(gLastLookLastReported!=gLastLookCount){log_user("[LASTLOOK][APPLY] scanned=%d notificationViews=%d opacity=%d%% compactScale=96%% oledStyle=1.\n",count,gLastLookCount,gLastLookAlpha);gLastLookLastReported=gLastLookCount;}return gLastLookCount>0;
+    uint64_t viewClass = r_class("UIView"), views[768] = {0};
+    int count = r_is_objc_ptr(viewClass)
+        ? sb_collect_views_in_windows(viewClass, views, 768) : 0;
+    gLastLookCount = 0;
+    double alpha = (double)gLastLookAlpha / 100.0;
+    CPTransform transform = {0.96, 0, 0, 0.96, 0, 0};
+    for (int i = 0; i < count && gLastLookCount < 128; i++) {
+        char name[160] = {0};
+        if (!cp_class_name(views[i], name, sizeof(name))) continue;
+        bool notification = strstr(name, "Notification") || strstr(name, "ShortLook");
+        bool notificationPlatter = strstr(name, "Platter") &&
+                                   cp_has_ancestor(views[i], "Notification");
+        if ((!notification && !notificationPlatter) ||
+            !sb_view_is_visible_in_window(views[i])) continue;
+        bool changed = sb_cc_override_bytes("community.lastlook", views[i],
+                                            "alpha", "setAlpha:",
+                                            &alpha, sizeof(alpha));
+        if (r_responds_main(views[i], "setTransform:"))
+            changed = sb_cc_override_bytes("community.lastlook", views[i],
+                                           "transform", "setTransform:",
+                                           &transform, sizeof(transform)) || changed;
+        cp_round_owned("community.lastlook", views[i], 18, 1);
+        if (changed) gLastLookViews[gLastLookCount++] = views[i];
+    }
+    if (gLastLookLastReported != gLastLookCount) {
+        log_user("[LASTLOOK][APPLY] scanned=%d visibleNotificationViews=%d opacity=%d%% compactScale=96%% unrelatedPlattersSkipped=1.\n",
+                 count, gLastLookCount, gLastLookAlpha);
+        gLastLookLastReported = gLastLookCount;
+    }
+    return gLastLookCount > 0;
 }
 
 void communityports_configure(int dockVisibleIcons, int barThickness, int profileBrightnessPercent, int chargeThickness, int hudYOffset, int lastLookAlphaPercent)
@@ -414,6 +442,14 @@ bool communityports_stop(CommunityPort port)
     if (port == CommunityPortAppProfiles) {
         restored += sb_cc_restore_owner("community.appprofiles");
         memset(gProfileLastBundle, 0, sizeof(gProfileLastBundle));
+        gProfileLastBrightness = -1;
+    }
+    if (port == CommunityPortChargeFX) {
+        restored += sb_cc_restore_owner("community.chargefx");
+        gChargeLastState = UINT64_MAX;
+    }
+    if (port == CommunityPortKeepEye) {
+        restored += sb_cc_restore_owner("community.keepeye");
     }
     if (port == CommunityPortLastLook) {
         restored += sb_cc_restore_owner("community.lastlook");
@@ -431,4 +467,4 @@ bool communityports_stop(CommunityPort port)
 }
 
 bool communityports_stop_all(void){bool ok=true;for(int i=0;i<CommunityPortCount;i++)if(!communityports_stop((CommunityPort)i))ok=false;log_user("[COMMUNITYPORTS][STOP-ALL] ports=%d result=%s.\n",CommunityPortCount,ok?"success":"partial-failure");return ok;}
-void communityports_forget_remote_state(void){sb_cc_forget_owner("community.scrollingdock");sb_cc_forget_owner("community.flow");sb_cc_forget_owner("community.appprofiles");sb_cc_forget_owner("community.lastlook");memset(gCPViews,0,sizeof(gCPViews));memset(gDockIcons,0,sizeof(gDockIcons));memset(gDockParents,0,sizeof(gDockParents));memset(gDockFrames,0,sizeof(gDockFrames));memset(gDockIndices,0,sizeof(gDockIndices));memset(gFlowViews,0,sizeof(gFlowViews));memset(gLastLookViews,0,sizeof(gLastLookViews));memset(gProfileLastBundle,0,sizeof(gProfileLastBundle));gDockIconCount=gFlowCount=gLastLookCount=0;gFlowLastReported=gLastLookLastReported=-1;gChargeLastState=UINT64_MAX;}
+void communityports_forget_remote_state(void){sb_cc_forget_owner("community.scrollingdock");sb_cc_forget_owner("community.flow");sb_cc_forget_owner("community.appprofiles");sb_cc_forget_owner("community.chargefx");sb_cc_forget_owner("community.keepeye");sb_cc_forget_owner("community.lastlook");memset(gCPViews,0,sizeof(gCPViews));memset(gDockIcons,0,sizeof(gDockIcons));memset(gDockParents,0,sizeof(gDockParents));memset(gDockFrames,0,sizeof(gDockFrames));memset(gDockIndices,0,sizeof(gDockIndices));memset(gFlowViews,0,sizeof(gFlowViews));memset(gLastLookViews,0,sizeof(gLastLookViews));memset(gProfileLastBundle,0,sizeof(gProfileLastBundle));gProfileLastBrightness=-1;gDockIconCount=gFlowCount=gLastLookCount=0;gFlowLastReported=gLastLookLastReported=-1;gChargeLastState=UINT64_MAX;}

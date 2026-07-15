@@ -19,9 +19,10 @@ static bool chs_set_alpha(uint64_t view, double alpha)
         sb_cc_override_bytes("cleanhomescreen", view, "alpha", "setAlpha:", &alpha, sizeof(alpha));
 }
 
-static void chs_scan_views(uint64_t parent, int depth)
+static void chs_scan_views(uint64_t parent, int depth, bool insideIcon, int *visited)
 {
-    if (!r_is_objc_ptr(parent) || depth > 12) return;
+    if (!r_is_objc_ptr(parent) || depth > 10 || !visited || *visited >= 768) return;
+    (*visited)++;
 
     uint64_t subviews = r_msg2_main(parent, "subviews", 0, 0, 0, 0);
     if (!r_is_objc_ptr(subviews)) return;
@@ -33,32 +34,24 @@ static void chs_scan_views(uint64_t parent, int depth)
         if (!r_is_objc_ptr(sv)) continue;
 
         char cls[128] = {0};
-        uint64_t rCls = r_dlsym_call(R_TIMEOUT, "object_getClass", sv, 0, 0, 0, 0, 0, 0, 0);
-        if (r_is_objc_ptr(rCls)) {
-            uint64_t name = r_dlsym_call(R_TIMEOUT, "class_getName", rCls, 0, 0, 0, 0, 0, 0, 0);
-            if (name) {
-                uint64_t buf = r_dlsym_call(R_TIMEOUT, "strdup", name, 0, 0, 0, 0, 0, 0, 0);
-                if (buf) {
-                    remote_read(buf, cls, sizeof(cls) - 1);
-                    r_free(buf);
-                }
-            }
-        }
+        (void)sb_read_class_name(sv, cls, sizeof(cls));
+        bool childInsideIcon = insideIcon || strstr(cls, "SBIconView") != NULL;
 
-        if (strstr(cls, "Badge") && !strstr(cls, "Label")) {
+        if (childInsideIcon && strstr(cls, "Badge") && !strstr(cls, "Label")) {
             if (gChsBadgeHidden && chs_set_alpha(sv, 0.0)) gChsChanged++;
         }
 
-        if (strstr(cls, "PageControl") || strstr(cls, "PageDot") ||
-            strstr(cls, "PageIndicator")) {
+        if (strstr(cls, "SBIconListPageControl") ||
+            strstr(cls, "SBRootFolderPageControl") ||
+            strstr(cls, "SBHPageControl")) {
             if (gChsDotHidden && sb_cc_override_bool("cleanhomescreen", sv, "isHidden", "setHidden:", true)) gChsChanged++;
         }
 
-        if (strstr(cls, "Label") || strstr(cls, "label")) {
+        if (childInsideIcon && (strstr(cls, "Label") || strstr(cls, "label"))) {
             if (gChsLabelHidden && chs_set_alpha(sv, 0.0)) gChsChanged++;
         }
 
-        chs_scan_views(sv, depth + 1);
+        chs_scan_views(sv, depth + 1, childInsideIcon, visited);
     }
 }
 
@@ -66,53 +59,44 @@ bool cleanhomescreen_apply_in_session(bool hideBadges, bool hidePageDots, bool h
 {
     printf("[CHS] apply badges=%d dots=%d labels=%d\n", hideBadges, hidePageDots, hideLabels);
 
+    bool configChanged = gChsApplied &&
+        (gChsBadgeHidden != hideBadges || gChsDotHidden != hidePageDots ||
+         gChsLabelHidden != hideLabels);
+    if (configChanged) sb_cc_restore_owner("cleanhomescreen");
     gChsBadgeHidden = hideBadges;
     gChsDotHidden = hidePageDots;
     gChsLabelHidden = hideLabels;
-    sb_cc_restore_owner("cleanhomescreen");
     gChsChanged = 0;
 
-    uint64_t UIApplication = r_class("UIApplication");
-    if (!r_is_objc_ptr(UIApplication)) return false;
-    uint64_t app = r_msg2_main(UIApplication, "sharedApplication", 0, 0, 0, 0);
-    if (!r_is_objc_ptr(app)) return false;
-
-    uint64_t windows = r_msg2_main(app, "windows", 0, 0, 0, 0);
-    if (!r_is_objc_ptr(windows)) return false;
-    uint64_t winCount = r_msg2_main(windows, "count", 0, 0, 0, 0);
-    if (winCount > 64) winCount = 64;
-
-    for (uint64_t i = 0; i < winCount; i++) {
-        uint64_t win = r_msg2_main(windows, "objectAtIndex:", i, 0, 0, 0);
-        if (!r_is_objc_ptr(win)) continue;
-        chs_scan_views(win, 0);
-
-        uint64_t root = r_msg2_main(win, "rootViewController", 0, 0, 0, 0);
-        if (!r_is_objc_ptr(root)) continue;
-        char cls[128] = {0};
-        uint64_t rCls = r_dlsym_call(R_TIMEOUT, "object_getClass", root, 0, 0, 0, 0, 0, 0, 0);
-        if (r_is_objc_ptr(rCls)) {
-            uint64_t name = r_dlsym_call(R_TIMEOUT, "class_getName", rCls, 0, 0, 0, 0, 0, 0, 0);
-            if (name) {
-                uint64_t buf = r_dlsym_call(R_TIMEOUT, "strdup", name, 0, 0, 0, 0, 0, 0, 0);
-                if (buf) {
-                    remote_read(buf, cls, sizeof(cls) - 1);
-                    r_free(buf);
-                }
-            }
-        }
-
-        if (strstr(cls, "SBIconController") || strstr(cls, "SBRootFolder") ||
-            strstr(cls, "SBIconListView") || strstr(cls, "SBFolderView") ||
-            strstr(cls, "SBHomeScreen")) {
-            uint64_t rootView = r_msg2_main(root, "view", 0, 0, 0, 0);
-            if (r_is_objc_ptr(rootView)) chs_scan_views(rootView, 0);
+    int visited = 0;
+    uint64_t listClass = r_class("SBIconListView");
+    uint64_t lists[64] = {0};
+    int listCount = r_is_objc_ptr(listClass)
+        ? sb_collect_views_in_windows(listClass, lists, 64) : 0;
+    for (int i = 0; i < listCount && visited < 768; i++) {
+        uint64_t icons[256] = {0};
+        int iconCount = sb_collect_icon_views_from_list(lists[i], icons, 256);
+        for (int j = 0; j < iconCount && visited < 768; j++)
+            chs_scan_views(icons[j], 0, true, &visited);
+    }
+    if (gChsDotHidden) {
+        const char *dotClasses[] = {
+            "SBIconListPageControl", "SBRootFolderPageControl", "SBHPageControl", NULL
+        };
+        for (int c = 0; dotClasses[c]; c++) {
+            uint64_t cls = r_class(dotClasses[c]);
+            if (!r_is_objc_ptr(cls)) continue;
+            uint64_t dots[16] = {0};
+            int dotCount = sb_collect_views_in_windows(cls, dots, 16);
+            for (int i = 0; i < dotCount; i++)
+                if (sb_cc_override_bool("cleanhomescreen", dots[i], "isHidden", "setHidden:", true))
+                    gChsChanged++;
         }
     }
 
     gChsApplied = gChsChanged > 0;
-    log_user("[CLEANHOMESCREEN][APPLY] exactOverrides=%d hideBadges=%d hideDots=%d hideLabels=%d result=%s.\n",
-             gChsChanged, hideBadges, hidePageDots, hideLabels,
+    log_user("[CLEANHOMESCREEN][APPLY] lists=%d visitedIconSubviews=%d exactOverrides=%d hideBadges=%d hideDots=%d hideLabels=%d result=%s.\n",
+             listCount, visited, gChsChanged, hideBadges, hidePageDots, hideLabels,
              gChsApplied ? "active" : "nothing-requested-or-found");
     return gChsApplied;
 }
@@ -122,6 +106,9 @@ bool cleanhomescreen_stop_in_session(void)
     printf("[CHS] stop\n");
     int restored = sb_cc_restore_owner("cleanhomescreen");
     gChsApplied = false;
+    gChsBadgeHidden = false;
+    gChsDotHidden = false;
+    gChsLabelHidden = false;
     log_user("[CLEANHOMESCREEN][RESTORE] exactProperties=%d.\n", restored);
     return restored > 0;
 }
@@ -130,5 +117,8 @@ void cleanhomescreen_forget_remote_state(void)
 {
     gChsApplied = false;
     gChsChanged = 0;
+    gChsBadgeHidden = false;
+    gChsDotHidden = false;
+    gChsLabelHidden = false;
     sb_cc_forget_owner("cleanhomescreen");
 }

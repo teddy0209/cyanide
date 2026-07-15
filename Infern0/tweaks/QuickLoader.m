@@ -484,9 +484,17 @@ bool quickloader_run_js_string(NSString *jsCode) {
 
         g_quickloader_context = [[JSContext alloc] init];
         JSContext *context = g_quickloader_context;
+        __block BOOL scriptFaulted = NO;
 
         context.exceptionHandler = ^(JSContext *ctx, JSValue *exception) {
+            if (scriptFaulted) return;
+            scriptFaulted = YES;
             log_user("[JS ERROR] %s\n", [[exception toString] UTF8String]);
+            log_user("[QuickLoader][SAFETY] Script timers stopped after the first unhandled exception. Fix the script and Run again.\n");
+            for (dispatch_source_t timer in timers.allValues) {
+                if (dispatch_testcancel(timer) == 0) dispatch_source_cancel(timer);
+            }
+            [timers removeAllObjects];
         };
 
         // Timers target the same serial queue as the JSContext. JavaScriptCore
@@ -494,9 +502,16 @@ bool quickloader_run_js_string(NSString *jsCode) {
         // RemoteCall state is single-session by design.
         context[@"setInterval"] = ^JSValue*(JSValue *func, JSValue *delay) {
             if (!quickloader_generation_is_active(runGeneration)) return [JSValue valueWithInt32:0 inContext:[JSContext currentContext]];
+            if (timers.count >= 32) {
+                log_user("[QuickLoader][SAFETY] Refused setInterval: 32 active timers is the limit.\n");
+                return [JSValue valueWithInt32:0 inContext:[JSContext currentContext]];
+            }
             int tId = ++g_quickloader_timer_id;
             uint64_t ms = [delay toUInt32];
-            if (ms < 16) ms = 16;
+            // Remote UIKit calls cannot safely sustain browser-style 60 Hz JS
+            // loops. A 50 ms floor prevents timer pile-ups and SpringBoard
+            // watchdog resprings while remaining responsive for overlays.
+            if (ms < 50) ms = 50;
 
             dispatch_source_t timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, quickloader_js_queue());
             dispatch_source_set_timer(timer, dispatch_time(DISPATCH_TIME_NOW, ms * NSEC_PER_MSEC), ms * NSEC_PER_MSEC, (ms / 10) * NSEC_PER_MSEC);
@@ -523,8 +538,13 @@ bool quickloader_run_js_string(NSString *jsCode) {
 
         context[@"setTimeout"] = ^JSValue*(JSValue *func, JSValue *delay) {
             if (!quickloader_generation_is_active(runGeneration)) return [JSValue valueWithInt32:0 inContext:[JSContext currentContext]];
+            if (timers.count >= 32) {
+                log_user("[QuickLoader][SAFETY] Refused setTimeout: 32 active timers is the limit.\n");
+                return [JSValue valueWithInt32:0 inContext:[JSContext currentContext]];
+            }
             int tId = ++g_quickloader_timer_id;
             uint64_t ms = [delay toUInt32];
+            if (ms < 16) ms = 16;
 
             dispatch_source_t timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, quickloader_js_queue());
             dispatch_source_set_timer(timer, dispatch_time(DISPATCH_TIME_NOW, ms * NSEC_PER_MSEC), DISPATCH_TIME_FOREVER, 0);

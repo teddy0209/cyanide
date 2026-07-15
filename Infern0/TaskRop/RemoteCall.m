@@ -1196,7 +1196,16 @@ bool remote_read_internal(uint64_t src, void *dst, uint64_t size)
 
         struct VMShmem *page = get_shmem_for_page(pageAddr);
         if (!page) {
-            printf("[%s:%d] remote_read failed: unable to find remote page\n", __FUNCTION__, __LINE__);
+            // A dead/stale target can make every view-tree probe land here.
+            // Printing every miss turns one transport failure into an endless
+            // log flood and makes the real first failure impossible to find.
+            static volatile uint64_t remoteReadFailureEvents = 0;
+            uint64_t events = __sync_add_and_fetch(&remoteReadFailureEvents, 1);
+            if (events == 1 || (events % 128) == 0) {
+                printf("[RemoteCall] remote_read unavailable page=0x%llx event=%llu (further failures rate-limited)\n",
+                       (unsigned long long)pageAddr,
+                       (unsigned long long)events);
+            }
             return false;
         }
         memcpy((void *)(uintptr_t)dstAddr, (void *)(uintptr_t)(page->localAddress + offs), (size_t)copyCount);
